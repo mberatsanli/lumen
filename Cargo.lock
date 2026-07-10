@@ -910,6 +910,7 @@ name = "lumen-desktop"
 version = "0.1.0"
 dependencies = [
  "lumen-browser",
+ "lumen-css",
  "lumen-engine",
  "lumen-platform",
  "softbuffer",

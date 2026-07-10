@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 lumen-browser = { path = "../../crates/lumen-browser" }
+lumen-css = { path = "../../crates/lumen-css" }
 lumen-engine = { path = "../../crates/lumen-engine" }
 lumen-platform = { path = "../../crates/lumen-platform" }
 softbuffer = "0.4"

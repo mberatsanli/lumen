@@ -10,10 +10,11 @@
 //! ```
 //!
 //! Keys: arrows / PageUp / PageDown / Home scroll, `r` refreshes,
-//! `[` / `]` go back / forward.
+//! `[` / `]` go back / forward, `l` (or clicking the bar) edits the URL,
+//! Enter navigates, Escape cancels editing.
 
 use lumen_browser::Session;
-use lumen_engine::{Size, SystemFont, rasterize_with};
+use lumen_engine::{DisplayCommand, Rect, Size, SystemFont, rasterize_over, rasterize_with};
 use lumen_engine::{TextMeasurer, TextMetrics, TextStyle};
 use lumen_platform::{DefaultLoader, url_from_user_input};
 use std::num::NonZeroU32;
@@ -26,6 +27,8 @@ use winit::window::CursorIcon;
 use winit::window::{Window, WindowId};
 
 const SCROLL_STEP: f32 = 48.0;
+/// Address-bar height in CSS pixels.
+const BAR_HEIGHT: f32 = 36.0;
 
 fn main() {
     let Some(input) = std::env::args().nth(1) else {
@@ -66,8 +69,10 @@ struct App {
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     scroll_y: f32,
-    /// Last cursor position in CSS pixels (page coordinates).
+    /// Last cursor position in CSS pixels (window coordinates, bar included).
     cursor: Option<(f32, f32)>,
+    /// The URL text being edited, when the address bar has focus.
+    url_input: Option<String>,
 }
 
 impl App {
@@ -94,6 +99,7 @@ impl App {
             surface: None,
             scroll_y: 0.0,
             cursor: None,
+            url_input: None,
         }
     }
 
@@ -103,7 +109,8 @@ impl App {
             .map_or(1.0, |window| window.scale_factor() as f32)
     }
 
-    /// Viewport in CSS pixels: physical size divided by the HiDPI scale.
+    /// Page viewport in CSS pixels: physical size divided by the HiDPI
+    /// scale, minus the address bar.
     fn viewport(&self) -> Size {
         self.window.as_ref().map_or(
             Size {
@@ -115,10 +122,93 @@ impl App {
                 let scale = window.scale_factor() as f32;
                 Size {
                     width: size.width.max(1) as f32 / scale,
-                    height: size.height.max(1) as f32 / scale,
+                    height: (size.height.max(1) as f32 / scale - BAR_HEIGHT).max(1.0),
                 }
             },
         )
+    }
+
+    /// Cursor position translated into page coordinates, when it is over
+    /// the page area (below the address bar).
+    fn page_cursor(&self) -> Option<(f32, f32)> {
+        let (x, y) = self.cursor?;
+        (y >= BAR_HEIGHT).then_some((x, y - BAR_HEIGHT + self.scroll_y))
+    }
+
+    /// Paint commands for the browser chrome (address bar, nav buttons).
+    fn chrome_commands(&self) -> Vec<DisplayCommand> {
+        use lumen_css::Color;
+        let width = self.viewport().width;
+        let bar = |x: f32, y: f32, w: f32, h: f32| Rect {
+            x,
+            y,
+            width: w,
+            height: h,
+        };
+        let enabled = Color::rgb(0x30, 0x30, 0x30);
+        let disabled = Color::rgb(0xb4, 0xb4, 0xb4);
+        let mut commands = vec![
+            DisplayCommand::FillRect {
+                rect: bar(0.0, 0.0, width, BAR_HEIGHT),
+                color: Color::rgb(0xf1, 0xef, 0xf3),
+            },
+            DisplayCommand::FillRect {
+                rect: bar(0.0, BAR_HEIGHT - 1.0, width, 1.0),
+                color: Color::rgb(0xd2, 0xce, 0xd8),
+            },
+            DisplayCommand::DrawText {
+                x: 12.0,
+                y: 25.0,
+                text: "<".to_string(),
+                color: if self.session.can_go_back() {
+                    enabled
+                } else {
+                    disabled
+                },
+                font_size: 18.0,
+                font_weight: 700,
+                underline: false,
+                italic: false,
+            },
+            DisplayCommand::DrawText {
+                x: 36.0,
+                y: 25.0,
+                text: ">".to_string(),
+                color: if self.session.can_go_forward() {
+                    enabled
+                } else {
+                    disabled
+                },
+                font_size: 18.0,
+                font_weight: 700,
+                underline: false,
+                italic: false,
+            },
+            DisplayCommand::FillRect {
+                rect: bar(60.0, 6.0, (width - 68.0).max(40.0), BAR_HEIGHT - 12.0),
+                color: Color::rgb(0xff, 0xff, 0xff),
+            },
+        ];
+        let (text, color) = match &self.url_input {
+            Some(input) => (format!("{input}_"), enabled),
+            None => (
+                self.session
+                    .current_url()
+                    .map_or_else(|| self.input.clone(), ToString::to_string),
+                Color::rgb(0x6a, 0x66, 0x72),
+            ),
+        };
+        commands.push(DisplayCommand::DrawText {
+            x: 68.0,
+            y: 24.0,
+            text,
+            color,
+            font_size: 14.0,
+            font_weight: 400,
+            underline: false,
+            italic: false,
+        });
+        commands
     }
 
     fn max_scroll(&self) -> f32 {
@@ -138,10 +228,10 @@ impl App {
     /// Hit-tests the current cursor position, updates `:hover` styling and
     /// the pointer shape, and redraws when the hovered node changed.
     fn update_hover(&mut self) {
-        let hit = self.cursor.and_then(|(x, y)| {
+        let hit = self.page_cursor().and_then(|(x, y)| {
             self.session
                 .page()
-                .and_then(|page| page.layout.hit_test(x, y + self.scroll_y))
+                .and_then(|page| page.layout.hit_test(x, y))
         });
         let over_link = hit.is_some_and(|node| self.session.link_target(node).is_some());
         if let Some(window) = &self.window {
@@ -157,15 +247,67 @@ impl App {
     }
 
     fn click(&mut self) {
-        let Some(node) = self.cursor.and_then(|(x, y)| {
+        if let Some((x, y)) = self.cursor
+            && y < BAR_HEIGHT
+        {
+            self.chrome_click(x);
+            return;
+        }
+        // A click on the page drops address-bar focus.
+        if self.url_input.take().is_some() {
+            self.request_redraw();
+        }
+        let Some(node) = self.page_cursor().and_then(|(x, y)| {
             self.session
                 .page()
-                .and_then(|page| page.layout.hit_test(x, y + self.scroll_y))
+                .and_then(|page| page.layout.hit_test(x, y))
         }) else {
             return;
         };
         if let Some(href) = self.session.link_target(node) {
             self.navigate(|session| session.follow(&href).map(|_| ()));
+        }
+    }
+
+    fn chrome_click(&mut self, x: f32) {
+        match x {
+            x if (8.0..32.0).contains(&x) => {
+                self.navigate(|session| session.back().map(|_| ()));
+            }
+            x if (32.0..56.0).contains(&x) => {
+                self.navigate(|session| session.forward().map(|_| ()));
+            }
+            x if x >= 60.0 => {
+                self.focus_url_bar();
+            }
+            _ => {}
+        }
+    }
+
+    fn focus_url_bar(&mut self) {
+        self.url_input = Some(
+            self.session
+                .current_url()
+                .map_or_else(String::new, ToString::to_string),
+        );
+        self.request_redraw();
+    }
+
+    fn submit_url_bar(&mut self) {
+        let Some(input) = self.url_input.take() else {
+            return;
+        };
+        let input = input.trim().to_string();
+        if input.is_empty() {
+            self.request_redraw();
+            return;
+        }
+        match url_from_user_input(&input) {
+            Ok(url) => self.navigate(move |session| session.load(url).map(|_| ())),
+            Err(error) => {
+                eprintln!("address bar: {error}");
+                self.request_redraw();
+            }
         }
     }
 
@@ -187,6 +329,7 @@ impl App {
 
     fn redraw(&mut self) {
         let scale = self.scale();
+        let chrome = self.chrome_commands();
         let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else {
             return;
         };
@@ -200,27 +343,58 @@ impl App {
             return;
         }
 
-        let framebuffer = self.session.page().map(|page| {
-            rasterize_with(
+        // Page first (offset below the bar via the scroll shift), then the
+        // chrome painted over it.
+        let mut framebuffer = match self.session.page() {
+            Some(page) => rasterize_with(
                 &page.display_list,
                 size.width,
                 size.height,
-                self.scroll_y,
+                self.scroll_y - BAR_HEIGHT,
                 scale,
                 self.font.as_deref(),
-            )
-        });
+            ),
+            None => lumen_engine::Framebuffer::new(size.width, size.height),
+        };
+        rasterize_over(&mut framebuffer, &chrome, 0.0, scale, self.font.as_deref());
         let Ok(mut buffer) = surface.buffer_mut() else {
             return;
         };
-        match framebuffer {
-            Some(framebuffer) => buffer.copy_from_slice(&framebuffer.pixels),
-            None => buffer.fill(0x00ff_ffff),
-        }
+        buffer.copy_from_slice(&framebuffer.pixels);
         let _ = buffer.present();
     }
 
     fn handle_key(&mut self, key: &Key) {
+        // Address-bar editing captures all input first.
+        if self.url_input.is_some() {
+            match key {
+                Key::Named(NamedKey::Enter) => self.submit_url_bar(),
+                Key::Named(NamedKey::Escape) => {
+                    self.url_input = None;
+                    self.request_redraw();
+                }
+                Key::Named(NamedKey::Backspace) => {
+                    if let Some(input) = &mut self.url_input {
+                        input.pop();
+                        self.request_redraw();
+                    }
+                }
+                Key::Named(NamedKey::Space) => {
+                    if let Some(input) = &mut self.url_input {
+                        input.push(' ');
+                        self.request_redraw();
+                    }
+                }
+                Key::Character(text) => {
+                    if let Some(input) = &mut self.url_input {
+                        input.push_str(text);
+                        self.request_redraw();
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
         match key {
             Key::Named(NamedKey::ArrowDown) => self.scroll_by(SCROLL_STEP),
             Key::Named(NamedKey::ArrowUp) => self.scroll_by(-SCROLL_STEP),
@@ -236,6 +410,7 @@ impl App {
                 "r" => self.navigate(|session| session.refresh().map(|_| ())),
                 "[" => self.navigate(|session| session.back().map(|_| ())),
                 "]" => self.navigate(|session| session.forward().map(|_| ())),
+                "l" => self.focus_url_bar(),
                 _ => {}
             },
             _ => {}

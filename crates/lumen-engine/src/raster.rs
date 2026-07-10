@@ -81,6 +81,20 @@ pub fn rasterize_with(
     font: Option<&SystemFont>,
 ) -> Framebuffer {
     let mut framebuffer = Framebuffer::new(width, height);
+    rasterize_over(&mut framebuffer, commands, scroll_y, scale, font);
+    framebuffer
+}
+
+/// Paints commands onto an existing framebuffer without clearing it —
+/// used for UI chrome overlays (e.g. the desktop address bar).
+pub fn rasterize_over(
+    framebuffer: &mut Framebuffer,
+    commands: &[DisplayCommand],
+    scroll_y: f32,
+    scale: f32,
+    font: Option<&SystemFont>,
+) {
+    let framebuffer = &mut *framebuffer;
     let shift = |rect: &Rect| Rect {
         x: rect.x * scale,
         y: (rect.y - scroll_y) * scale,
@@ -134,7 +148,7 @@ pub fn rasterize_with(
                 }
             }
             DisplayCommand::DrawImage { rect, image } => {
-                blit_image(&mut framebuffer, &shift(rect), image);
+                blit_image(framebuffer, &shift(rect), image);
             }
             DisplayCommand::DrawText {
                 x,
@@ -151,7 +165,7 @@ pub fn rasterize_with(
                 let shear = if *italic { 0.21 } else { 0.0 };
                 let text_width = match font {
                     Some(font) => draw_text_scalable(
-                        &mut framebuffer,
+                        framebuffer,
                         font,
                         x,
                         y,
@@ -162,7 +176,7 @@ pub fn rasterize_with(
                         shear,
                     ),
                     None => draw_text(
-                        &mut framebuffer,
+                        framebuffer,
                         x,
                         y,
                         text,
@@ -186,7 +200,6 @@ pub fn rasterize_with(
             }
         }
     }
-    framebuffer
 }
 
 /// Draws a text run with the 8×8 bitmap font. `y` is the baseline; the

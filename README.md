@@ -40,7 +40,8 @@ embedded CSS  -> CSS parser ─────┘        |
   order and deterministic SVG output
 - Display-list software rasterizer (pixel buffer + bitmap font)
 - Resource loading (file/http/https) and a navigation session with history
-- Desktop shell: native window (winit + softbuffer), scrolling, resize
+- Desktop shell: native window (winit + softbuffer), address bar with
+  navigation buttons, clickable links with :hover, scrolling, resize
 - CLI that inspects every pipeline stage and accepts URLs
 - Golden-file SVG tests and 120+ unit/integration tests
 

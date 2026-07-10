@@ -115,6 +115,6 @@ interaction) — not just a DOM node.
 | `file://` documents | ✅ | ✅ | ✅ | ✅ | |
 | `http(s)://` + redirects | ✅ | ✅ | ✅ | ✅ | |
 | Relative URL resolution | ✅ | ✅ | ✅ | ✅ | against final URL |
-| History back/forward/refresh | ⚠️ | ✅ | ✅ | ✅ | re-fetches; no cache |
+| History back/forward/refresh | ⚠️ | ✅ | ✅ | ✅ | re-fetches; no cache; desktop has address bar + nav buttons |
 | Fragment `#anchor` scroll | ❌ | ✅ | ✅ | ✅ | |
 | Cookies / cache / compression | ❌ | ✅ | ✅ | ✅ | |

@@ -20,7 +20,7 @@ pub use image::{ImageMap, RasterImage, collect_image_sources};
 pub use inline::{Fragment, LineBox};
 pub use layout::{BoxType, LayoutBox, LayoutKind, dump_layout, layout_document};
 pub use paint::{DisplayCommand, build_display_list};
-pub use raster::{Framebuffer, rasterize, rasterize_with};
+pub use raster::{Framebuffer, rasterize, rasterize_over, rasterize_with};
 pub use style::{
     ComputedStyle, Dimension, Display, FontWeight, StyleMap, TextAlign, compute_styles,
     compute_styles_hovered,
