@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768" viewBox="0 0 1024 768">
 <rect width="100%" height="100%" fill="white"/>
-<rect x="0" y="0" width="1024" height="155.20001" fill="#ffffff"/>
+<rect x="0" y="0" width="1024" height="768" fill="#fafafa"/>
 <rect x="0" y="0" width="1024" height="155.20001" fill="#fafafa"/>
 <text x="24" y="68" fill="#7c3aed" font-family="system-ui, sans-serif" font-size="32" font-weight="700">Hello from Lumen</text>
 <text x="24" y="116.8" fill="#111111" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This is a minimal rendering test.</text>

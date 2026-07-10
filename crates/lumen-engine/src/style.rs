@@ -154,8 +154,7 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
     static SHEET: OnceLock<Stylesheet> = OnceLock::new();
     SHEET.get_or_init(|| {
         let source = r"
-            html, body { margin: 0; padding: 0; color: #111111; font-size: 16px;
-                         background-color: white; }
+            html, body { margin: 0; padding: 0; color: #111111; font-size: 16px; }
             h1 { font-size: 32px; font-weight: 700; margin-top: 12px; margin-bottom: 12px; }
             h2 { font-size: 24px; font-weight: 700; margin-top: 10px; margin-bottom: 10px; }
             p { font-size: 16px; margin-top: 8px; margin-bottom: 8px; }

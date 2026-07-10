@@ -37,8 +37,30 @@ pub enum DisplayCommand {
 #[must_use]
 pub fn build_display_list(layout: &LayoutBox) -> Vec<DisplayCommand> {
     let mut commands = Vec::new();
+    // Per CSS, the root element's background (or the body's, when the root
+    // is transparent) paints the whole canvas, not just its own box.
+    if let Some(color) = canvas_background(layout) {
+        commands.push(DisplayCommand::FillRect {
+            rect: layout.content_box(),
+            color,
+        });
+    }
     paint_box(layout, &mut commands);
     commands
+}
+
+fn canvas_background(root: &LayoutBox) -> Option<Color> {
+    let is_element = |layout: &&LayoutBox, name: &str| matches!(&layout.kind, LayoutKind::Element(tag) if tag == name);
+    let html = root
+        .children
+        .iter()
+        .find(|child| is_element(child, "html"))?;
+    html.style.background_color.or_else(|| {
+        html.children
+            .iter()
+            .find(|child| is_element(child, "body"))
+            .and_then(|body| body.style.background_color)
+    })
 }
 
 fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
@@ -149,6 +171,33 @@ mod tests {
             },
         )
         .display_list
+    }
+
+    #[test]
+    fn body_background_propagates_to_the_canvas() {
+        let list = commands(
+            "<html><head><style>body { background-color: #eee; }</style></head>\
+             <body><p>t</p></body></html>",
+        );
+        let Some(DisplayCommand::FillRect { rect, color }) = list.first() else {
+            panic!("expected canvas fill first, got {list:?}");
+        };
+        assert_eq!(color.to_string(), "#eeeeee");
+        // Covers the whole viewport, not just the body's box.
+        assert_eq!(rect.width, 800.0);
+        assert_eq!(rect.height, 600.0);
+    }
+
+    #[test]
+    fn fragment_without_html_element_has_no_canvas_fill() {
+        let list =
+            commands("<style>div { background-color: #222; height: 5px; }</style><div></div>");
+        assert_eq!(
+            list.iter()
+                .filter(|command| matches!(command, DisplayCommand::FillRect { .. }))
+                .count(),
+            1
+        );
     }
 
     #[test]

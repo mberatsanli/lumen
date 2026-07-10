@@ -65,25 +65,27 @@ pub fn rasterize(
     height: u32,
     scroll_y: f32,
 ) -> Framebuffer {
-    rasterize_with(commands, width, height, scroll_y, None)
+    rasterize_with(commands, width, height, scroll_y, 1.0, None)
 }
 
-/// Like [`rasterize`], but draws text with a real scalable font (with
-/// anti-aliased coverage blending) when one is provided.
+/// Like [`rasterize`], but with a device scale factor (HiDPI: CSS pixels ×
+/// `scale` = physical pixels) and optionally a real scalable font (with
+/// anti-aliased coverage blending).
 #[must_use]
 pub fn rasterize_with(
     commands: &[DisplayCommand],
     width: u32,
     height: u32,
     scroll_y: f32,
+    scale: f32,
     font: Option<&SystemFont>,
 ) -> Framebuffer {
     let mut framebuffer = Framebuffer::new(width, height);
     let shift = |rect: &Rect| Rect {
-        x: rect.x,
-        y: rect.y - scroll_y,
-        width: rect.width,
-        height: rect.height,
+        x: rect.x * scale,
+        y: (rect.y - scroll_y) * scale,
+        width: rect.width * scale,
+        height: rect.height * scale,
     };
 
     for command in commands {
@@ -98,23 +100,32 @@ pub fn rasterize_with(
             } => {
                 let rect = shift(rect);
                 let color = pack(*color);
+                // Border widths scale too, but stay at least one device
+                // pixel so hairline borders never disappear.
+                let width_of = |value: f32| {
+                    if value > 0.0 {
+                        (value * scale).max(1.0)
+                    } else {
+                        0.0
+                    }
+                };
                 let strips = [
                     Rect {
-                        height: widths.top,
+                        height: width_of(widths.top),
                         ..rect
                     },
                     Rect {
-                        x: rect.x + rect.width - widths.right,
-                        width: widths.right,
+                        x: rect.x + rect.width - width_of(widths.right),
+                        width: width_of(widths.right),
                         ..rect
                     },
                     Rect {
-                        y: rect.y + rect.height - widths.bottom,
-                        height: widths.bottom,
+                        y: rect.y + rect.height - width_of(widths.bottom),
+                        height: width_of(widths.bottom),
                         ..rect
                     },
                     Rect {
-                        width: widths.left,
+                        width: width_of(widths.left),
                         ..rect
                     },
                 ];
@@ -133,20 +144,20 @@ pub fn rasterize_with(
                 Some(font) => draw_text_scalable(
                     &mut framebuffer,
                     font,
-                    *x,
-                    y - scroll_y,
+                    x * scale,
+                    (y - scroll_y) * scale,
                     text,
                     pack(*color),
-                    *font_size,
+                    font_size * scale,
                     *font_weight,
                 ),
                 None => draw_text(
                     &mut framebuffer,
-                    *x,
-                    y - scroll_y,
+                    x * scale,
+                    (y - scroll_y) * scale,
                     text,
                     pack(*color),
-                    *font_size,
+                    font_size * scale,
                     *font_weight,
                 ),
             },
@@ -390,6 +401,24 @@ mod tests {
             .filter(|pixel| **pixel == 0x00ff_0000)
             .count();
         assert!(painted > 4, "expected glyph pixels, found {painted}");
+    }
+
+    #[test]
+    fn scale_factor_maps_css_to_physical_pixels() {
+        let commands = vec![DisplayCommand::FillRect {
+            rect: Rect {
+                x: 2.0,
+                y: 1.0,
+                width: 3.0,
+                height: 2.0,
+            },
+            color: RED,
+        }];
+        let framebuffer = rasterize_with(&commands, 20, 20, 0.0, 2.0, None);
+        assert_eq!(framebuffer.pixel(4, 2), 0x00ff_0000);
+        assert_eq!(framebuffer.pixel(9, 5), 0x00ff_0000); // exclusive at 10,6
+        assert_eq!(framebuffer.pixel(10, 2), 0x00ff_ffff);
+        assert_eq!(framebuffer.pixel(3, 2), 0x00ff_ffff);
     }
 
     #[test]

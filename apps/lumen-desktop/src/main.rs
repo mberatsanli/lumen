@@ -94,6 +94,13 @@ impl App {
         }
     }
 
+    fn scale(&self) -> f32 {
+        self.window
+            .as_ref()
+            .map_or(1.0, |window| window.scale_factor() as f32)
+    }
+
+    /// Viewport in CSS pixels: physical size divided by the HiDPI scale.
     fn viewport(&self) -> Size {
         self.window.as_ref().map_or(
             Size {
@@ -102,9 +109,10 @@ impl App {
             },
             |window| {
                 let size = window.inner_size();
+                let scale = window.scale_factor() as f32;
                 Size {
-                    width: size.width.max(1) as f32,
-                    height: size.height.max(1) as f32,
+                    width: size.width.max(1) as f32 / scale,
+                    height: size.height.max(1) as f32 / scale,
                 }
             },
         )
@@ -140,6 +148,7 @@ impl App {
     }
 
     fn redraw(&mut self) {
+        let scale = self.scale();
         let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else {
             return;
         };
@@ -159,6 +168,7 @@ impl App {
                 size.width,
                 size.height,
                 self.scroll_y,
+                scale,
                 self.font.as_deref(),
             )
         });
