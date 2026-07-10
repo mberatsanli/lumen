@@ -318,7 +318,7 @@ mod tests {
 
     fn layout_of(html: &str) -> LayoutBox {
         let document = parse_document(html);
-        let author = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document)).unwrap();
+        let author = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document));
         let styles = compute_styles(&document, &author);
         layout_document(
             &document,

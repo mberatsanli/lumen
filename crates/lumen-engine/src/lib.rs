@@ -33,44 +33,27 @@ pub struct Page {
     pub viewport: Size,
 }
 
-#[derive(Debug)]
-pub enum EngineError {
-    Css(lumen_css::CssError),
-}
-
-impl std::fmt::Display for EngineError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Css(error) => write!(formatter, "CSS error: {error}"),
-        }
-    }
-}
-
-impl std::error::Error for EngineError {}
-
-impl From<lumen_css::CssError> for EngineError {
-    fn from(value: lumen_css::CssError) -> Self {
-        Self::Css(value)
-    }
-}
-
 /// Runs the full pipeline: parse HTML, extract embedded CSS, cascade,
 /// layout, and build the display list.
-pub fn build_page(html: &str, viewport: Size) -> Result<Page, EngineError> {
+///
+/// Infallible: both parsers recover from malformed input the way browsers
+/// do, so every input produces a page.
+#[must_use]
+pub fn build_page(html: &str, viewport: Size) -> Page {
     let document = lumen_html::parse_document(html);
-    let stylesheet = lumen_css::parse_stylesheet(&extract_embedded_css(&document))?;
+    let stylesheet = lumen_css::parse_stylesheet(&extract_embedded_css(&document));
     let styles = compute_styles(&document, &stylesheet);
     let layout = layout_document(&document, &styles, viewport, &HeuristicMeasurer);
     let display_list = build_display_list(&layout);
 
-    Ok(Page {
+    Page {
         document,
         stylesheet,
         styles,
         layout,
         display_list,
         viewport,
-    })
+    }
 }
 
 /// Concatenates the contents of all `<style>` elements in document order.
@@ -102,7 +85,6 @@ mod tests {
                 height: 600.0,
             },
         )
-        .unwrap()
     }
 
     fn text_color(page: &Page) -> Option<Color> {

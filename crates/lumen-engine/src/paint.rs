@@ -84,6 +84,56 @@ fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
     }
 }
 
+/// One paint command per line — for debugging and CLI inspection.
+#[must_use]
+pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
+    use std::fmt::Write as _;
+    let mut output = String::new();
+    for command in commands {
+        match command {
+            DisplayCommand::FillRect { rect, color } => {
+                let _ = writeln!(
+                    output,
+                    "FillRect x={} y={} w={} h={} color={color}",
+                    rect.x, rect.y, rect.width, rect.height
+                );
+            }
+            DisplayCommand::StrokeRect {
+                rect,
+                widths,
+                color,
+            } => {
+                let _ = writeln!(
+                    output,
+                    "StrokeRect x={} y={} w={} h={} widths={}/{}/{}/{} color={color}",
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    widths.top,
+                    widths.right,
+                    widths.bottom,
+                    widths.left
+                );
+            }
+            DisplayCommand::DrawText {
+                x,
+                y,
+                text,
+                color,
+                font_size,
+                font_weight,
+            } => {
+                let _ = writeln!(
+                    output,
+                    "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color} {text:?}"
+                );
+            }
+        }
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,7 +148,6 @@ mod tests {
                 height: 600.0,
             },
         )
-        .unwrap()
         .display_list
     }
 

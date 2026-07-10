@@ -26,29 +26,15 @@ pub struct Stylesheet {
     pub rules: Vec<Rule>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CssError {
-    /// A `{` without a matching `}`.
-    UnterminatedRule,
-}
-
-impl std::fmt::Display for CssError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnterminatedRule => write!(formatter, "unterminated CSS rule"),
-        }
-    }
-}
-
-impl std::error::Error for CssError {}
-
 /// Parses a stylesheet.
 ///
-/// Lenient where browsers are lenient: comments are skipped, malformed
-/// declarations and unsupported selectors are dropped (a rule whose selector
-/// list contains any invalid selector is dropped entirely). The only hard
-/// error is an unterminated `{` block.
-pub fn parse_stylesheet(source: &str) -> Result<Stylesheet, CssError> {
+/// Lenient where browsers are lenient, and therefore infallible: comments
+/// are skipped, malformed declarations and unsupported selectors are
+/// dropped (a rule whose selector list contains any invalid selector is
+/// dropped entirely), and an unterminated `{` block is closed at end of
+/// input with its declarations kept.
+#[must_use]
+pub fn parse_stylesheet(source: &str) -> Stylesheet {
     let source = strip_comments(source);
     let mut rules = Vec::new();
     let mut rest = source.as_str();
@@ -57,11 +43,10 @@ pub fn parse_stylesheet(source: &str) -> Result<Stylesheet, CssError> {
     while let Some(open) = rest.find('{') {
         let selector_source = rest[..open].trim();
         let after_open = &rest[open + 1..];
-        let Some(close) = after_open.find('}') else {
-            return Err(CssError::UnterminatedRule);
-        };
+        // Recovery: a missing `}` closes the block at end of input.
+        let close = after_open.find('}').unwrap_or(after_open.len());
         let declaration_source = &after_open[..close];
-        rest = &after_open[close + 1..];
+        rest = &after_open[(close + 1).min(after_open.len())..];
 
         let selectors: Option<Vec<Selector>> = selector_source
             .split(',')
@@ -84,7 +69,7 @@ pub fn parse_stylesheet(source: &str) -> Result<Stylesheet, CssError> {
         source_order += 1;
     }
 
-    Ok(Stylesheet { rules })
+    Stylesheet { rules }
 }
 
 /// Parses a `;`-separated declaration list (also used for inline `style=`
@@ -179,7 +164,7 @@ mod tests {
 
     #[test]
     fn parses_selector_list_and_declarations() {
-        let sheet = parse_stylesheet(".card, #main { width: 400px; color: #222; }").unwrap();
+        let sheet = parse_stylesheet(".card, #main { width: 400px; color: #222; }");
         assert_eq!(sheet.rules.len(), 1);
         assert_eq!(sheet.rules[0].selectors.len(), 2);
         assert_eq!(
@@ -273,30 +258,28 @@ mod tests {
     #[test]
     fn drops_rule_with_invalid_selector() {
         let sheet =
-            parse_stylesheet("p > a { color: red; } h1 { color: blue; } a:hover { color: red; }")
-                .unwrap();
+            parse_stylesheet("p > a { color: red; } h1 { color: blue; } a:hover { color: red; }");
         assert_eq!(sheet.rules.len(), 1);
         assert_eq!(sheet.rules[0].source_order, 0);
     }
 
     #[test]
     fn skips_comments() {
-        let sheet = parse_stylesheet("/* x */ p { /* y */ color: red; }").unwrap();
+        let sheet = parse_stylesheet("/* x */ p { /* y */ color: red; }");
         assert_eq!(sheet.rules.len(), 1);
         assert_eq!(sheet.rules[0].declarations.len(), 1);
     }
 
     #[test]
-    fn unterminated_rule_is_an_error() {
-        assert_eq!(
-            parse_stylesheet("p { color: red;"),
-            Err(CssError::UnterminatedRule)
-        );
+    fn unterminated_rule_recovers_at_end_of_input() {
+        let sheet = parse_stylesheet("p { color: red;");
+        assert_eq!(sheet.rules.len(), 1);
+        assert_eq!(sheet.rules[0].declarations.len(), 1);
     }
 
     #[test]
     fn preserves_source_order() {
-        let sheet = parse_stylesheet("p { color: red; } div { color: blue; }").unwrap();
+        let sheet = parse_stylesheet("p { color: red; } div { color: blue; }");
         assert_eq!(sheet.rules[0].source_order, 0);
         assert_eq!(sheet.rules[1].source_order, 1);
     }

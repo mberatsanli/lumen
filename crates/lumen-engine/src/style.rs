@@ -149,9 +149,7 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             h2 { font-size: 24px; font-weight: 700; margin-top: 10px; margin-bottom: 10px; }
             p { font-size: 16px; margin-top: 8px; margin-bottom: 8px; }
         ";
-        // Invariant: the UA sheet is a compile-time constant kept valid by
-        // the `ua_stylesheet_parses` test below.
-        lumen_css::parse_stylesheet(source).expect("user-agent stylesheet is valid")
+        lumen_css::parse_stylesheet(source)
     })
 }
 
@@ -401,6 +399,45 @@ fn edge_px(raw: &HashMap<String, CssValue>, name: &str) -> f32 {
     raw.get(name).and_then(CssValue::as_px).unwrap_or(0.0)
 }
 
+/// One line per element with its key computed values — for debugging and
+/// CLI inspection.
+#[must_use]
+pub fn dump_styles(document: &Document, styles: &StyleMap) -> String {
+    use std::fmt::Write as _;
+    let mut output = String::new();
+    for id in document.descendants(document.root()) {
+        let Some(element) = document.element(id) else {
+            continue;
+        };
+        let Some(style) = styles.by_node.get(&id) else {
+            continue;
+        };
+        let mut selector = element.tag_name.clone();
+        if let Some(element_id) = element.id() {
+            let _ = write!(selector, "#{element_id}");
+        }
+        for class in element.classes() {
+            let _ = write!(selector, ".{class}");
+        }
+        let background = style
+            .background_color
+            .map_or("transparent".to_string(), |color| color.to_string());
+        let _ = writeln!(
+            output,
+            "{selector}: display={:?} color={} background={background} font-size={} \
+             font-weight={} line-height={} width={:?} height={:?}",
+            style.display,
+            style.color,
+            style.font_size,
+            style.font_weight.0,
+            style.line_height,
+            style.width,
+            style.height,
+        );
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,7 +445,7 @@ mod tests {
 
     fn styles_for(html: &str) -> (Document, StyleMap) {
         let document = parse_document(html);
-        let author = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document)).unwrap();
+        let author = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document));
         let styles = compute_styles(&document, &author);
         (document, styles)
     }

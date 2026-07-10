@@ -9,6 +9,6 @@ pub mod parser;
 pub mod selector;
 pub mod value;
 
-pub use parser::{CssError, Declaration, Rule, Stylesheet, parse_declarations, parse_stylesheet};
+pub use parser::{Declaration, Rule, Stylesheet, parse_declarations, parse_stylesheet};
 pub use selector::{CompoundSelector, Selector, Specificity, parse_selector};
 pub use value::{Color, CssValue, Unit, split_components};
