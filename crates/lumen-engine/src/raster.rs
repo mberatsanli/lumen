@@ -258,13 +258,13 @@ fn draw_text_scalable(
     let mut pen_x = x;
     let bold = font_weight >= 600;
     for character in text.chars() {
-        let (metrics, coverage) = font.rasterize(character, font_size);
-        let glyph_x = pen_x + metrics.xmin as f32;
-        let glyph_y = y - metrics.ymin as f32 - metrics.height as f32;
+        let glyph = font.rasterize(character, font_size);
+        let glyph_x = pen_x + glyph.metrics.xmin as f32;
+        let glyph_y = y - glyph.metrics.ymin as f32 - glyph.metrics.height as f32;
         blend_glyph(
             framebuffer,
-            &coverage,
-            metrics.width,
+            &glyph.coverage,
+            glyph.metrics.width,
             glyph_x,
             glyph_y,
             color,
@@ -272,14 +272,14 @@ fn draw_text_scalable(
         if bold {
             blend_glyph(
                 framebuffer,
-                &coverage,
-                metrics.width,
+                &glyph.coverage,
+                glyph.metrics.width,
                 glyph_x + 1.0,
                 glyph_y,
                 color,
             );
         }
-        pen_x += metrics.advance_width;
+        pen_x += glyph.metrics.advance_width;
     }
 }
 

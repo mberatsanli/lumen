@@ -20,6 +20,9 @@ pub struct Session<L: ResourceLoader> {
     /// Index of the current entry in `history`, if any page is loaded.
     index: Option<usize>,
     page: Option<Page>,
+    /// HTML source of the current page, kept so viewport or measurer
+    /// changes can relayout locally without hitting the network.
+    source: Option<String>,
 }
 
 impl<L: ResourceLoader> Session<L> {
@@ -32,17 +35,15 @@ impl<L: ResourceLoader> Session<L> {
             history: Vec::new(),
             index: None,
             page: None,
+            source: None,
         }
     }
 
     /// Replaces the text measurer (e.g. with real font metrics) and
-    /// relayouts the current page if one is loaded.
-    pub fn set_measurer(&mut self, measurer: Box<dyn TextMeasurer>) -> Result<(), LoadError> {
+    /// relayouts the current page if one is loaded. No network access.
+    pub fn set_measurer(&mut self, measurer: Box<dyn TextMeasurer>) {
         self.measurer = measurer;
-        if self.index.is_some() {
-            self.refresh()?;
-        }
-        Ok(())
+        self.relayout();
     }
 
     /// Navigates to `url`: fetches, renders, pushes a history entry and
@@ -94,13 +95,22 @@ impl<L: ResourceLoader> Session<L> {
         self.load(url)
     }
 
-    /// Changes the viewport and lays the current page out again.
-    pub fn set_viewport(&mut self, viewport: Size) -> Result<(), LoadError> {
+    /// Changes the viewport and lays the current page out again from the
+    /// cached source. No network access, so it is safe to call on every
+    /// window resize event.
+    pub fn set_viewport(&mut self, viewport: Size) {
         self.viewport = viewport;
-        if self.index.is_some() {
-            self.refresh()?;
+        self.relayout();
+    }
+
+    fn relayout(&mut self) {
+        if let Some(source) = &self.source {
+            self.page = Some(build_page_with_measurer(
+                source,
+                self.viewport,
+                self.measurer.as_ref(),
+            ));
         }
-        Ok(())
     }
 
     #[must_use]
@@ -134,11 +144,13 @@ impl<L: ResourceLoader> Session<L> {
     /// redirects (which is what history should record).
     fn fetch_and_render(&mut self, url: Url) -> Result<Url, LoadError> {
         let response = self.loader.load(&ResourceRequest { url })?;
+        let source = response.text();
         self.page = Some(build_page_with_measurer(
-            &response.text(),
+            &source,
             self.viewport,
             self.measurer.as_ref(),
         ));
+        self.source = Some(source);
         Ok(response.final_url)
     }
 }
@@ -277,15 +289,15 @@ mod tests {
     }
 
     #[test]
-    fn viewport_change_relayouts() {
+    fn viewport_change_relayouts_without_refetching() {
         let mut session = session();
         session.load(url("https://a.test/")).unwrap();
-        session
-            .set_viewport(Size {
-                width: 400.0,
-                height: 300.0,
-            })
-            .unwrap();
+        session.set_viewport(Size {
+            width: 400.0,
+            height: 300.0,
+        });
         assert_eq!(session.page().unwrap().viewport.width, 400.0);
+        // Only the initial load hit the loader.
+        assert_eq!(session.loader.loads.borrow().len(), 1);
     }
 }

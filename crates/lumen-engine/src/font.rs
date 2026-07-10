@@ -8,10 +8,25 @@
 //! rasterizer to the built-in bitmap font.
 
 use crate::text::{TextMeasurer, TextMetrics, TextStyle};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 /// A loaded scalable font usable for both measurement and rasterization.
+///
+/// Rasterized glyphs are cached per (character, size), which makes
+/// repeated frames (scrolling, resizing) cheap. The cache uses interior
+/// mutability, so `SystemFont` is not `Sync`; share it within one thread
+/// via `Rc`.
 pub struct SystemFont {
     font: fontdue::Font,
+    glyph_cache: RefCell<HashMap<(char, u32), Rc<Glyph>>>,
+}
+
+/// A rasterized glyph: metrics plus an 8-bit coverage bitmap.
+pub struct Glyph {
+    pub metrics: fontdue::Metrics,
+    pub coverage: Vec<u8>,
 }
 
 /// Common system font locations per platform, tried in order.
@@ -35,7 +50,10 @@ impl SystemFont {
     pub fn from_bytes(data: &[u8]) -> Option<Self> {
         fontdue::Font::from_bytes(data, fontdue::FontSettings::default())
             .ok()
-            .map(|font| Self { font })
+            .map(|font| Self {
+                font,
+                glyph_cache: RefCell::new(HashMap::new()),
+            })
     }
 
     /// Tries the well-known system font paths for this platform.
@@ -47,11 +65,18 @@ impl SystemFont {
             .find_map(|data| Self::from_bytes(&data))
     }
 
-    /// Rasterizes one character at `font_size`, returning its metrics and
-    /// an 8-bit coverage bitmap (row-major, `metrics.width` per row).
+    /// Rasterizes one character at `font_size` (cached), returning metrics
+    /// and an 8-bit coverage bitmap (row-major, `metrics.width` per row).
     #[must_use]
-    pub fn rasterize(&self, character: char, font_size: f32) -> (fontdue::Metrics, Vec<u8>) {
-        self.font.rasterize(character, font_size)
+    pub fn rasterize(&self, character: char, font_size: f32) -> Rc<Glyph> {
+        self.glyph_cache
+            .borrow_mut()
+            .entry((character, font_size.to_bits()))
+            .or_insert_with(|| {
+                let (metrics, coverage) = self.font.rasterize(character, font_size);
+                Rc::new(Glyph { metrics, coverage })
+            })
+            .clone()
     }
 
     /// The ascent (baseline distance from the top of the line) at

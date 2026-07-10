@@ -81,8 +81,7 @@ impl App {
             },
         );
         if let Some(font) = &font {
-            // No page is loaded yet, so this cannot fail.
-            let _ = session.set_measurer(Box::new(SharedFont(font.clone())));
+            session.set_measurer(Box::new(SharedFont(font.clone())));
         }
         Self {
             input,
@@ -258,7 +257,7 @@ impl ApplicationHandler for App {
             return;
         }
         let viewport = self.viewport();
-        let _ = self.session.set_viewport(viewport);
+        self.session.set_viewport(viewport);
         self.update_title();
         self.request_redraw();
     }
@@ -273,9 +272,8 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(_) => {
                 let viewport = self.viewport();
-                if self.session.set_viewport(viewport).is_ok() {
-                    self.scroll_y = self.scroll_y.clamp(0.0, self.max_scroll());
-                }
+                self.session.set_viewport(viewport);
+                self.scroll_y = self.scroll_y.clamp(0.0, self.max_scroll());
                 self.request_redraw();
             }
             WindowEvent::MouseWheel { delta, .. } => {
