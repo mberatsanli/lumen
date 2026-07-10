@@ -1,0 +1,12 @@
+[package]
+name = "lumen-browser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lumen-engine = { path = "../lumen-engine" }
+lumen-platform = { path = "../lumen-platform" }
+
+[lints]
+workspace = true

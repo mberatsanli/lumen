@@ -1,15 +1,28 @@
-#[derive(Debug, Clone, Copy, PartialEq)]
+//! Platform services for Lumen: resource loading and (eventually) window
+//! surfaces. Engine crates never depend on this; orchestration code wires
+//! platform services and the engine together.
+
+pub mod loader;
+
+pub use loader::{
+    DefaultLoader, FileLoader, HttpLoader, LoadError, ResourceLoader, ResourceRequest,
+    ResourceResponse, Url, resolve, url_from_user_input,
+};
+
+/// Window size in physical pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowSize {
     pub width: u32,
     pub height: u32,
 }
 
+/// A surface pixels can be presented to.
 pub trait Surface {
     fn resize(&mut self, size: WindowSize);
     fn present(&mut self, pixels: &[u32]);
 }
 
-/// Placeholder for the native window implementation planned for v0.4.
+/// Surface that discards frames — for tests and headless runs.
 #[derive(Debug, Default)]
 pub struct HeadlessSurface {
     pub size: Option<WindowSize>,
