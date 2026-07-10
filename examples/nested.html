@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+  <style>
+    body {
+      background-color: #f5f3ef;
+      padding: 24px;
+      color: #2d2a24;
+    }
+
+    .panel {
+      background-color: #ffffff;
+      border-width: 1px;
+      border-color: #d8d2c6;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .panel .panel {
+      background-color: #faf8f4;
+      margin-bottom: 0;
+    }
+
+    h2 {
+      font-size: 20px;
+      margin-top: 0;
+      margin-bottom: 8px;
+    }
+
+    .note {
+      color: #8a8272;
+      font-size: 14px;
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h2>Outer panel</h2>
+    <p>This panel contains another panel. Borders, paddings and margins all
+    take real space in the box model.</p>
+    <div class="panel">
+      <h2>Inner panel</h2>
+      <p>Nested one level deeper, with its own border and padding.</p>
+      <div class="panel">
+        <p>And one more level, because layout bugs love depth.</p>
+        <p class="note">right-aligned note</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

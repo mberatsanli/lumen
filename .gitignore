@@ -3,3 +3,6 @@
 .DS_Store
 .idea/
 .vscode/
+
+# Golden test fixtures are committed on purpose
+!crates/lumen-engine/tests/golden/*.svg
