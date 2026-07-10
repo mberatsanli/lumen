@@ -1,7 +1,12 @@
-use lumen_engine::{Size, build_page, dump_layout, render_svg};
+use lumen_engine::{Size, build_page, dump_layout};
 use std::env;
 use std::fs;
 use std::path::Path;
+
+const VIEWPORT: Size = Size {
+    width: 1024.0,
+    height: 768.0,
+};
 
 fn main() {
     if let Err(error) = run() {
@@ -12,56 +17,71 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let arguments: Vec<String> = env::args().skip(1).collect();
-    match arguments.as_slice() {
-        [command, input] if command == "parse-html" => {
+    match arguments
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        ["parse-html", input] => {
             let source = fs::read_to_string(input)?;
-            let document = lumen_html::parse_document(&source);
-            print!("{}", document.dump());
+            for token in lumen_html::tokenize(&source) {
+                println!("{token:?}");
+            }
         }
-        [command, input] if command == "parse-css" => {
+        ["parse-css", input] => {
             let source = fs::read_to_string(input)?;
-            let stylesheet = lumen_css::parse_stylesheet(&source)?;
-            println!("{stylesheet:#?}");
+            println!("{:#?}", lumen_css::parse_stylesheet(&source));
         }
-        [command, input] if command == "dump-layout" => {
+        ["dump-dom", input] => {
             let source = fs::read_to_string(input)?;
-            let page = build_page(
-                &source,
-                Size {
-                    width: 1024.0,
-                    height: 768.0,
-                },
-            )?;
+            print!("{}", lumen_html::parse_document(&source).dump());
+        }
+        ["dump-style", input] => {
+            let page = build_page(&fs::read_to_string(input)?, VIEWPORT);
+            print!(
+                "{}",
+                lumen_engine::style::dump_styles(&page.document, &page.styles)
+            );
+        }
+        ["dump-layout", input] => {
+            let page = build_page(&fs::read_to_string(input)?, VIEWPORT);
             print!("{}", dump_layout(&page.layout));
         }
-        [command, input, output] if command == "render" => {
-            let source = fs::read_to_string(input)?;
-            let page = build_page(
-                &source,
-                Size {
-                    width: 1024.0,
-                    height: 768.0,
-                },
-            )?;
-            let svg = render_svg(&page);
+        ["dump-display-list", input] => {
+            let page = build_page(&fs::read_to_string(input)?, VIEWPORT);
+            print!(
+                "{}",
+                lumen_engine::paint::dump_display_list(&page.display_list)
+            );
+        }
+        ["render", input, output] => {
+            let page = build_page(&fs::read_to_string(input)?, VIEWPORT);
+            let svg = lumen_engine::render_svg(&page);
             if let Some(parent) = Path::new(output).parent() {
                 fs::create_dir_all(parent)?;
             }
             fs::write(output, svg)?;
             println!("rendered {input} -> {output}");
         }
-        _ => print_usage(),
+        _ => {
+            print_usage();
+            std::process::exit(2);
+        }
     }
     Ok(())
 }
 
 fn print_usage() {
     eprintln!(
-        "Lumen CLI\n\n\
+        "Lumen CLI — inspect every stage of the rendering pipeline\n\n\
          Commands:\n\
-           parse-html <file>\n\
-           parse-css <file>\n\
-           dump-layout <html-file>\n\
-           render <html-file> <output.svg>"
+           parse-html <file>         HTML token stream\n\
+           parse-css <file>          parsed stylesheet rules\n\
+           dump-dom <file>           DOM tree\n\
+           dump-style <file>         computed styles per element\n\
+           dump-layout <file>        layout tree with box geometry\n\
+           dump-display-list <file>  paint commands in order\n\
+           render <file> <out.svg>   render to SVG"
     );
 }
