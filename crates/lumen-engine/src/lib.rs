@@ -66,7 +66,21 @@ pub fn build_page_full(
     hovered: Option<lumen_html::NodeId>,
 ) -> Page {
     let document = lumen_html::parse_document(html);
-    let stylesheet = lumen_css::parse_stylesheet(&extract_embedded_css(&document));
+    let stylesheet = lumen_css::parse_stylesheet(&collect_author_css(&document, |_| None));
+    page_from_document(document, stylesheet, viewport, measurer, hovered)
+}
+
+/// Builds a page from an already-parsed document and author stylesheet.
+/// This is what navigation code uses so external stylesheets are fetched
+/// once and reused across hover/viewport relayouts.
+#[must_use]
+pub fn page_from_document(
+    document: Document,
+    stylesheet: lumen_css::Stylesheet,
+    viewport: Size,
+    measurer: &dyn TextMeasurer,
+    hovered: Option<lumen_html::NodeId>,
+) -> Page {
     let styles = compute_styles_hovered(&document, &stylesheet, hovered);
     let layout = layout_document(&document, &styles, viewport, measurer);
     let display_list = build_display_list(&layout);
@@ -79,6 +93,43 @@ pub fn build_page_full(
         display_list,
         viewport,
     }
+}
+
+/// Collects author CSS in document order: `<style>` contents inline, and
+/// `<link rel="stylesheet" href>` contents through `load_external` (which
+/// returns `None` on failure — the sheet is then skipped, page intact).
+/// The engine stays network-free; navigation code supplies the closure.
+pub fn collect_author_css(
+    document: &Document,
+    mut load_external: impl FnMut(&str) -> Option<String>,
+) -> String {
+    let mut css = String::new();
+    for id in document.descendants(document.root()) {
+        let Some(element) = document.element(id) else {
+            continue;
+        };
+        match element.tag_name.as_str() {
+            "style" => {
+                css.push_str(&document.text_content(id));
+                css.push('\n');
+            }
+            "link" => {
+                let is_stylesheet = element.attributes.get("rel").is_some_and(|rel| {
+                    rel.split_whitespace()
+                        .any(|word| word.eq_ignore_ascii_case("stylesheet"))
+                });
+                if is_stylesheet
+                    && let Some(href) = element.attributes.get("href")
+                    && let Some(external) = load_external(href)
+                {
+                    css.push_str(&external);
+                    css.push('\n');
+                }
+            }
+            _ => {}
+        }
+    }
+    css
 }
 
 /// Concatenates the contents of all `<style>` elements in document order.

@@ -32,7 +32,7 @@ interaction) — not just a DOM node.
 | `<html> <head> <body>` | ✅ | ✅ | ✅ | ✅ | when present |
 | `<title>` | ⚠️ | ✅ | ✅ | ✅ | hidden from layout; not used as window title |
 | `<style>` | ✅ | ✅ | ✅ | ✅ | document-order extraction |
-| `<link rel="stylesheet">` | ❌ | ✅ | ✅ | ✅ | next up: loader is ready |
+| `<link rel="stylesheet">` | ✅ | ✅ | ✅ | ✅ | document order; relative hrefs vs final URL; failures skip the sheet |
 | `<meta>` | ⚠️ | ✅ | ✅ | ✅ | hidden; viewport/charset ignored |
 | `<base>` | ❌ | ✅ | ✅ | ✅ | href not used |
 

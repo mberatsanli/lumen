@@ -5,7 +5,9 @@
 //! separate from rendering: the engine knows nothing about URLs, and this
 //! crate knows nothing about painting beyond handing back a [`Page`].
 
-use lumen_engine::{HeuristicMeasurer, Page, Size, TextMeasurer, build_page_full};
+use lumen_engine::{
+    HeuristicMeasurer, Page, Size, TextMeasurer, collect_author_css, page_from_document,
+};
 use lumen_html::NodeId;
 use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, Url, resolve};
 
@@ -24,6 +26,8 @@ pub struct Session<L: ResourceLoader> {
     /// HTML source of the current page, kept so viewport or measurer
     /// changes can relayout locally without hitting the network.
     source: Option<String>,
+    /// Author stylesheet (embedded + external), fetched once per page.
+    author: lumen_css::Stylesheet,
     /// Node currently under the pointer, for `:hover` styling.
     hovered: Option<NodeId>,
 }
@@ -39,6 +43,7 @@ impl<L: ResourceLoader> Session<L> {
             index: None,
             page: None,
             source: None,
+            author: lumen_css::Stylesheet::default(),
             hovered: None,
         }
     }
@@ -137,8 +142,12 @@ impl<L: ResourceLoader> Session<L> {
 
     fn relayout(&mut self) {
         if let Some(source) = &self.source {
-            self.page = Some(build_page_full(
-                source,
+            // Reparse the cached source; node ids are stable, and the
+            // cached author stylesheet avoids refetching external CSS.
+            let document = lumen_html::parse_document(source);
+            self.page = Some(page_from_document(
+                document,
+                self.author.clone(),
                 self.viewport,
                 self.measurer.as_ref(),
                 self.hovered,
@@ -178,9 +187,24 @@ impl<L: ResourceLoader> Session<L> {
     fn fetch_and_render(&mut self, url: Url) -> Result<Url, LoadError> {
         let response = self.loader.load(&ResourceRequest { url })?;
         let source = response.text();
+        let document = lumen_html::parse_document(&source);
+
+        // External stylesheets: resolved against the final URL, fetched in
+        // document order; failures skip that sheet without failing the page.
+        let base = response.final_url.clone();
+        let author_css = collect_author_css(&document, |href| {
+            let url = resolve(&base, href).ok()?;
+            self.loader
+                .load(&ResourceRequest { url })
+                .ok()
+                .map(|response| response.text())
+        });
+        self.author = lumen_css::parse_stylesheet(&author_css);
+
         self.hovered = None; // New document, new node ids.
-        self.page = Some(build_page_full(
-            &source,
+        self.page = Some(page_from_document(
+            document,
+            self.author.clone(),
             self.viewport,
             self.measurer.as_ref(),
             None,
@@ -384,6 +408,93 @@ mod tests {
             })
             .unwrap();
         assert_eq!(session.link_target(div), None);
+    }
+
+    #[test]
+    fn external_stylesheets_load_resolve_and_apply() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                (
+                    "https://a.test/docs/page",
+                    "<link rel='stylesheet' href='theme.css'>\
+                     <link rel=\"STYLESHEET\" href=\"/root.css\">\
+                     <link rel='icon' href='favicon.ico'>\
+                     <p>hi</p>",
+                ),
+                ("https://a.test/docs/theme.css", "p { color: #ff0000; }"),
+                ("https://a.test/root.css", "p { font-size: 20px; }"),
+            ]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/docs/page")).unwrap();
+        let page = session.page().unwrap();
+        let p = page
+            .document
+            .descendants(page.document.root())
+            .find(|id| {
+                page.document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "p")
+            })
+            .unwrap();
+        let style = &page.styles.by_node[&p];
+        assert_eq!(style.color, lumen_css::Color::rgb(255, 0, 0));
+        assert_eq!(style.font_size, 20.0);
+        // Page + 2 stylesheets; the icon link was not fetched.
+        assert_eq!(session.loader.loads.borrow().len(), 3);
+    }
+
+    #[test]
+    fn missing_external_stylesheet_does_not_break_the_page() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<link rel='stylesheet' href='gone.css'>\
+                 <style>p { color: #00ff00; }</style><p>hi</p>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let page = session.page().unwrap();
+        assert!(
+            page.document
+                .text_content(page.document.root())
+                .contains("hi")
+        );
+        let p = page
+            .document
+            .descendants(page.document.root())
+            .find(|id| {
+                page.document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "p")
+            })
+            .unwrap();
+        assert_eq!(
+            page.styles.by_node[&p].color,
+            lumen_css::Color::rgb(0, 255, 0)
+        );
+    }
+
+    #[test]
+    fn hover_and_resize_do_not_refetch_external_css() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                (
+                    "https://a.test/",
+                    "<link rel='stylesheet' href='a.css'><p>hi</p>",
+                ),
+                ("https://a.test/a.css", "p { color: red; }"),
+            ]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        session.set_viewport(Size {
+            width: 500.0,
+            height: 400.0,
+        });
+        session.set_hovered(Some(1));
+        assert_eq!(session.loader.loads.borrow().len(), 2);
     }
 
     #[test]
