@@ -222,7 +222,9 @@ impl ApplicationHandler for App {
         if self.window.is_some() {
             return;
         }
-        let attributes = Window::default_attributes().with_title("Lumen");
+        let attributes = Window::default_attributes()
+            .with_title("Lumen")
+            .with_min_inner_size(winit::dpi::LogicalSize::new(320.0, 240.0));
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Rc::new(window),
             Err(error) => {

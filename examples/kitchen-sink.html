@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+  <title>Lumen CSS kitchen sink</title>
+  <style>
+    /* Comments are stripped, extra semicolons tolerated ;; */
+
+    body {
+      background: #f2f0ea;
+      padding: 2vh 2vw;
+      color: #232019;
+      font-size: 16px;
+    }
+
+    .section {
+      width: 640px;
+      margin: 0 auto 16px;            /* auto margins center fixed-width boxes */
+      padding: 16px;
+      background-color: white;         /* named color */
+      border-width: 1px;
+      border-color: #d9d4c7;
+    }
+
+    h1 { font-size: 2em; }             /* em against inherited 16px = 32px */
+    h2 { font-size: 20px; margin-top: 0; }
+
+    /* --- selectors ---------------------------------------------------- */
+    * { line-height: 1.4; }                    /* universal */
+    p { color: #3a362c; }                      /* tag */
+    .muted { color: gray; }                    /* class */
+    #unique { color: rgb(160, 82, 45); }       /* id + rgb() */
+    p.tagged { font-weight: bold; }            /* compound */
+    .scope p { color: #1f5f3f; }               /* descendant */
+    .multi-a, .multi-b { background-color: #fff3cd; }  /* selector list */
+    a:link { color: #348; }                    /* pseudo-class */
+
+    /* --- specificity and cascade -------------------------------------- */
+    .fight { color: red; }
+    .fight { color: #2266aa; }                 /* later equal specificity wins */
+    p.strong-fight { color: red; }
+    #winner { color: #7c3aed; }                /* id beats class+tag */
+
+    /* --- box model ----------------------------------------------------- */
+    .boxes { padding: 8px 24px; }              /* 2-value shorthand */
+    .edge { margin: 4px 8px 12px 16px; }       /* 4-value shorthand */
+    .thick { border-width: 4px 1px; border-color: #a05232; }
+    .half { width: 50%; height: 40px; background-color: #cfe3d4; }
+    .fixed { width: 200px; height: 2em; background-color: #d4dcec; }
+    .push-right { width: 160px; margin-left: auto; height: 24px;
+                  background-color: #e8d3e0; }
+
+    /* --- typography ----------------------------------------------------- */
+    .big-line { line-height: 2.5; background-color: #fdf6e3; }
+    .center { text-align: center; }
+    .right { text-align: right; }
+    .w300 { font-weight: 300; }
+    .w700 { font-weight: 700; }
+
+    /* --- inheritance ----------------------------------------------------- */
+    .inherit-root { color: #8a4b0f; font-size: 18px; text-align: center; }
+
+    /* --- display --------------------------------------------------------- */
+    .ghost { display: none; background-color: red; }
+
+    /* unsupported things must be ignored, not break the page: */
+    .section:hover { background-color: red; }     /* pseudo drops rule */
+    .broken { color: ; width }                    /* malformed declarations */
+    .gradient { background: url(nope.png); }      /* unparseable value */
+    @media (max-width: 500px) {                   /* at-rule skipped whole */
+      .section { background-color: red; }
+      body { color: red; }
+    }
+    @import url(missing.css);
+  </style>
+</head>
+<body>
+  <div class="section">
+    <h1>Lumen CSS kitchen sink</h1>
+    <p>Every supported CSS feature on one page. This section is a fixed
+    640px wide and centered with <span class="tagged">margin: 0 auto</span>.
+    Resize the window: the page background padding uses vw/vh units.</p>
+    <p class="muted">Muted gray via class selector.</p>
+  </div>
+
+  <div class="section">
+    <h2>Selectors</h2>
+    <p id="unique">ID selector with rgb(160, 82, 45) — sienna.</p>
+    <p class="tagged">Compound selector p.tagged makes this bold.</p>
+    <div class="scope"><div><p>Descendant selector: green even two levels deep.</p></div></div>
+    <p class="multi-a">Selector list part A (shared yellow background)…</p>
+    <p class="multi-b">…and part B.</p>
+    <p><a href="https://example.com">A styled link via a:link</a></p>
+  </div>
+
+  <div class="section">
+    <h2>Specificity &amp; cascade</h2>
+    <p class="fight">Two equal .fight rules — the later blue one wins.</p>
+    <p class="strong-fight" id="winner">ID beats class+tag: violet.</p>
+    <p style="color: #b3261e">Inline style beats every stylesheet rule.</p>
+  </div>
+
+  <div class="section boxes">
+    <h2>Box model</h2>
+    <p class="edge">4-value margin shorthand: 4 8 12 16.</p>
+    <div class="thick"><p>Asymmetric border: 4px top/bottom, 1px sides.</p></div>
+    <div class="half"><p>width: 50% of this section.</p></div>
+    <div class="fixed"><p>200px × 2em box.</p></div>
+    <div class="push-right"></div>
+    <p class="muted right">↑ margin-left: auto pushes that box right.</p>
+  </div>
+
+  <div class="section">
+    <h2>Typography</h2>
+    <p class="big-line">line-height: 2.5 — airy line spacing that also wraps:
+    this sentence keeps going until the layout engine has to break it into
+    several line boxes to prove wrapping works.</p>
+    <p class="center">Centered text.</p>
+    <p class="right">Right-aligned text.</p>
+    <p class="w300">Light 300 weight.</p>
+    <p class="w700">Bold 700 weight.</p>
+  </div>
+
+  <div class="section inherit-root">
+    <h2>Inheritance</h2>
+    <div><p>Color, 18px font-size and centering inherited two levels down.
+    <span>Spans inherit too.</span></p></div>
+  </div>
+
+  <div class="section">
+    <h2>Resilience</h2>
+    <p class="ghost">You must never see this (display: none).</p>
+    <p class="broken">Malformed declarations were skipped; this still styles fine.</p>
+    <p>The @media block above is red everywhere — and correctly ignored,
+    together with :hover and url() values. Parsing never fails.</p>
+  </div>
+</body>
+</html>
