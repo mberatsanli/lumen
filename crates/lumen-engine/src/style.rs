@@ -10,7 +10,7 @@
 //! Afterwards the raw values are converted once into a fully typed
 //! [`ComputedStyle`]; layout and paint never parse strings.
 
-use crate::geometry::EdgeSizes;
+use crate::geometry::{Corners, EdgeSizes};
 use lumen_css::{Color, CompoundSelector, CssValue, Selector, Specificity, Stylesheet};
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::collections::{HashMap, HashSet};
@@ -171,6 +171,8 @@ pub struct ComputedStyle {
     pub border_width: EdgeSizes<f32>,
     pub border_color: EdgeSizes<Color>,
     pub border_style: EdgeSizes<BorderStyle>,
+    /// Corner radii in pixels, clockwise from top-left.
+    pub border_radius: Corners<f32>,
     pub font_size: f32,
     pub font_weight: FontWeight,
     /// Resolved to pixels.
@@ -210,6 +212,7 @@ impl Default for ComputedStyle {
             border_width: EdgeSizes::uniform(0.0),
             border_color: EdgeSizes::uniform(DEFAULT_COLOR),
             border_style: EdgeSizes::uniform(BorderStyle::Solid),
+            border_radius: Corners::uniform(0.0),
             font_size: DEFAULT_FONT_SIZE,
             font_weight: FontWeight::default(),
             line_height: DEFAULT_FONT_SIZE * DEFAULT_LINE_HEIGHT_FACTOR,
@@ -550,6 +553,13 @@ fn to_computed(
         right: width_of("right", style.border_style.right),
         bottom: width_of("bottom", style.border_style.bottom),
         left: width_of("left", style.border_style.left),
+    };
+
+    style.border_radius = Corners {
+        top_left: edge_px(raw, "border-top-left-radius", style.font_size),
+        top_right: edge_px(raw, "border-top-right-radius", style.font_size),
+        bottom_right: edge_px(raw, "border-bottom-right-radius", style.font_size),
+        bottom_left: edge_px(raw, "border-bottom-left-radius", style.font_size),
     };
 
     // Missing border colors fall back to the element color (currentColor).
@@ -893,6 +903,18 @@ mod tests {
         assert_eq!(hr.border_width.top, 1.0);
         assert_eq!(hr.border_color.top, Color::rgb(0x80, 0x80, 0x80));
         assert_eq!(hr.display, Display::Block);
+    }
+
+    #[test]
+    fn border_radius_expands_and_resolves_em() {
+        let (document, styles) = styles_for(
+            "<style>div { font-size: 10px; border-radius: 4px 1em; }</style><div>t</div>",
+        );
+        let radius = style_of(&document, &styles, "div").border_radius;
+        assert_eq!(radius.top_left, 4.0);
+        assert_eq!(radius.top_right, 10.0);
+        assert_eq!(radius.bottom_right, 4.0);
+        assert_eq!(radius.bottom_left, 10.0);
     }
 
     #[test]

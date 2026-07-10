@@ -86,7 +86,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `border-style` | ⚠️ | ✅ | ✅ | ✅ | none/hidden hide; solid renders; dashed/dotted parse but render solid; initial behaves as solid (deviation) |
 | `border` shorthand | ✅ | ✅ | ✅ | ✅ | any order; missing width = 3px |
 | Per-side `border-top/right/bottom/left` | ✅ | ✅ | ✅ | ✅ | width/style/color any order |
-| `border-radius` | ❌ | ✅ | ✅ | ✅ | |
+| `border-radius` | ⚠️ | ✅ | ✅ | ✅ | 1–4 value shorthand + per-corner longhands (px/em); rounds background + border; rounded border ring is single color/width; no % radii, no elliptical, no overflow clipping |
 | `box-sizing` | ✅ | ✅ | ✅ | ✅ | border-box and content-box |
 | `outline` | ❌ | ✅ | ✅ | ✅ | |
 | `box-shadow` | ❌ | ✅ | ✅ | ✅ | |

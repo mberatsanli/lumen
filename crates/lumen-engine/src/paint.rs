@@ -3,7 +3,7 @@
 //! Paint order per box: background, border, then children (text is painted
 //! where its own box appears in the tree).
 
-use crate::geometry::{EdgeSizes, Rect};
+use crate::geometry::{Corners, EdgeSizes, Rect};
 use crate::image::{ImageMap, RasterImage};
 use crate::layout::{BoxType, LayoutBox, LayoutKind};
 use lumen_css::Color;
@@ -15,13 +15,19 @@ pub enum DisplayCommand {
     FillRect {
         rect: Rect,
         color: Color,
+        /// Corner radii (zero = square).
+        radius: Corners<f32>,
     },
     /// A border frame: `rect` is the border box, `widths` the per-edge
     /// thicknesses drawn inward from its edges, each with its own color.
+    /// With non-zero `radius` the frame renders as a rounded ring in the
+    /// top edge color at the top edge width (per-edge colors and widths
+    /// apply to square borders only).
     StrokeRect {
         rect: Rect,
         widths: EdgeSizes<f32>,
         colors: EdgeSizes<Color>,
+        radius: Corners<f32>,
     },
     DrawText {
         x: f32,
@@ -35,10 +41,7 @@ pub enum DisplayCommand {
         italic: bool,
     },
     /// A decoded image scaled into `rect`.
-    DrawImage {
-        rect: Rect,
-        image: Arc<RasterImage>,
-    },
+    DrawImage { rect: Rect, image: Arc<RasterImage> },
 }
 
 /// Flattens the layout tree into an ordered list of paint commands.
@@ -51,6 +54,7 @@ pub fn build_display_list(layout: &LayoutBox, images: &ImageMap) -> Vec<DisplayC
         commands.push(DisplayCommand::FillRect {
             rect: layout.content_box(),
             color,
+            radius: Corners::uniform(0.0),
         });
     }
     paint_box(layout, images, &mut commands);
@@ -78,10 +82,16 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
     // defaults; the container already painted its own background/border.
     let anonymous = layout.box_type == BoxType::AnonymousBlock;
 
+    let radius = layout
+        .style
+        .border_radius
+        .clamped_to(border_box.width, border_box.height);
+
     if !anonymous && let Some(background) = layout.style.background_color {
         commands.push(DisplayCommand::FillRect {
             rect: border_box,
             color: background,
+            radius,
         });
     }
 
@@ -93,6 +103,7 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
             rect: border_box,
             widths,
             colors: layout.style.border_color,
+            radius,
         });
     }
 
@@ -107,6 +118,7 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
                 rect: border_box,
                 widths: EdgeSizes::uniform(1.0),
                 colors: EdgeSizes::uniform(Color::rgb(0x80, 0x80, 0x80)),
+                radius: Corners::uniform(0.0),
             }),
         }
     }
@@ -148,10 +160,19 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
     let mut output = String::new();
     for command in commands {
         match command {
-            DisplayCommand::FillRect { rect, color } => {
+            DisplayCommand::FillRect {
+                rect,
+                color,
+                radius,
+            } => {
+                let rounded = if radius.is_zero() {
+                    String::new()
+                } else {
+                    format!(" radius={}", radius.top_left)
+                };
                 let _ = writeln!(
                     output,
-                    "FillRect x={} y={} w={} h={} color={color}",
+                    "FillRect x={} y={} w={} h={} color={color}{rounded}",
                     rect.x, rect.y, rect.width, rect.height
                 );
             }
@@ -159,6 +180,7 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
                 rect,
                 widths,
                 colors,
+                radius: _,
             } => {
                 let _ = writeln!(
                     output,
@@ -229,7 +251,7 @@ mod tests {
             "<html><head><style>body { background-color: #eee; }</style></head>\
              <body><p>t</p></body></html>",
         );
-        let Some(DisplayCommand::FillRect { rect, color }) = list.first() else {
+        let Some(DisplayCommand::FillRect { rect, color, .. }) = list.first() else {
             panic!("expected canvas fill first, got {list:?}");
         };
         assert_eq!(color.to_string(), "#eeeeee");

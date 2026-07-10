@@ -194,6 +194,19 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
         "border-color" => {
             expand_edges(&|side| format!("border-{side}-color"), &components, output);
         }
+        "border-radius" => {
+            // 1-4 values, clockwise from top-left.
+            let corners = ["top-left", "top-right", "bottom-right", "bottom-left"];
+            let Some(values) = edge_values(&components) else {
+                return;
+            };
+            for (corner, value) in corners.iter().zip(values) {
+                output.push(Declaration {
+                    name: format!("border-{corner}-radius"),
+                    value,
+                });
+            }
+        }
         "border" => {
             for side in SIDES {
                 expand_border_side(side, &components, output);
@@ -367,6 +380,26 @@ mod tests {
             find("border-top-color"),
             Some(CssValue::Color(Color::rgb(255, 0, 0)))
         );
+    }
+
+    #[test]
+    fn border_radius_expands_clockwise_from_top_left() {
+        let declarations = parse_declarations("border-radius: 1px 2px");
+        let names: Vec<&str> = declarations
+            .iter()
+            .map(|declaration| declaration.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "border-top-left-radius",
+                "border-top-right-radius",
+                "border-bottom-right-radius",
+                "border-bottom-left-radius"
+            ]
+        );
+        assert_eq!(declarations[2].value, px(1.0));
+        assert_eq!(declarations[3].value, px(2.0));
     }
 
     #[test]

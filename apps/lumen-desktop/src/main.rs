@@ -228,10 +228,12 @@ impl App {
             DisplayCommand::FillRect {
                 rect: bar(0.0, 0.0, width, BAR_HEIGHT),
                 color: Color::rgb(0xf1, 0xef, 0xf3),
+                radius: lumen_engine::Corners::uniform(0.0),
             },
             DisplayCommand::FillRect {
                 rect: bar(0.0, BAR_HEIGHT - 1.0, width, 1.0),
                 color: Color::rgb(0xd2, 0xce, 0xd8),
+                radius: lumen_engine::Corners::uniform(0.0),
             },
             DisplayCommand::DrawText {
                 x: 12.0,
@@ -264,6 +266,7 @@ impl App {
             DisplayCommand::FillRect {
                 rect: bar(60.0, 6.0, (width - 68.0).max(40.0), BAR_HEIGHT - 12.0),
                 color: Color::rgb(0xff, 0xff, 0xff),
+                radius: lumen_engine::Corners::uniform(6.0),
             },
         ];
         let (text, color) = match (&self.url_input, &self.state) {

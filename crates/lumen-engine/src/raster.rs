@@ -7,7 +7,7 @@
 //! so painted text agrees with layout's line breaking.
 
 use crate::font::SystemFont;
-use crate::geometry::Rect;
+use crate::geometry::{Corners, Rect};
 use crate::paint::DisplayCommand;
 use font8x8::UnicodeFonts;
 use lumen_css::Color;
@@ -104,15 +104,43 @@ pub fn rasterize_over(
 
     for command in commands {
         match command {
-            DisplayCommand::FillRect { rect, color } => {
-                framebuffer.fill(shift(rect), pack(*color));
+            DisplayCommand::FillRect {
+                rect,
+                color,
+                radius,
+            } => {
+                let rect = shift(rect);
+                if radius.is_zero() {
+                    framebuffer.fill(rect, pack(*color));
+                } else {
+                    fill_rounded(
+                        framebuffer,
+                        &rect,
+                        &scale_radius(radius, scale),
+                        pack(*color),
+                    );
+                }
             }
             DisplayCommand::StrokeRect {
                 rect,
                 widths,
                 colors,
+                radius,
             } => {
                 let rect = shift(rect);
+                if !radius.is_zero() {
+                    // Rounded frames render as a ring in the top edge color
+                    // at the top edge width.
+                    let width = (widths.top.max(widths.left) * scale).max(1.0);
+                    fill_rounded_ring(
+                        framebuffer,
+                        &rect,
+                        &scale_radius(radius, scale),
+                        width,
+                        pack(colors.top),
+                    );
+                    continue;
+                }
                 // Border widths scale too, but stay at least one device
                 // pixel so hairline borders never disappear.
                 let width_of = |value: f32| {
@@ -377,6 +405,128 @@ fn blend_glyph(
     }
 }
 
+fn scale_radius(radius: &Corners<f32>, scale: f32) -> Corners<f32> {
+    Corners {
+        top_left: radius.top_left * scale,
+        top_right: radius.top_right * scale,
+        bottom_right: radius.bottom_right * scale,
+        bottom_left: radius.bottom_left * scale,
+    }
+}
+
+/// Antialiased coverage of a point inside a rounded rectangle:
+/// 1 inside, 0 outside, a ~1px ramp at curved corners.
+fn rounded_coverage(rect: &Rect, radius: &Corners<f32>, x: f32, y: f32) -> f32 {
+    if x < rect.x || x >= rect.x + rect.width || y < rect.y || y >= rect.y + rect.height {
+        return 0.0;
+    }
+    let corners = [
+        (
+            rect.x + radius.top_left,
+            rect.y + radius.top_left,
+            radius.top_left,
+        ),
+        (
+            rect.x + rect.width - radius.top_right,
+            rect.y + radius.top_right,
+            radius.top_right,
+        ),
+        (
+            rect.x + rect.width - radius.bottom_right,
+            rect.y + rect.height - radius.bottom_right,
+            radius.bottom_right,
+        ),
+        (
+            rect.x + radius.bottom_left,
+            rect.y + rect.height - radius.bottom_left,
+            radius.bottom_left,
+        ),
+    ];
+    for (index, (cx, cy, r)) in corners.iter().enumerate() {
+        if *r <= 0.0 {
+            continue;
+        }
+        let in_corner_cell = match index {
+            0 => x < *cx && y < *cy,
+            1 => x >= *cx && y < *cy,
+            2 => x >= *cx && y >= *cy,
+            _ => x < *cx && y >= *cy,
+        };
+        if in_corner_cell {
+            let distance = ((x - cx).powi(2) + (y - cy).powi(2)).sqrt();
+            return (r - distance + 0.5).clamp(0.0, 1.0);
+        }
+    }
+    1.0
+}
+
+/// Fills a rounded rectangle with antialiased corners.
+fn fill_rounded(framebuffer: &mut Framebuffer, rect: &Rect, radius: &Corners<f32>, color: u32) {
+    let radius = radius.clamped_to(rect.width, rect.height);
+    let x0 = (rect.x.max(0.0) as u32).min(framebuffer.width);
+    let y0 = (rect.y.max(0.0) as u32).min(framebuffer.height);
+    let x1 = ((rect.x + rect.width).ceil().max(0.0) as u32).min(framebuffer.width);
+    let y1 = ((rect.y + rect.height).ceil().max(0.0) as u32).min(framebuffer.height);
+    for pixel_y in y0..y1 {
+        for pixel_x in x0..x1 {
+            let coverage =
+                rounded_coverage(rect, &radius, pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
+            if coverage <= 0.0 {
+                continue;
+            }
+            let position = (pixel_y * framebuffer.width + pixel_x) as usize;
+            framebuffer.pixels[position] = blend(
+                framebuffer.pixels[position],
+                color,
+                (coverage * 255.0) as u8,
+            );
+        }
+    }
+}
+
+/// Fills the ring between a rounded rect and its inner inset.
+fn fill_rounded_ring(
+    framebuffer: &mut Framebuffer,
+    rect: &Rect,
+    radius: &Corners<f32>,
+    width: f32,
+    color: u32,
+) {
+    let radius = radius.clamped_to(rect.width, rect.height);
+    let inner = Rect {
+        x: rect.x + width,
+        y: rect.y + width,
+        width: (rect.width - 2.0 * width).max(0.0),
+        height: (rect.height - 2.0 * width).max(0.0),
+    };
+    let inner_radius = Corners {
+        top_left: (radius.top_left - width).max(0.0),
+        top_right: (radius.top_right - width).max(0.0),
+        bottom_right: (radius.bottom_right - width).max(0.0),
+        bottom_left: (radius.bottom_left - width).max(0.0),
+    };
+    let x0 = (rect.x.max(0.0) as u32).min(framebuffer.width);
+    let y0 = (rect.y.max(0.0) as u32).min(framebuffer.height);
+    let x1 = ((rect.x + rect.width).ceil().max(0.0) as u32).min(framebuffer.width);
+    let y1 = ((rect.y + rect.height).ceil().max(0.0) as u32).min(framebuffer.height);
+    for pixel_y in y0..y1 {
+        for pixel_x in x0..x1 {
+            let (px, py) = (pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
+            let coverage = rounded_coverage(rect, &radius, px, py)
+                - rounded_coverage(&inner, &inner_radius, px, py);
+            if coverage <= 0.0 {
+                continue;
+            }
+            let position = (pixel_y * framebuffer.width + pixel_x) as usize;
+            framebuffer.pixels[position] = blend(
+                framebuffer.pixels[position],
+                color,
+                (coverage * 255.0) as u8,
+            );
+        }
+    }
+}
+
 /// Nearest-neighbor blit of an RGBA image into `rect`, alpha-blended.
 fn blit_image(framebuffer: &mut Framebuffer, rect: &Rect, image: &crate::image::RasterImage) {
     if rect.width <= 0.0 || rect.height <= 0.0 || image.width == 0 || image.height == 0 {
@@ -432,6 +582,7 @@ mod tests {
                 height: 2.0,
             },
             color: RED,
+            radius: Corners::uniform(0.0),
         }];
         let framebuffer = rasterize(&commands, 10, 10, 0.0);
         assert_eq!(framebuffer.pixel(2, 3), 0x00ff_0000);
@@ -451,6 +602,7 @@ mod tests {
             },
             widths: EdgeSizes::uniform(1.0),
             colors: EdgeSizes::uniform(RED),
+            radius: Corners::uniform(0.0),
         }];
         let framebuffer = rasterize(&commands, 10, 10, 0.0);
         assert_eq!(framebuffer.pixel(0, 0), 0x00ff_0000);
@@ -468,6 +620,7 @@ mod tests {
                 height: 2.0,
             },
             color: RED,
+            radius: Corners::uniform(0.0),
         }];
         let unscrolled = rasterize(&commands, 10, 10, 0.0);
         assert_eq!(unscrolled.pixel(0, 0), 0x00ff_ffff);
@@ -506,12 +659,33 @@ mod tests {
                 height: 2.0,
             },
             color: RED,
+            radius: Corners::uniform(0.0),
         }];
         let framebuffer = rasterize_with(&commands, 20, 20, 0.0, 2.0, None);
         assert_eq!(framebuffer.pixel(4, 2), 0x00ff_0000);
         assert_eq!(framebuffer.pixel(9, 5), 0x00ff_0000); // exclusive at 10,6
         assert_eq!(framebuffer.pixel(10, 2), 0x00ff_ffff);
         assert_eq!(framebuffer.pixel(3, 2), 0x00ff_ffff);
+    }
+
+    #[test]
+    fn rounded_fill_leaves_corners_unpainted() {
+        let commands = vec![DisplayCommand::FillRect {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 20.0,
+                height: 20.0,
+            },
+            color: RED,
+            radius: Corners::uniform(8.0),
+        }];
+        let framebuffer = rasterize(&commands, 20, 20, 0.0);
+        // Extreme corner pixel is outside the 8px arc, center is inside.
+        assert_eq!(framebuffer.pixel(0, 0), 0x00ff_ffff);
+        assert_eq!(framebuffer.pixel(10, 10), 0x00ff_0000);
+        // On the arc's midpoint the edge is inside.
+        assert_eq!(framebuffer.pixel(3, 3), 0x00ff_0000);
     }
 
     #[test]
@@ -524,6 +698,7 @@ mod tests {
                 height: 100.0,
             },
             color: RED,
+            radius: Corners::uniform(0.0),
         }];
         let framebuffer = rasterize(&commands, 4, 4, 0.0);
         assert!(framebuffer.pixels.iter().all(|pixel| *pixel == 0x00ff_0000));

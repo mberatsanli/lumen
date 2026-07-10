@@ -38,6 +38,48 @@ impl<T: Copy> EdgeSizes<T> {
 /// Resolved per-edge pixel values.
 pub type Edges = EdgeSizes<f32>;
 
+/// Per-corner values (border radii), clockwise from top-left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Corners<T> {
+    pub top_left: T,
+    pub top_right: T,
+    pub bottom_right: T,
+    pub bottom_left: T,
+}
+
+impl<T: Copy> Corners<T> {
+    pub const fn uniform(value: T) -> Self {
+        Self {
+            top_left: value,
+            top_right: value,
+            bottom_right: value,
+            bottom_left: value,
+        }
+    }
+}
+
+impl Corners<f32> {
+    #[must_use]
+    pub fn is_zero(&self) -> bool {
+        self.top_left <= 0.0
+            && self.top_right <= 0.0
+            && self.bottom_right <= 0.0
+            && self.bottom_left <= 0.0
+    }
+
+    /// Radii clamped so opposite corners never overlap.
+    #[must_use]
+    pub fn clamped_to(&self, width: f32, height: f32) -> Self {
+        let cap = (width / 2.0).min(height / 2.0).max(0.0);
+        Self {
+            top_left: self.top_left.clamp(0.0, cap),
+            top_right: self.top_right.clamp(0.0, cap),
+            bottom_right: self.bottom_right.clamp(0.0, cap),
+            bottom_left: self.bottom_left.clamp(0.0, cap),
+        }
+    }
+}
+
 impl Rect {
     /// This rectangle grown outward by `edges`.
     #[must_use]
