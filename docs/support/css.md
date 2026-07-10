@@ -86,7 +86,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `border-style` | ❌ | ✅ | ✅ | ✅ | always renders solid |
 | `border` shorthand | ❌ | ✅ | ✅ | ✅ | |
 | `border-radius` | ❌ | ✅ | ✅ | ✅ | |
-| `box-sizing` | ❌ | ✅ | ✅ | ✅ | always content-box |
+| `box-sizing` | ✅ | ✅ | ✅ | ✅ | border-box and content-box |
 | `outline` | ❌ | ✅ | ✅ | ✅ | |
 | `box-shadow` | ❌ | ✅ | ✅ | ✅ | |
 | Margin collapsing | ❌ | ✅ | ✅ | ✅ | deliberate; adjacent margins add up |

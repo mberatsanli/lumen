@@ -10,7 +10,7 @@
 use crate::geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
 use crate::image::ImageMap;
 use crate::inline::{LineBox, layout_inline_run};
-use crate::style::{ComputedStyle, Dimension, Display, StyleMap};
+use crate::style::{BoxSizing, ComputedStyle, Dimension, Display, StyleMap};
 use crate::text::TextMeasurer;
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::fmt::Write as _;
@@ -242,11 +242,18 @@ fn layout_element(
     let border = style.border_width;
     let padding = resolve_edges(&style.padding, containing_width, viewport);
 
-    // Phase 1: width. Explicit widths set the content box; auto fills the
-    // containing block minus margins, borders and paddings.
+    // Phase 1: width. Explicit widths set the content box (or, with
+    // box-sizing: border-box, the border box — content shrinks by padding
+    // and border); auto fills the containing block minus all box edges.
     let content_width = style
         .width
         .resolve(containing_width, viewport)
+        .map(|specified| match style.box_sizing {
+            BoxSizing::ContentBox => specified,
+            BoxSizing::BorderBox => {
+                (specified - border.left - border.right - padding.left - padding.right).max(0.0)
+            }
+        })
         .unwrap_or_else(|| {
             (containing_width
                 - margin.left
@@ -353,12 +360,19 @@ fn layout_element(
     }
     flush_run(&mut run, &mut child_cursor_y, &mut children);
 
-    // Phase 5: height. Explicit heights win; auto grows from the children.
-    // Percent heights are unsupported and treated as auto; vh works.
+    // Phase 5: height. Explicit heights win (border-box heights shrink by
+    // vertical padding and border); auto grows from the children. Percent
+    // heights are unsupported and treated as auto; vh works.
     let content_height = match style.height {
         Dimension::Auto | Dimension::Percent(_) => (child_cursor_y - content_y).max(0.0),
         explicit => explicit
             .resolve(containing_width, viewport)
+            .map(|specified| match style.box_sizing {
+                BoxSizing::ContentBox => specified,
+                BoxSizing::BorderBox => {
+                    (specified - border.top - border.bottom - padding.top - padding.bottom).max(0.0)
+                }
+            })
             .unwrap_or_else(|| (child_cursor_y - content_y).max(0.0)),
     };
 
@@ -848,6 +862,46 @@ mod tests {
         // Nothing specified → intrinsic size.
         assert_eq!(boxes[2].content_box().width, 100.0);
         assert_eq!(boxes[2].content_box().height, 50.0);
+    }
+
+    #[test]
+    fn border_box_sizing_shrinks_the_content_box() {
+        let layout = layout_of(
+            "<style>
+                div { box-sizing: border-box; width: 200px; height: 100px;
+                      padding: 20px; border-width: 5px; }
+             </style><div></div>",
+        );
+        let div = &layout.children[0];
+        // width/height name the border box.
+        assert_eq!(div.border_box().width, 200.0);
+        assert_eq!(div.border_box().height, 100.0);
+        assert_eq!(div.content_box().width, 150.0);
+        assert_eq!(div.content_box().height, 50.0);
+    }
+
+    #[test]
+    fn content_box_sizing_adds_edges_outside() {
+        let layout = layout_of(
+            "<style>
+                div { width: 200px; height: 100px; padding: 20px; border-width: 5px; }
+             </style><div></div>",
+        );
+        let div = &layout.children[0];
+        assert_eq!(div.content_box().width, 200.0);
+        assert_eq!(div.border_box().width, 250.0);
+        assert_eq!(div.border_box().height, 150.0);
+    }
+
+    #[test]
+    fn border_box_never_goes_negative() {
+        let layout = layout_of(
+            "<style>div { box-sizing: border-box; width: 10px; padding: 20px; height: 5px; }\
+             </style><div></div>",
+        );
+        let div = &layout.children[0];
+        assert_eq!(div.content_box().width, 0.0);
+        assert_eq!(div.border_box().width, 40.0); // padding only
     }
 
     #[test]

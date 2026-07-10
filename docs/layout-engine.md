@@ -16,8 +16,9 @@ struct Dimensions {
 ```
 
 Helpers `padding_box()`, `border_box()`, `margin_box()` expand outward from
-the content rect. `width`/`height` in CSS refer to the **content box**
-(`box-sizing: content-box` semantics only).
+the content rect. `width`/`height` refer to the content box by default;
+`box-sizing: border-box` makes them name the border box (the content
+shrinks by padding and border, floored at zero).
 
 `LayoutBox` carries `box_type` (`Block`, `Inline`, `AnonymousBlock`,
 `Replaced` — the last two are not generated yet), a `kind` (element tag or

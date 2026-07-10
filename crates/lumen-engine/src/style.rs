@@ -86,6 +86,16 @@ pub enum TextAlign {
     Right,
 }
 
+/// What `width`/`height` refer to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BoxSizing {
+    /// The content box (CSS initial value).
+    #[default]
+    ContentBox,
+    /// The border box: content shrinks by padding and border.
+    BorderBox,
+}
+
 /// Fully resolved style for one node. All fields are typed; nothing needs
 /// re-parsing during layout or paint.
 #[derive(Debug, Clone, PartialEq)]
@@ -109,6 +119,7 @@ pub struct ComputedStyle {
     pub underline: bool,
     /// `font-style: italic` (rendered as a synthetic shear).
     pub italic: bool,
+    pub box_sizing: BoxSizing,
 }
 
 pub const DEFAULT_FONT_SIZE: f32 = 16.0;
@@ -134,6 +145,7 @@ impl Default for ComputedStyle {
             text_align: TextAlign::Left,
             underline: false,
             italic: false,
+            box_sizing: BoxSizing::default(),
         }
     }
 }
@@ -456,6 +468,11 @@ fn to_computed(
         raw.get("font-style").and_then(CssValue::as_keyword),
         Some("italic" | "oblique")
     );
+
+    style.box_sizing = match raw.get("box-sizing").and_then(CssValue::as_keyword) {
+        Some("border-box") => BoxSizing::BorderBox,
+        _ => BoxSizing::ContentBox,
+    };
 
     style.text_align = raw
         .get("text-align")

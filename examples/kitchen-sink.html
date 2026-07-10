@@ -48,6 +48,10 @@
     .fixed { width: 200px; height: 2em; background-color: #d4dcec; }
     .push-right { width: 160px; margin-left: auto; height: 24px;
                   background-color: #e8d3e0; }
+    .bb, .cb { width: 200px; height: 40px; padding: 12px;
+               border-width: 3px; border-color: #a05232; }
+    .bb { box-sizing: border-box; background-color: #e4ecdf; }
+    .cb { background-color: #f3e3de; }
 
     /* --- typography ----------------------------------------------------- */
     .big-line { line-height: 2.5; background-color: #fdf6e3; }
@@ -112,6 +116,8 @@
     <div class="fixed"><p>200px × 2em box.</p></div>
     <div class="push-right"></div>
     <p class="muted right">↑ margin-left: auto pushes that box right.</p>
+    <div class="bb"><p>border-box: 200px includes padding+border.</p></div>
+    <div class="cb"><p>content-box: same declarations, wider box.</p></div>
   </div>
 
   <div class="section">
