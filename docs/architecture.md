@@ -10,7 +10,8 @@ lumen-css -----/                    lumen-desktop
 lumen-platform ------------------> lumen-desktop
 ```
 
-The engine pipeline is split into four phases:
+Inside `lumen-engine`, the pipeline is split into modules
+(`style`, `layout`, `paint`, `svg`, `geometry`, `text`) with four phases:
 
 1. **Parse:** HTML becomes an arena-based DOM; CSS becomes rules and declarations.
 2. **Style:** selectors are matched, specificity is calculated and computed properties are built.

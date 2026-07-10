@@ -2,69 +2,99 @@
 
 Lumen is an experimental browser engine written from scratch in Rust.
 
-It implements a small but complete rendering pipeline:
+It is **educational**: the HTML parser, CSS parser, style system, layout
+engine and paint pipeline are all implemented in this repository, on
+purpose, instead of using production libraries — so the core algorithms
+stay visible and understandable. It is not, and does not aim to be,
+standards-compliant.
+
+## Pipeline
 
 ```text
-HTML source -> tokenizer -> DOM -> CSS parser -> cascade -> block layout
-            -> display list -> SVG renderer
+HTML source -> tokenizer -> DOM ─┐
+                                 ├-> cascade -> computed styles
+embedded CSS  -> CSS parser ─────┘        |
+                                          v
+                        block layout (box model, line boxes)
+                                          |
+                                          v
+                            display list -> SVG renderer
 ```
 
-The project is educational. It intentionally avoids production HTML/CSS parser and layout
-libraries so the core algorithms remain visible and understandable.
+## Implemented
 
-## Current features
+- State-machine HTML tokenizer (WHATWG-style states, comments, doctype,
+  character references, raw-text elements) with lenient error recovery
+- Arena-based DOM with traversal and attribute helpers
+- CSS parser with typed values (`px`, `%`, colors, keywords), selector
+  lists, compound and descendant selectors, shorthand expansion
+- Structural specificity and origin-aware cascade (UA < author < inline)
+- Inheritance (color, font-size, font-weight, line-height, text-align)
+- Typed computed styles — no string parsing during layout
+- CSS box model (content/padding/border/margin) with exact geometry
+- Vertical block layout: auto and explicit widths/heights, percentages
+  against the containing block, borders taking real space
+- Text layout: whitespace collapsing, greedy word wrap into line boxes,
+  `text-align`, pluggable `TextMeasurer` (heuristic metrics by default)
+- Display list (`FillRect`, `StrokeRect`, `DrawText`) with defined paint
+  order and deterministic SVG output
+- CLI that inspects every pipeline stage
+- Golden-file SVG tests and 100+ unit/integration tests
 
-- Arena-based DOM representation
-- HTML start tags, end tags, text nodes and attributes
-- CSS tag, class and ID selectors
-- Selector specificity and basic cascade
-- Basic inherited text properties
-- Vertical block layout
-- Width, height, margin, padding and background colors
-- Text display commands
-- SVG output for visual inspection
-- CLI commands for parsing, layout dumps and rendering
-- Unit and integration tests
+## Not implemented (yet or on purpose)
+
+JavaScript, inline flow (inline elements still stack vertically), margin
+collapsing, flexbox/grid, images, real font metrics, networking, `@media`
+and other at-rules, `!important`, `em`/`rem` units.
 
 ## Quick start
 
 ```bash
 cargo test --workspace
-cargo run -p lumen-cli -- render examples/card.html /tmp/lumen-card.svg
+cargo run -p lumen-cli -- render examples/card.html output/card.svg
+open output/card.svg
 ```
 
-Then open `/tmp/lumen-card.svg` in a browser.
-
-Other commands:
+## CLI
 
 ```bash
-cargo run -p lumen-cli -- parse-html examples/card.html
-cargo run -p lumen-cli -- parse-css fixtures/css/card.css
-cargo run -p lumen-cli -- dump-layout examples/card.html
+cargo run -p lumen-cli -- parse-html <file>          # token stream
+cargo run -p lumen-cli -- parse-css <file>           # stylesheet rules
+cargo run -p lumen-cli -- dump-dom <file>            # DOM tree
+cargo run -p lumen-cli -- dump-style <file>          # computed styles
+cargo run -p lumen-cli -- dump-layout <file>         # box geometry
+cargo run -p lumen-cli -- dump-display-list <file>   # paint commands
+cargo run -p lumen-cli -- render <file> <out.svg>    # SVG output
 ```
 
 ## Workspace
 
 ```text
-crates/lumen-html      HTML tokenizer, parser and DOM
-crates/lumen-css       CSS parser and selector model
-crates/lumen-engine    Styling, layout, display list and SVG rendering
-crates/lumen-platform  Platform abstraction placeholder
-apps/lumen-cli         Developer CLI
-apps/lumen-desktop     Desktop application placeholder
+crates/lumen-html      HTML tokenizer, tree builder and DOM
+crates/lumen-css       CSS parser, typed values and selector model
+crates/lumen-engine    style system, layout, display list, SVG renderer
+crates/lumen-platform  platform abstraction (window surface placeholder)
+apps/lumen-cli         developer CLI
+apps/lumen-desktop     desktop shell (planned)
 ```
+
+Architecture details: [docs/architecture.md](docs/architecture.md), decision
+records under [docs/adr/](docs/adr/).
+
+## Examples
+
+Three demo pages live in `examples/`: `hello.html`, `card.html` and
+`nested.html`. Their golden SVG renders are committed under
+`crates/lumen-engine/tests/golden/` and verified in CI.
 
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md).
 
-## Known limitations
+## Contributing
 
-- The HTML parser is not WHATWG compliant.
-- Only simple selectors are supported.
-- Layout is vertical block flow only.
-- Text measurement is approximate.
-- JavaScript, images, networking, flexbox and grid are intentionally not included yet.
+See [CONTRIBUTING.md](CONTRIBUTING.md). CI requires `cargo fmt --check`,
+`cargo clippy -D warnings` and `cargo test` to pass.
 
 ## License
 

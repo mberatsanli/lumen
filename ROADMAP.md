@@ -1,44 +1,45 @@
 # Roadmap
 
-## v0.1 — Core pipeline
+## v0.1 — Core pipeline (done)
 
-- [x] HTML tokenizer
-- [x] DOM tree builder
-- [x] CSS parser
-- [x] Selector matching and specificity
-- [x] Computed styles
+- [x] State-machine HTML tokenizer
+- [x] DOM tree builder with recovery
+- [x] CSS parser with typed values
+- [x] Compound/descendant selectors, structural specificity
+- [x] Origin-aware cascade and inheritance
+- [x] Typed computed styles
+- [x] CSS box model with borders
 - [x] Vertical block layout
-- [x] Display list
-- [x] SVG output
-- [x] CLI and tests
+- [x] Text wrapping and line boxes
+- [x] Display list (fill, stroke, text)
+- [x] SVG output with golden tests
+- [x] CLI for every pipeline stage
 
-## v0.2 — Better rendering
+## v0.2 — Resources and navigation
 
-- [ ] Borders and border radius
-- [ ] Inline layout and line wrapping
-- [ ] Real font metrics
-- [ ] Pixel-buffer rasterizer
-- [ ] Visual regression tests
-
-## v0.3 — Navigation
-
-- [ ] URL parser
-- [ ] HTTP/1.1 client
+- [ ] ResourceLoader abstraction (file + HTTP)
+- [ ] External stylesheets (`<link rel="stylesheet">`)
 - [ ] Relative URL resolution
-- [ ] Link hit testing
-- [ ] Back, forward and refresh
+- [ ] Page/session model: load, refresh, back, forward
 
-## v0.4 — Desktop shell
+## v0.3 — Desktop shell
 
-- [ ] Native window
-- [ ] Address bar
-- [ ] Scrolling
-- [ ] Resize and relayout
-- [ ] DOM/layout inspector
+- [ ] Native window (winit)
+- [ ] Software rasterizer for the display list
+- [ ] Real font metrics behind TextMeasurer
+- [ ] Scrolling, resize and relayout
+- [ ] Address bar / file open
+
+## v0.4 — Better rendering
+
+- [ ] Inline flow and shared line boxes
+- [ ] Margin collapsing
+- [ ] Images (replaced boxes)
+- [ ] Border radius
+- [ ] Visual regression tests on pixels
 
 ## Future experiments
 
-- [ ] Images
 - [ ] Forms
 - [ ] Small JavaScript interpreter
-- [ ] Multi-process resource loading
+- [ ] DOM/layout inspector
