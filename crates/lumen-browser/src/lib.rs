@@ -5,7 +5,7 @@
 //! separate from rendering: the engine knows nothing about URLs, and this
 //! crate knows nothing about painting beyond handing back a [`Page`].
 
-use lumen_engine::{Page, Size, build_page};
+use lumen_engine::{HeuristicMeasurer, Page, Size, TextMeasurer, build_page_with_measurer};
 use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, Url, resolve};
 
 /// One browsing context with linear history.
@@ -15,6 +15,7 @@ use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, Url, resolve};
 pub struct Session<L: ResourceLoader> {
     loader: L,
     viewport: Size,
+    measurer: Box<dyn TextMeasurer>,
     history: Vec<Url>,
     /// Index of the current entry in `history`, if any page is loaded.
     index: Option<usize>,
@@ -27,10 +28,21 @@ impl<L: ResourceLoader> Session<L> {
         Self {
             loader,
             viewport,
+            measurer: Box::new(HeuristicMeasurer),
             history: Vec::new(),
             index: None,
             page: None,
         }
+    }
+
+    /// Replaces the text measurer (e.g. with real font metrics) and
+    /// relayouts the current page if one is loaded.
+    pub fn set_measurer(&mut self, measurer: Box<dyn TextMeasurer>) -> Result<(), LoadError> {
+        self.measurer = measurer;
+        if self.index.is_some() {
+            self.refresh()?;
+        }
+        Ok(())
     }
 
     /// Navigates to `url`: fetches, renders, pushes a history entry and
@@ -122,7 +134,11 @@ impl<L: ResourceLoader> Session<L> {
     /// redirects (which is what history should record).
     fn fetch_and_render(&mut self, url: Url) -> Result<Url, LoadError> {
         let response = self.loader.load(&ResourceRequest { url })?;
-        self.page = Some(build_page(&response.text(), self.viewport));
+        self.page = Some(build_page_with_measurer(
+            &response.text(),
+            self.viewport,
+            self.measurer.as_ref(),
+        ));
         Ok(response.final_url)
     }
 }

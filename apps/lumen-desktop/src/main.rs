@@ -13,7 +13,8 @@
 //! `[` / `]` go back / forward.
 
 use lumen_browser::Session;
-use lumen_engine::{Size, rasterize};
+use lumen_engine::{Size, SystemFont, rasterize_with};
+use lumen_engine::{TextMeasurer, TextMetrics, TextStyle};
 use lumen_platform::{DefaultLoader, url_from_user_input};
 use std::num::NonZeroU32;
 use std::rc::Rc;
@@ -46,9 +47,21 @@ fn main() {
     }
 }
 
+/// Shares one loaded font between the session's measurer and the
+/// rasterizer.
+#[derive(Clone)]
+struct SharedFont(Rc<SystemFont>);
+
+impl TextMeasurer for SharedFont {
+    fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics {
+        self.0.measure(text, style)
+    }
+}
+
 struct App {
     input: String,
     session: Session<DefaultLoader>,
+    font: Option<Rc<SystemFont>>,
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     scroll_y: f32,
@@ -56,15 +69,25 @@ struct App {
 
 impl App {
     fn new(input: String) -> Self {
+        let font = SystemFont::load_default().map(Rc::new);
+        if font.is_none() {
+            eprintln!("note: no system font found, using the built-in bitmap font");
+        }
+        let mut session = Session::new(
+            DefaultLoader,
+            Size {
+                width: 1024.0,
+                height: 768.0,
+            },
+        );
+        if let Some(font) = &font {
+            // No page is loaded yet, so this cannot fail.
+            let _ = session.set_measurer(Box::new(SharedFont(font.clone())));
+        }
         Self {
             input,
-            session: Session::new(
-                DefaultLoader,
-                Size {
-                    width: 1024.0,
-                    height: 768.0,
-                },
-            ),
+            session,
+            font,
             window: None,
             surface: None,
             scroll_y: 0.0,
@@ -130,10 +153,15 @@ impl App {
             return;
         }
 
-        let framebuffer = self
-            .session
-            .page()
-            .map(|page| rasterize(&page.display_list, size.width, size.height, self.scroll_y));
+        let framebuffer = self.session.page().map(|page| {
+            rasterize_with(
+                &page.display_list,
+                size.width,
+                size.height,
+                self.scroll_y,
+                self.font.as_deref(),
+            )
+        });
         let Ok(mut buffer) = surface.buffer_mut() else {
             return;
         };

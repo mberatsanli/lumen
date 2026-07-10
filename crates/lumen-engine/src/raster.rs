@@ -6,6 +6,7 @@
 //! Glyph cells are half an em wide to match [`crate::HeuristicMeasurer`],
 //! so painted text agrees with layout's line breaking.
 
+use crate::font::SystemFont;
 use crate::geometry::Rect;
 use crate::paint::DisplayCommand;
 use font8x8::UnicodeFonts;
@@ -52,7 +53,8 @@ const fn pack(color: Color) -> u32 {
     ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
 }
 
-/// Rasterizes paint commands into a fresh white framebuffer.
+/// Rasterizes paint commands into a fresh white framebuffer using the
+/// built-in bitmap font for text.
 ///
 /// `scroll_y` shifts all content upward, so the visible window shows the
 /// page from that offset down.
@@ -62,6 +64,19 @@ pub fn rasterize(
     width: u32,
     height: u32,
     scroll_y: f32,
+) -> Framebuffer {
+    rasterize_with(commands, width, height, scroll_y, None)
+}
+
+/// Like [`rasterize`], but draws text with a real scalable font (with
+/// anti-aliased coverage blending) when one is provided.
+#[must_use]
+pub fn rasterize_with(
+    commands: &[DisplayCommand],
+    width: u32,
+    height: u32,
+    scroll_y: f32,
+    font: Option<&SystemFont>,
 ) -> Framebuffer {
     let mut framebuffer = Framebuffer::new(width, height);
     let shift = |rect: &Rect| Rect {
@@ -114,8 +129,18 @@ pub fn rasterize(
                 color,
                 font_size,
                 font_weight,
-            } => {
-                draw_text(
+            } => match font {
+                Some(font) => draw_text_scalable(
+                    &mut framebuffer,
+                    font,
+                    *x,
+                    y - scroll_y,
+                    text,
+                    pack(*color),
+                    *font_size,
+                    *font_weight,
+                ),
+                None => draw_text(
                     &mut framebuffer,
                     *x,
                     y - scroll_y,
@@ -123,8 +148,8 @@ pub fn rasterize(
                     pack(*color),
                     *font_size,
                     *font_weight,
-                );
-            }
+                ),
+            },
         }
     }
     framebuffer
@@ -203,6 +228,89 @@ fn draw_glyph(
             }
         }
     }
+}
+
+/// Draws a text run with a scalable font; `y` is the baseline. Glyph
+/// coverage is alpha-blended onto the framebuffer. Weights ≥ 600 get a 1px
+/// double-strike (single-face fonts have no real bold).
+#[allow(clippy::too_many_arguments)]
+fn draw_text_scalable(
+    framebuffer: &mut Framebuffer,
+    font: &SystemFont,
+    x: f32,
+    y: f32,
+    text: &str,
+    color: u32,
+    font_size: f32,
+    font_weight: u16,
+) {
+    let mut pen_x = x;
+    let bold = font_weight >= 600;
+    for character in text.chars() {
+        let (metrics, coverage) = font.rasterize(character, font_size);
+        let glyph_x = pen_x + metrics.xmin as f32;
+        let glyph_y = y - metrics.ymin as f32 - metrics.height as f32;
+        blend_glyph(
+            framebuffer,
+            &coverage,
+            metrics.width,
+            glyph_x,
+            glyph_y,
+            color,
+        );
+        if bold {
+            blend_glyph(
+                framebuffer,
+                &coverage,
+                metrics.width,
+                glyph_x + 1.0,
+                glyph_y,
+                color,
+            );
+        }
+        pen_x += metrics.advance_width;
+    }
+}
+
+fn blend_glyph(
+    framebuffer: &mut Framebuffer,
+    coverage: &[u8],
+    glyph_width: usize,
+    origin_x: f32,
+    origin_y: f32,
+    color: u32,
+) {
+    if glyph_width == 0 {
+        return;
+    }
+    for (index, alpha) in coverage.iter().enumerate() {
+        if *alpha == 0 {
+            continue;
+        }
+        let pixel_x = origin_x + (index % glyph_width) as f32;
+        let pixel_y = origin_y + (index / glyph_width) as f32;
+        if pixel_x < 0.0 || pixel_y < 0.0 {
+            continue;
+        }
+        let (pixel_x, pixel_y) = (pixel_x as u32, pixel_y as u32);
+        if pixel_x >= framebuffer.width || pixel_y >= framebuffer.height {
+            continue;
+        }
+        let position = (pixel_y * framebuffer.width + pixel_x) as usize;
+        framebuffer.pixels[position] = blend(framebuffer.pixels[position], color, *alpha);
+    }
+}
+
+/// Linear interpolation of two 0RGB pixels by an 8-bit alpha.
+fn blend(background: u32, foreground: u32, alpha: u8) -> u32 {
+    let alpha = u32::from(alpha);
+    let inverse = 255 - alpha;
+    let channel = |shift: u32| {
+        let back = (background >> shift) & 0xff;
+        let front = (foreground >> shift) & 0xff;
+        ((front * alpha + back * inverse) / 255) << shift
+    };
+    channel(16) | channel(8) | channel(0)
 }
 
 #[cfg(test)]

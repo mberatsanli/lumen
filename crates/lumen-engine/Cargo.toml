@@ -8,6 +8,7 @@ license.workspace = true
 lumen-html = { path = "../lumen-html" }
 lumen-css = { path = "../lumen-css" }
 font8x8 = "0.3"
+fontdue = "0.9"
 
 [lints]
 workspace = true

@@ -3,6 +3,7 @@
 //! [`build_page`] runs the full pipeline over an HTML string; the
 //! intermediate results are all inspectable on the returned [`Page`].
 
+pub mod font;
 pub mod geometry;
 pub mod layout;
 pub mod paint;
@@ -11,10 +12,11 @@ pub mod style;
 pub mod svg;
 pub mod text;
 
+pub use font::SystemFont;
 pub use geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
 pub use layout::{BoxType, LayoutBox, LayoutKind, dump_layout, layout_document};
 pub use paint::{DisplayCommand, build_display_list};
-pub use raster::{Framebuffer, rasterize};
+pub use raster::{Framebuffer, rasterize, rasterize_with};
 pub use style::{
     ComputedStyle, Dimension, Display, FontWeight, StyleMap, TextAlign, compute_styles,
 };
@@ -42,10 +44,17 @@ pub struct Page {
 /// do, so every input produces a page.
 #[must_use]
 pub fn build_page(html: &str, viewport: Size) -> Page {
+    build_page_with_measurer(html, viewport, &HeuristicMeasurer)
+}
+
+/// [`build_page`] with an explicit text measurer (e.g. a real font via
+/// [`SystemFont`]) so layout wraps text with true glyph widths.
+#[must_use]
+pub fn build_page_with_measurer(html: &str, viewport: Size, measurer: &dyn TextMeasurer) -> Page {
     let document = lumen_html::parse_document(html);
     let stylesheet = lumen_css::parse_stylesheet(&extract_embedded_css(&document));
     let styles = compute_styles(&document, &stylesheet);
-    let layout = layout_document(&document, &styles, viewport, &HeuristicMeasurer);
+    let layout = layout_document(&document, &styles, viewport, measurer);
     let display_list = build_display_list(&layout);
 
     Page {
