@@ -113,17 +113,22 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
     declarations
 }
 
-/// Expands `margin`/`padding` shorthands into longhands; every other
-/// property keeps its first component (multi-value forms are unsupported).
+/// Expands `margin`/`padding`/`border-width` shorthands into longhands;
+/// every other property keeps its first component (multi-value forms of
+/// other properties are unsupported).
 fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Vec<Declaration>) {
+    let longhand = |side: &str| match name {
+        "border-width" => format!("border-{side}-width"),
+        _ => format!("{name}-{side}"),
+    };
     match name {
-        "margin" | "padding" => {
+        "margin" | "padding" | "border-width" => {
             let Some(edges) = edge_values(&components) else {
                 return;
             };
-            for (suffix, value) in ["top", "right", "bottom", "left"].iter().zip(edges) {
+            for (side, value) in ["top", "right", "bottom", "left"].iter().zip(edges) {
                 output.push(Declaration {
-                    name: format!("{name}-{suffix}"),
+                    name: longhand(side),
                     value,
                 });
             }
@@ -216,6 +221,25 @@ mod tests {
             expect("margin-bottom", *bottom);
             expect("margin-left", *left);
         }
+    }
+
+    #[test]
+    fn expands_border_width_shorthand() {
+        let declarations = parse_declarations("border-width: 1px 2px");
+        let names: Vec<&str> = declarations
+            .iter()
+            .map(|declaration| declaration.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "border-top-width",
+                "border-right-width",
+                "border-bottom-width",
+                "border-left-width"
+            ]
+        );
+        assert_eq!(declarations[1].value, px(2.0));
     }
 
     #[test]
