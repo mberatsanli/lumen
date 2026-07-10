@@ -111,10 +111,28 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
     declarations
 }
 
-/// Expands `margin`/`padding`/`border-width` shorthands into longhands;
-/// every other property keeps its first component (multi-value forms of
-/// other properties are unsupported).
+/// Expands `margin`/`padding`/`border-width` shorthands into longhands and
+/// `background` to `background-color`; every other property keeps its first
+/// component (multi-value forms of other properties are unsupported).
 fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Vec<Declaration>) {
+    if name == "background" {
+        // Only the color part of the shorthand is supported: pick the first
+        // color (or `transparent`/`none` keyword) and ignore the rest.
+        let color = components.iter().find_map(|component| match component {
+            CssValue::Color(_) => Some(component.clone()),
+            CssValue::Keyword(keyword) if keyword == "transparent" || keyword == "none" => {
+                Some(CssValue::Keyword("transparent".to_string()))
+            }
+            _ => None,
+        });
+        if let Some(value) = color {
+            output.push(Declaration {
+                name: "background-color".to_string(),
+                value,
+            });
+        }
+        return;
+    }
     let longhand = |side: &str| match name {
         "border-width" => format!("border-{side}-width"),
         _ => format!("{name}-{side}"),
@@ -308,6 +326,20 @@ mod tests {
         let sheet = parse_stylesheet("p { color: red;");
         assert_eq!(sheet.rules.len(), 1);
         assert_eq!(sheet.rules[0].declarations.len(), 1);
+    }
+
+    #[test]
+    fn background_shorthand_keeps_only_the_color() {
+        let declarations = parse_declarations("background: #fdfcff left top no-repeat");
+        assert_eq!(declarations.len(), 1);
+        assert_eq!(declarations[0].name, "background-color");
+        assert_eq!(
+            declarations[0].value,
+            CssValue::Color(Color::rgb(0xfd, 0xfc, 0xff))
+        );
+        let none = parse_declarations("background: none");
+        assert_eq!(none[0].value, CssValue::Keyword("transparent".to_string()));
+        assert!(parse_declarations("background: url(x.png)").is_empty());
     }
 
     #[test]
