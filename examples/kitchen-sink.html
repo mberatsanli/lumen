@@ -62,8 +62,13 @@
     /* --- display --------------------------------------------------------- */
     .ghost { display: none; background-color: red; }
 
+    /* --- interaction ------------------------------------------------- */
+    .hoverbox { background-color: #e8eef7; padding: 12px; }
+    .hoverbox:hover { background-color: #2266aa; color: white; }
+    a:hover { color: #b3261e; }
+
     /* unsupported things must be ignored, not break the page: */
-    .section:hover { background-color: red; }     /* pseudo drops rule */
+    .section:focus { background-color: red; }     /* unsupported pseudo drops rule */
     .broken { color: ; width }                    /* malformed declarations */
     .gradient { background: url(nope.png); }      /* unparseable value */
     @media (max-width: 500px) {                   /* at-rule skipped whole */
@@ -127,11 +132,17 @@
   </div>
 
   <div class="section">
+    <h2>Interaction</h2>
+    <div class="hoverbox"><p>Hover me — background flips blue, text goes white.</p></div>
+    <p><a href="hello.html">Hover turns this link red; click follows it.</a></p>
+  </div>
+
+  <div class="section">
     <h2>Resilience</h2>
     <p class="ghost">You must never see this (display: none).</p>
     <p class="broken">Malformed declarations were skipped; this still styles fine.</p>
     <p>The @media block above is red everywhere — and correctly ignored,
-    together with :hover and url() values. Parsing never fails.</p>
+    together with :focus and url() values. Parsing never fails.</p>
   </div>
 </body>
 </html>

@@ -19,9 +19,10 @@ use lumen_platform::{DefaultLoader, url_from_user_input};
 use std::num::NonZeroU32;
 use std::rc::Rc;
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
+use winit::window::CursorIcon;
 use winit::window::{Window, WindowId};
 
 const SCROLL_STEP: f32 = 48.0;
@@ -65,6 +66,8 @@ struct App {
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     scroll_y: f32,
+    /// Last cursor position in CSS pixels (page coordinates).
+    cursor: Option<(f32, f32)>,
 }
 
 impl App {
@@ -90,6 +93,7 @@ impl App {
             window: None,
             surface: None,
             scroll_y: 0.0,
+            cursor: None,
         }
     }
 
@@ -127,7 +131,42 @@ impl App {
 
     fn scroll_by(&mut self, delta: f32) {
         self.scroll_y = (self.scroll_y + delta).clamp(0.0, self.max_scroll());
+        self.update_hover();
         self.request_redraw();
+    }
+
+    /// Hit-tests the current cursor position, updates `:hover` styling and
+    /// the pointer shape, and redraws when the hovered node changed.
+    fn update_hover(&mut self) {
+        let hit = self.cursor.and_then(|(x, y)| {
+            self.session
+                .page()
+                .and_then(|page| page.layout.hit_test(x, y + self.scroll_y))
+        });
+        let over_link = hit.is_some_and(|node| self.session.link_target(node).is_some());
+        if let Some(window) = &self.window {
+            window.set_cursor(if over_link {
+                CursorIcon::Pointer
+            } else {
+                CursorIcon::Default
+            });
+        }
+        if self.session.set_hovered(hit) {
+            self.request_redraw();
+        }
+    }
+
+    fn click(&mut self) {
+        let Some(node) = self.cursor.and_then(|(x, y)| {
+            self.session
+                .page()
+                .and_then(|page| page.layout.hit_test(x, y + self.scroll_y))
+        }) else {
+            return;
+        };
+        if let Some(href) = self.session.link_target(node) {
+            self.navigate(|session| session.follow(&href).map(|_| ()));
+        }
     }
 
     fn request_redraw(&self) {
@@ -278,6 +317,22 @@ impl ApplicationHandler for App {
                 self.scroll_y = self.scroll_y.clamp(0.0, self.max_scroll());
                 self.request_redraw();
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                let scale = self.scale();
+                self.cursor = Some((position.x as f32 / scale, position.y as f32 / scale));
+                self.update_hover();
+            }
+            WindowEvent::CursorLeft { .. } => {
+                self.cursor = None;
+                if self.session.set_hovered(None) {
+                    self.request_redraw();
+                }
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => self.click(),
             WindowEvent::MouseWheel { delta, .. } => {
                 let amount = match delta {
                     MouseScrollDelta::LineDelta(_, lines) => -lines * SCROLL_STEP,

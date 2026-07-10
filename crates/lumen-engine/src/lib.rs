@@ -19,6 +19,7 @@ pub use paint::{DisplayCommand, build_display_list};
 pub use raster::{Framebuffer, rasterize, rasterize_with};
 pub use style::{
     ComputedStyle, Dimension, Display, FontWeight, StyleMap, TextAlign, compute_styles,
+    compute_styles_hovered,
 };
 pub use svg::render_svg;
 pub use text::{HeuristicMeasurer, Line, TextMeasurer, TextMetrics, TextStyle};
@@ -51,9 +52,22 @@ pub fn build_page(html: &str, viewport: Size) -> Page {
 /// [`SystemFont`]) so layout wraps text with true glyph widths.
 #[must_use]
 pub fn build_page_with_measurer(html: &str, viewport: Size, measurer: &dyn TextMeasurer) -> Page {
+    build_page_full(html, viewport, measurer, None)
+}
+
+/// The full-control pipeline entry: explicit measurer plus interaction
+/// state (`hovered` enables `:hover` rules for that node and its
+/// ancestors). Node ids are stable across rebuilds of the same source.
+#[must_use]
+pub fn build_page_full(
+    html: &str,
+    viewport: Size,
+    measurer: &dyn TextMeasurer,
+    hovered: Option<lumen_html::NodeId>,
+) -> Page {
     let document = lumen_html::parse_document(html);
     let stylesheet = lumen_css::parse_stylesheet(&extract_embedded_css(&document));
-    let styles = compute_styles(&document, &stylesheet);
+    let styles = compute_styles_hovered(&document, &stylesheet, hovered);
     let layout = layout_document(&document, &styles, viewport, measurer);
     let display_list = build_display_list(&layout);
 

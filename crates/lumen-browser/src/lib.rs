@@ -5,7 +5,8 @@
 //! separate from rendering: the engine knows nothing about URLs, and this
 //! crate knows nothing about painting beyond handing back a [`Page`].
 
-use lumen_engine::{HeuristicMeasurer, Page, Size, TextMeasurer, build_page_with_measurer};
+use lumen_engine::{HeuristicMeasurer, Page, Size, TextMeasurer, build_page_full};
+use lumen_html::NodeId;
 use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, Url, resolve};
 
 /// One browsing context with linear history.
@@ -23,6 +24,8 @@ pub struct Session<L: ResourceLoader> {
     /// HTML source of the current page, kept so viewport or measurer
     /// changes can relayout locally without hitting the network.
     source: Option<String>,
+    /// Node currently under the pointer, for `:hover` styling.
+    hovered: Option<NodeId>,
 }
 
 impl<L: ResourceLoader> Session<L> {
@@ -36,6 +39,7 @@ impl<L: ResourceLoader> Session<L> {
             index: None,
             page: None,
             source: None,
+            hovered: None,
         }
     }
 
@@ -103,12 +107,41 @@ impl<L: ResourceLoader> Session<L> {
         self.relayout();
     }
 
+    /// Updates the hovered node for `:hover` styling. Returns whether the
+    /// page was restyled (only when the hovered node actually changed).
+    /// No network access.
+    pub fn set_hovered(&mut self, node: Option<NodeId>) -> bool {
+        if self.hovered == node {
+            return false;
+        }
+        self.hovered = node;
+        self.relayout();
+        true
+    }
+
+    /// The nearest `<a href>` at or above `node`, for link hit testing.
+    #[must_use]
+    pub fn link_target(&self, node: NodeId) -> Option<String> {
+        let document = &self.page.as_ref()?.document;
+        std::iter::once(node)
+            .chain(document.ancestors(node))
+            .find_map(|candidate| {
+                let element = document.element(candidate)?;
+                if element.tag_name == "a" {
+                    element.attributes.get("href").map(str::to_string)
+                } else {
+                    None
+                }
+            })
+    }
+
     fn relayout(&mut self) {
         if let Some(source) = &self.source {
-            self.page = Some(build_page_with_measurer(
+            self.page = Some(build_page_full(
                 source,
                 self.viewport,
                 self.measurer.as_ref(),
+                self.hovered,
             ));
         }
     }
@@ -145,10 +178,12 @@ impl<L: ResourceLoader> Session<L> {
     fn fetch_and_render(&mut self, url: Url) -> Result<Url, LoadError> {
         let response = self.loader.load(&ResourceRequest { url })?;
         let source = response.text();
-        self.page = Some(build_page_with_measurer(
+        self.hovered = None; // New document, new node ids.
+        self.page = Some(build_page_full(
             &source,
             self.viewport,
             self.measurer.as_ref(),
+            None,
         ));
         self.source = Some(source);
         Ok(response.final_url)
@@ -286,6 +321,69 @@ mod tests {
         // The failed load did not become the current entry.
         assert_eq!(session.current_url().unwrap().as_str(), "https://a.test/");
         assert!(session.back().is_err());
+    }
+
+    #[test]
+    fn hover_restyles_locally_and_reports_changes() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>p:hover { color: #ff0000; }</style><p>hi</p>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let page = session.page().unwrap();
+        let p = page
+            .document
+            .descendants(page.document.root())
+            .find(|id| {
+                page.document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "p")
+            })
+            .unwrap();
+
+        assert!(session.set_hovered(Some(p)));
+        assert!(!session.set_hovered(Some(p))); // unchanged
+        let hovered_style = &session.page().unwrap().styles.by_node[&p];
+        assert_eq!(hovered_style.color, lumen_css::Color::rgb(255, 0, 0));
+        assert!(session.set_hovered(None));
+        // Initial load only; hover never touched the network.
+        assert_eq!(session.loader.loads.borrow().len(), 1);
+    }
+
+    #[test]
+    fn link_target_finds_nearest_anchor() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<div><a href='two'><span>go</span></a></div>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let page = session.page().unwrap();
+        let span = page
+            .document
+            .descendants(page.document.root())
+            .find(|id| {
+                page.document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "span")
+            })
+            .unwrap();
+        assert_eq!(session.link_target(span).as_deref(), Some("two"));
+        let div = page
+            .document
+            .descendants(page.document.root())
+            .find(|id| {
+                page.document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "div")
+            })
+            .unwrap();
+        assert_eq!(session.link_target(div), None);
     }
 
     #[test]

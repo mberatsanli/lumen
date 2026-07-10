@@ -23,8 +23,8 @@ pub struct CompoundSelector {
     pub tag: Option<String>,
     pub id: Option<String>,
     pub classes: Vec<String>,
-    /// Supported pseudo-classes (`link`, `visited`). They match anything
-    /// (Lumen has no visited state), but count toward specificity.
+    /// Supported pseudo-classes (`link`, `visited`, `hover`). They count
+    /// toward specificity like classes; `hover` matches dynamically.
     pub pseudo_classes: Vec<String>,
 }
 
@@ -82,8 +82,9 @@ pub fn parse_selector(source: &str) -> Option<Selector> {
     Some(Selector { compounds })
 }
 
-/// Pseudo-classes the engine can honestly treat as always-true.
-const SUPPORTED_PSEUDO_CLASSES: [&str; 2] = ["link", "visited"];
+/// Supported pseudo-classes. `link`/`visited` are treated as always-true
+/// (no visited state); `hover` matches against the engine's hover chain.
+const SUPPORTED_PSEUDO_CLASSES: [&str; 3] = ["link", "visited", "hover"];
 
 fn parse_compound(source: &str) -> Option<CompoundSelector> {
     let mut compound = CompoundSelector::default();
@@ -218,13 +219,14 @@ mod tests {
             }
         );
         assert!(parse_selector("a:visited").is_some());
+        assert!(parse_selector("a:hover").is_some());
+        assert!(parse_selector(".btn:hover").is_some());
     }
 
     #[test]
     fn rejects_unsupported_selectors() {
         assert!(parse_selector("").is_none());
         assert!(parse_selector("p > a").is_none());
-        assert!(parse_selector("a:hover").is_none());
         assert!(parse_selector(":link").is_none());
         assert!(parse_selector(".").is_none());
         assert!(parse_selector("#").is_none());

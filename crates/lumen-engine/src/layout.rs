@@ -58,6 +58,23 @@ impl LayoutBox {
     pub fn margin_box(&self) -> Rect {
         self.dimensions.margin_box()
     }
+
+    /// The deepest box under the point (page coordinates, CSS pixels),
+    /// checking later siblings first (paint order: they are on top).
+    #[must_use]
+    pub fn hit_test(&self, x: f32, y: f32) -> Option<NodeId> {
+        for child in self.children.iter().rev() {
+            if let Some(hit) = child.hit_test(x, y) {
+                return Some(hit);
+            }
+        }
+        let rect = self.border_box();
+        let inside =
+            x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
+        // The #document root is not a hit target.
+        (inside && !matches!(&self.kind, LayoutKind::Element(tag) if tag == "#document"))
+            .then_some(self.node_id)
+    }
 }
 
 /// Lays out the whole document against a viewport. Pure function of its

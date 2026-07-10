@@ -30,6 +30,7 @@ pub enum DisplayCommand {
         color: Color,
         font_size: f32,
         font_weight: u16,
+        underline: bool,
     },
 }
 
@@ -97,6 +98,7 @@ fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
                 color: layout.style.color,
                 font_size: layout.style.font_size,
                 font_weight: layout.style.font_weight.0,
+                underline: layout.style.underline,
             });
         }
     }
@@ -145,10 +147,12 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
                 color,
                 font_size,
                 font_weight,
+                underline,
             } => {
+                let decoration = if *underline { " underline" } else { "" };
                 let _ = writeln!(
                     output,
-                    "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color} {text:?}"
+                    "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color}{decoration} {text:?}"
                 );
             }
         }

@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn drops_rule_with_invalid_selector() {
         let sheet =
-            parse_stylesheet("p > a { color: red; } h1 { color: blue; } a:hover { color: red; }");
+            parse_stylesheet("p > a { color: red; } h1 { color: blue; } a:focus { color: red; }");
         assert_eq!(sheet.rules.len(), 1);
         assert_eq!(sheet.rules[0].source_order, 0);
     }

@@ -13,7 +13,7 @@
 use crate::geometry::EdgeSizes;
 use lumen_css::{Color, CompoundSelector, CssValue, Selector, Specificity, Stylesheet};
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 /// The subset of `display` the engine understands.
@@ -104,6 +104,9 @@ pub struct ComputedStyle {
     /// Resolved to pixels.
     pub line_height: f32,
     pub text_align: TextAlign,
+    /// `text-decoration: underline`. Approximation: treated as inherited
+    /// so text nodes inside links pick it up.
+    pub underline: bool,
 }
 
 pub const DEFAULT_FONT_SIZE: f32 = 16.0;
@@ -127,6 +130,7 @@ impl Default for ComputedStyle {
             font_weight: FontWeight::default(),
             line_height: DEFAULT_FONT_SIZE * DEFAULT_LINE_HEIGHT_FACTOR,
             text_align: TextAlign::Left,
+            underline: false,
         }
     }
 }
@@ -138,12 +142,15 @@ pub struct StyleMap {
 }
 
 /// Properties whose declared values propagate to children.
-const INHERITED_PROPERTIES: [&str; 5] = [
+/// (`text-decoration` is not inherited in CSS — it *propagates by
+/// painting*; treating it as inherited approximates that.)
+const INHERITED_PROPERTIES: [&str; 6] = [
     "color",
     "font-size",
     "font-weight",
     "line-height",
     "text-align",
+    "text-decoration",
 ];
 
 /// The built-in user-agent stylesheet (weakest cascade origin).
@@ -158,6 +165,7 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             h1 { font-size: 32px; font-weight: 700; margin-top: 12px; margin-bottom: 12px; }
             h2 { font-size: 24px; font-weight: 700; margin-top: 10px; margin-bottom: 10px; }
             p { font-size: 16px; margin-top: 8px; margin-bottom: 8px; }
+            a { color: #0000ee; text-decoration: underline; }
         ";
         lumen_css::parse_stylesheet(source)
     })
@@ -175,12 +183,35 @@ fn default_display(tag: &str) -> Display {
     }
 }
 
-/// Computes styles for the whole document.
+/// Computes styles for the whole document with no hover state.
 #[must_use]
 pub fn compute_styles(document: &Document, author: &Stylesheet) -> StyleMap {
+    compute_styles_hovered(document, author, None)
+}
+
+/// Computes styles with `hovered` under the pointer. Per CSS, `:hover`
+/// matches the hovered node and all of its ancestors.
+#[must_use]
+pub fn compute_styles_hovered(
+    document: &Document,
+    author: &Stylesheet,
+    hovered: Option<NodeId>,
+) -> StyleMap {
+    let mut hover_chain = HashSet::new();
+    if let Some(node) = hovered {
+        hover_chain.insert(node);
+        hover_chain.extend(document.ancestors(node));
+    }
     let mut by_node = HashMap::new();
     let inherited = HashMap::new();
-    compute_node(document, document.root(), author, &inherited, &mut by_node);
+    compute_node(
+        document,
+        document.root(),
+        author,
+        &inherited,
+        &hover_chain,
+        &mut by_node,
+    );
     StyleMap { by_node }
 }
 
@@ -189,6 +220,7 @@ fn compute_node(
     node_id: NodeId,
     author: &Stylesheet,
     parent_raw: &HashMap<String, CssValue>,
+    hover_chain: &HashSet<NodeId>,
     output: &mut HashMap<NodeId, ComputedStyle>,
 ) {
     let mut raw: HashMap<String, CssValue> = HashMap::new();
@@ -206,7 +238,9 @@ fn compute_node(
     if let Some(element) = element {
         // Weakest origin first; each stronger origin overwrites per property.
         for sheet in [user_agent_stylesheet(), author] {
-            for (name, (_, _, value)) in winning_declarations(document, node_id, element, sheet) {
+            for (name, (_, _, value)) in
+                winning_declarations(document, node_id, element, sheet, hover_chain)
+            {
                 raw.insert(name, value);
             }
         }
@@ -230,7 +264,7 @@ fn compute_node(
     );
     output.insert(node_id, computed);
     for child in document.children(node_id) {
-        compute_node(document, *child, author, &raw, output);
+        compute_node(document, *child, author, &raw, hover_chain, output);
     }
 }
 
@@ -241,11 +275,12 @@ fn winning_declarations(
     node_id: NodeId,
     element: &ElementData,
     sheet: &Stylesheet,
+    hover_chain: &HashSet<NodeId>,
 ) -> HashMap<String, (Specificity, usize, CssValue)> {
     let mut winners: HashMap<String, (Specificity, usize, CssValue)> = HashMap::new();
     for rule in &sheet.rules {
         for selector in &rule.selectors {
-            if selector_matches(document, node_id, element, selector) {
+            if selector_matches(document, node_id, element, selector, hover_chain) {
                 for declaration in &rule.declarations {
                     let candidate = (
                         selector.specificity(),
@@ -265,7 +300,12 @@ fn winning_declarations(
     winners
 }
 
-fn compound_matches(element: &ElementData, compound: &CompoundSelector) -> bool {
+fn compound_matches(
+    node_id: NodeId,
+    element: &ElementData,
+    compound: &CompoundSelector,
+    hover_chain: &HashSet<NodeId>,
+) -> bool {
     if let Some(tag) = &compound.tag
         && element.tag_name != *tag
     {
@@ -276,10 +316,21 @@ fn compound_matches(element: &ElementData, compound: &CompoundSelector) -> bool 
     {
         return false;
     }
-    compound
+    if !compound
         .classes
         .iter()
         .all(|class| element.has_class(class))
+    {
+        return false;
+    }
+    compound
+        .pseudo_classes
+        .iter()
+        .all(|pseudo| match pseudo.as_str() {
+            "hover" => hover_chain.contains(&node_id),
+            // `link`/`visited` are always-true (no visited state).
+            _ => true,
+        })
 }
 
 /// Matches a complex selector: the subject compound must match the element
@@ -290,8 +341,9 @@ pub(crate) fn selector_matches(
     node_id: NodeId,
     element: &ElementData,
     selector: &Selector,
+    hover_chain: &HashSet<NodeId>,
 ) -> bool {
-    if !compound_matches(element, selector.subject()) {
+    if !compound_matches(node_id, element, selector.subject(), hover_chain) {
         return false;
     }
     let mut remaining = selector.compounds[..selector.compounds.len() - 1]
@@ -302,7 +354,7 @@ pub(crate) fn selector_matches(
     };
     for ancestor in document.ancestors(node_id) {
         if let Some(ancestor_element) = document.element(ancestor)
-            && compound_matches(ancestor_element, needed)
+            && compound_matches(ancestor, ancestor_element, needed, hover_chain)
         {
             match remaining.next() {
                 Some(next) => needed = next,
@@ -387,6 +439,11 @@ fn to_computed(
         Some(CssValue::Keyword(keyword)) if keyword == "normal" => FontWeight(400),
         _ => FontWeight::default(),
     };
+
+    style.underline = matches!(
+        raw.get("text-decoration").and_then(CssValue::as_keyword),
+        Some("underline")
+    );
 
     style.text_align = raw
         .get("text-align")

@@ -140,27 +140,43 @@ pub fn rasterize_with(
                 color,
                 font_size,
                 font_weight,
-            } => match font {
-                Some(font) => draw_text_scalable(
-                    &mut framebuffer,
-                    font,
-                    x * scale,
-                    (y - scroll_y) * scale,
-                    text,
-                    pack(*color),
-                    font_size * scale,
-                    *font_weight,
-                ),
-                None => draw_text(
-                    &mut framebuffer,
-                    x * scale,
-                    (y - scroll_y) * scale,
-                    text,
-                    pack(*color),
-                    font_size * scale,
-                    *font_weight,
-                ),
-            },
+                underline,
+            } => {
+                let (x, y, font_size) = (x * scale, (y - scroll_y) * scale, font_size * scale);
+                let packed = pack(*color);
+                let text_width = match font {
+                    Some(font) => draw_text_scalable(
+                        &mut framebuffer,
+                        font,
+                        x,
+                        y,
+                        text,
+                        packed,
+                        font_size,
+                        *font_weight,
+                    ),
+                    None => draw_text(
+                        &mut framebuffer,
+                        x,
+                        y,
+                        text,
+                        packed,
+                        font_size,
+                        *font_weight,
+                    ),
+                };
+                if *underline {
+                    framebuffer.fill(
+                        Rect {
+                            x,
+                            y: y + (2.0 * scale).max(1.0),
+                            width: text_width,
+                            height: scale.max(1.0),
+                        },
+                        packed,
+                    );
+                }
+            }
         }
     }
     framebuffer
@@ -178,7 +194,7 @@ fn draw_text(
     color: u32,
     font_size: f32,
     font_weight: u16,
-) {
+) -> f32 {
     let advance = font_size * 0.5;
     let cell_height = font_size * 0.8;
     let top = y - cell_height;
@@ -213,6 +229,7 @@ fn draw_text(
             );
         }
     }
+    text.chars().count() as f32 * advance
 }
 
 /// Nearest-neighbor scales one 8×8 glyph into a cell.
@@ -254,7 +271,7 @@ fn draw_text_scalable(
     color: u32,
     font_size: f32,
     font_weight: u16,
-) {
+) -> f32 {
     let mut pen_x = x;
     let bold = font_weight >= 600;
     for character in text.chars() {
@@ -281,6 +298,7 @@ fn draw_text_scalable(
         }
         pen_x += glyph.metrics.advance_width;
     }
+    pen_x - x
 }
 
 fn blend_glyph(
@@ -393,6 +411,7 @@ mod tests {
             color: RED,
             font_size: 16.0,
             font_weight: 400,
+            underline: false,
         }];
         let framebuffer = rasterize(&commands, 20, 20, 0.0);
         let painted = framebuffer

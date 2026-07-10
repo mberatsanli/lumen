@@ -6,7 +6,11 @@ license.workspace = true
 
 [dependencies]
 lumen-engine = { path = "../lumen-engine" }
+lumen-html = { path = "../lumen-html" }
 lumen-platform = { path = "../lumen-platform" }
+
+[dev-dependencies]
+lumen-css = { path = "../lumen-css" }
 
 [lints]
 workspace = true
