@@ -15,7 +15,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     match arguments.as_slice() {
         [command, input] if command == "parse-html" => {
             let source = fs::read_to_string(input)?;
-            let document = lumen_html::parse_document(&source)?;
+            let document = lumen_html::parse_document(&source);
             print!("{}", document.dump());
         }
         [command, input] if command == "parse-css" => {

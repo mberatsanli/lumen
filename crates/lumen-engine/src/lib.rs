@@ -92,26 +92,18 @@ pub struct Page {
 
 #[derive(Debug)]
 pub enum EngineError {
-    Html(lumen_html::HtmlError),
     Css(lumen_css::CssError),
 }
 
 impl std::fmt::Display for EngineError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Html(error) => write!(formatter, "HTML error: {error}"),
             Self::Css(error) => write!(formatter, "CSS error: {error}"),
         }
     }
 }
 
 impl std::error::Error for EngineError {}
-
-impl From<lumen_html::HtmlError> for EngineError {
-    fn from(value: lumen_html::HtmlError) -> Self {
-        Self::Html(value)
-    }
-}
 
 impl From<lumen_css::CssError> for EngineError {
     fn from(value: lumen_css::CssError) -> Self {
@@ -120,7 +112,7 @@ impl From<lumen_css::CssError> for EngineError {
 }
 
 pub fn build_page(html: &str, viewport: Size) -> Result<Page, EngineError> {
-    let document = lumen_html::parse_document(html)?;
+    let document = lumen_html::parse_document(html);
     let embedded_css = extract_embedded_css(&document);
     let stylesheet =
         lumen_css::parse_stylesheet(&format!("{}\n{}", user_agent_stylesheet(), embedded_css))?;
@@ -224,12 +216,8 @@ fn compute_node_styles(
 fn selector_matches(element: &ElementData, selector: &Selector) -> bool {
     match selector {
         Selector::Tag(tag) => element.tag_name == *tag,
-        Selector::Id(id) => element.attributes.get("id") == Some(id),
-        Selector::Class(class) => element.attributes.get("class").is_some_and(|classes| {
-            classes
-                .split_whitespace()
-                .any(|candidate| candidate == class)
-        }),
+        Selector::Id(id) => element.id() == Some(id.as_str()),
+        Selector::Class(class) => element.has_class(class),
     }
 }
 
