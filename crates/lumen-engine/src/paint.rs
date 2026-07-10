@@ -4,8 +4,10 @@
 //! where its own box appears in the tree).
 
 use crate::geometry::{EdgeSizes, Rect};
-use crate::layout::{LayoutBox, LayoutKind};
+use crate::image::{ImageMap, RasterImage};
+use crate::layout::{BoxType, LayoutBox, LayoutKind};
 use lumen_css::Color;
+use std::sync::Arc;
 
 /// A single backend-independent paint command.
 #[derive(Debug, Clone, PartialEq)]
@@ -32,11 +34,16 @@ pub enum DisplayCommand {
         underline: bool,
         italic: bool,
     },
+    /// A decoded image scaled into `rect`.
+    DrawImage {
+        rect: Rect,
+        image: Arc<RasterImage>,
+    },
 }
 
 /// Flattens the layout tree into an ordered list of paint commands.
 #[must_use]
-pub fn build_display_list(layout: &LayoutBox) -> Vec<DisplayCommand> {
+pub fn build_display_list(layout: &LayoutBox, images: &ImageMap) -> Vec<DisplayCommand> {
     let mut commands = Vec::new();
     // Per CSS, the root element's background (or the body's, when the root
     // is transparent) paints the whole canvas, not just its own box.
@@ -46,7 +53,7 @@ pub fn build_display_list(layout: &LayoutBox) -> Vec<DisplayCommand> {
             color,
         });
     }
-    paint_box(layout, &mut commands);
+    paint_box(layout, images, &mut commands);
     commands
 }
 
@@ -64,12 +71,12 @@ fn canvas_background(root: &LayoutBox) -> Option<Color> {
     })
 }
 
-fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
+fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCommand>) {
     let border_box = layout.border_box();
 
     // Anonymous blocks carry a clone of their container's style for text
     // defaults; the container already painted its own background/border.
-    let anonymous = layout.box_type == crate::layout::BoxType::AnonymousBlock;
+    let anonymous = layout.box_type == BoxType::AnonymousBlock;
 
     if !anonymous && let Some(background) = layout.style.background_color {
         commands.push(DisplayCommand::FillRect {
@@ -87,6 +94,21 @@ fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
             widths,
             color: layout.style.border_color,
         });
+    }
+
+    if layout.box_type == BoxType::Replaced {
+        match images.get(&layout.node_id) {
+            Some(image) => commands.push(DisplayCommand::DrawImage {
+                rect: layout.content_box(),
+                image: image.clone(),
+            }),
+            // Broken image: a thin gray placeholder frame.
+            None => commands.push(DisplayCommand::StrokeRect {
+                rect: border_box,
+                widths: EdgeSizes::uniform(1.0),
+                color: Color::rgb(0x80, 0x80, 0x80),
+            }),
+        }
     }
 
     if let LayoutKind::Inline { lines } = &layout.kind {
@@ -108,7 +130,7 @@ fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
     }
 
     for child in &layout.children {
-        paint_box(child, commands);
+        paint_box(child, images, commands);
     }
 }
 
@@ -159,6 +181,13 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
                 let _ = writeln!(
                     output,
                     "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color}{decoration}{slant} {text:?}"
+                );
+            }
+            DisplayCommand::DrawImage { rect, image } => {
+                let _ = writeln!(
+                    output,
+                    "DrawImage x={} y={} w={} h={} intrinsic={}x{} {}",
+                    rect.x, rect.y, rect.width, rect.height, image.width, image.height, image.mime
                 );
             }
         }
@@ -221,6 +250,7 @@ mod tests {
                 DisplayCommand::FillRect { .. } => "fill",
                 DisplayCommand::StrokeRect { .. } => "stroke",
                 DisplayCommand::DrawText { .. } => "text",
+                DisplayCommand::DrawImage { .. } => "image",
             })
             .collect();
         assert_eq!(kinds, vec!["fill", "stroke", "text"]);

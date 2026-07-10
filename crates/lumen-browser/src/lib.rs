@@ -6,10 +6,12 @@
 //! crate knows nothing about painting beyond handing back a [`Page`].
 
 use lumen_engine::{
-    HeuristicMeasurer, Page, Size, TextMeasurer, collect_author_css, page_from_document,
+    HeuristicMeasurer, ImageMap, Page, RasterImage, Size, TextMeasurer, collect_author_css,
+    collect_image_sources, page_from_document,
 };
 use lumen_html::NodeId;
 use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, Url, resolve};
+use std::sync::Arc;
 
 /// One browsing context with linear history.
 ///
@@ -28,6 +30,8 @@ pub struct Session<L: ResourceLoader> {
     source: Option<String>,
     /// Author stylesheet (embedded + external), fetched once per page.
     author: lumen_css::Stylesheet,
+    /// Decoded images, fetched once per page.
+    images: ImageMap,
     /// Node currently under the pointer, for `:hover` styling.
     hovered: Option<NodeId>,
 }
@@ -44,6 +48,7 @@ impl<L: ResourceLoader> Session<L> {
             page: None,
             source: None,
             author: lumen_css::Stylesheet::default(),
+            images: ImageMap::new(),
             hovered: None,
         }
     }
@@ -148,6 +153,7 @@ impl<L: ResourceLoader> Session<L> {
             self.page = Some(page_from_document(
                 document,
                 self.author.clone(),
+                self.images.clone(),
                 self.viewport,
                 self.measurer.as_ref(),
                 self.hovered,
@@ -201,10 +207,24 @@ impl<L: ResourceLoader> Session<L> {
         });
         self.author = lumen_css::parse_stylesheet(&author_css);
 
+        // Images: fetched once per page; failures leave a placeholder box.
+        self.images = ImageMap::new();
+        for (node, src) in collect_image_sources(&document) {
+            let Ok(url) = resolve(&base, &src) else {
+                continue;
+            };
+            if let Ok(response) = self.loader.load(&ResourceRequest { url })
+                && let Some(image) = RasterImage::decode(&response.body)
+            {
+                self.images.insert(node, Arc::new(image));
+            }
+        }
+
         self.hovered = None; // New document, new node ids.
         self.page = Some(page_from_document(
             document,
             self.author.clone(),
+            self.images.clone(),
             self.viewport,
             self.measurer.as_ref(),
             None,
@@ -222,7 +242,7 @@ mod tests {
     use std::collections::HashMap;
 
     struct FakeLoader {
-        pages: HashMap<String, String>,
+        pages: HashMap<String, Vec<u8>>,
         loads: RefCell<Vec<String>>,
     }
 
@@ -231,10 +251,15 @@ mod tests {
             Self {
                 pages: pages
                     .iter()
-                    .map(|(url, html)| ((*url).to_string(), (*html).to_string()))
+                    .map(|(url, html)| ((*url).to_string(), html.as_bytes().to_vec()))
                     .collect(),
                 loads: RefCell::new(Vec::new()),
             }
+        }
+
+        fn with_bytes(mut self, url: &str, bytes: &[u8]) -> Self {
+            self.pages.insert(url.to_string(), bytes.to_vec());
+            self
         }
     }
 
@@ -247,10 +272,19 @@ mod tests {
                 .ok_or_else(|| LoadError::Http(format!("404: {}", request.url)))?;
             Ok(ResourceResponse {
                 final_url: request.url.clone(),
-                content_type: Some("text/html".to_string()),
-                body: body.clone().into_bytes(),
+                content_type: None,
+                body: body.clone(),
             })
         }
+    }
+
+    /// Encodes a 1×1 red PNG in memory.
+    fn red_pixel_png() -> Vec<u8> {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]))
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .expect("in-memory png encode");
+        bytes.into_inner()
     }
 
     const VIEWPORT: Size = Size {
@@ -495,6 +529,45 @@ mod tests {
         });
         session.set_hovered(Some(1));
         assert_eq!(session.loader.loads.borrow().len(), 2);
+    }
+
+    #[test]
+    fn images_load_decode_and_lay_out() {
+        let mut session = Session::new(
+            FakeLoader::new(&[("https://a.test/", "<img src='red.png' width='40'>")])
+                .with_bytes("https://a.test/red.png", &red_pixel_png()),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let page = session.page().unwrap();
+        assert_eq!(page.images.len(), 1);
+        let image_command = page.display_list.iter().find_map(|command| match command {
+            lumen_engine::DisplayCommand::DrawImage { rect, image } => {
+                Some((rect.width, rect.height, image.width))
+            }
+            _ => None,
+        });
+        // width attr 40, square intrinsic ratio → 40x40.
+        assert_eq!(image_command, Some((40.0, 40.0, 1)));
+        // The SVG backend embeds the original bytes as a data URI.
+        let svg = lumen_engine::render_svg(page);
+        assert!(svg.contains("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn broken_image_leaves_page_intact() {
+        let mut session = Session::new(
+            FakeLoader::new(&[("https://a.test/", "<img src='gone.png'><p>still here</p>")]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let page = session.page().unwrap();
+        assert!(page.images.is_empty());
+        assert!(
+            page.document
+                .text_content(page.document.root())
+                .contains("still here")
+        );
     }
 
     #[test]

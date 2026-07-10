@@ -23,6 +23,18 @@ pub fn render_svg(page: &Page) -> String {
                     rect.x, rect.y, rect.width, rect.height,
                 );
             }
+            DisplayCommand::DrawImage { rect, image } => {
+                let _ = writeln!(
+                    svg,
+                    "<image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" preserveAspectRatio=\"none\" href=\"data:{};base64,{}\"/>",
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    image.mime,
+                    base64(&image.encoded)
+                );
+            }
             DisplayCommand::StrokeRect {
                 rect,
                 widths,
@@ -87,6 +99,29 @@ pub fn render_svg(page: &Page) -> String {
     svg
 }
 
+/// Minimal base64 (RFC 4648, with padding) — small enough that a
+/// dependency is not worth it.
+fn base64(data: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut output = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let bits = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        let encoded = [
+            TABLE[(bits >> 18) as usize & 63],
+            TABLE[(bits >> 12) as usize & 63],
+            TABLE[(bits >> 6) as usize & 63],
+            TABLE[bits as usize & 63],
+        ];
+        let keep = chunk.len() + 1;
+        for (index, byte) in encoded.iter().enumerate() {
+            output.push(if index < keep { *byte as char } else { '=' });
+        }
+    }
+    output
+}
+
 fn escape_xml(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -103,5 +138,14 @@ mod tests {
     #[test]
     fn escapes_xml_special_characters() {
         assert_eq!(escape_xml("a < b & \"c\""), "a &lt; b &amp; &quot;c&quot;");
+    }
+
+    #[test]
+    fn base64_matches_known_vectors() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
     }
 }

@@ -133,6 +133,9 @@ pub fn rasterize_with(
                     framebuffer.fill(strip, color);
                 }
             }
+            DisplayCommand::DrawImage { rect, image } => {
+                blit_image(&mut framebuffer, &shift(rect), image);
+            }
             DisplayCommand::DrawText {
                 x,
                 y,
@@ -347,6 +350,32 @@ fn blend_glyph(
         }
         let position = (pixel_y * framebuffer.width + pixel_x) as usize;
         framebuffer.pixels[position] = blend(framebuffer.pixels[position], color, *alpha);
+    }
+}
+
+/// Nearest-neighbor blit of an RGBA image into `rect`, alpha-blended.
+fn blit_image(framebuffer: &mut Framebuffer, rect: &Rect, image: &crate::image::RasterImage) {
+    if rect.width <= 0.0 || rect.height <= 0.0 || image.width == 0 || image.height == 0 {
+        return;
+    }
+    let x0 = (rect.x.max(0.0) as u32).min(framebuffer.width);
+    let y0 = (rect.y.max(0.0) as u32).min(framebuffer.height);
+    let x1 = ((rect.x + rect.width).max(0.0) as u32).min(framebuffer.width);
+    let y1 = ((rect.y + rect.height).max(0.0) as u32).min(framebuffer.height);
+    for pixel_y in y0..y1 {
+        let v = ((pixel_y as f32 - rect.y) / rect.height).clamp(0.0, 1.0);
+        let source_y = ((v * image.height as f32) as u32).min(image.height - 1);
+        for pixel_x in x0..x1 {
+            let u = ((pixel_x as f32 - rect.x) / rect.width).clamp(0.0, 1.0);
+            let source_x = ((u * image.width as f32) as u32).min(image.width - 1);
+            let offset = ((source_y * image.width + source_x) * 4) as usize;
+            let [r, g, b, a] = image.rgba[offset..offset + 4] else {
+                continue;
+            };
+            let color = ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+            let position = (pixel_y * framebuffer.width + pixel_x) as usize;
+            framebuffer.pixels[position] = blend(framebuffer.pixels[position], color, a);
+        }
     }
 }
 

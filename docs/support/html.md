@@ -66,7 +66,7 @@ interaction) — not just a DOM node.
 
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
-| `<img>` | ❌ | ✅ | ✅ | ✅ | parsed as void, not rendered — next big item |
+| `<img>` | ⚠️ | ✅ | ✅ | ✅ | PNG/JPEG; width/height attrs + CSS + intrinsic ratio; block-level (no inline images); no SVG/GIF/WebP, no srcset/lazy |
 | `<picture> <source>` | ❌ | ✅ | ✅ | ✅ | |
 | Inline `<svg>` | ❌ | ✅ | ✅ | ✅ | |
 | `<video> <audio>` | ❌ | ✅ | ✅ | ✅ | out of scope |
@@ -101,7 +101,7 @@ interaction) — not just a DOM node.
 | `class` | ✅ | ✅ | ✅ | ✅ | |
 | `style` | ✅ | ✅ | ✅ | ✅ | strongest cascade origin |
 | `href` (on `<a>`) | ✅ | ✅ | ✅ | ✅ | relative resolution + navigation |
-| `src` / `srcset` / `alt` | ❌ | ✅ | ✅ | ✅ | |
+| `src` / `srcset` / `alt` | ⚠️ | ✅ | ✅ | ✅ | src on img works; srcset/alt ignored |
 | `title` tooltip | ❌ | ✅ | ✅ | ✅ | |
 | `hidden` | ❌ | ✅ | ✅ | ✅ | |
 | `target` / `rel` / `download` | ❌ | ✅ | ✅ | ✅ | |

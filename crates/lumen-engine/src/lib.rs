@@ -5,6 +5,7 @@
 
 pub mod font;
 pub mod geometry;
+pub mod image;
 pub mod inline;
 pub mod layout;
 pub mod paint;
@@ -15,6 +16,7 @@ pub mod text;
 
 pub use font::SystemFont;
 pub use geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
+pub use image::{ImageMap, RasterImage, collect_image_sources};
 pub use inline::{Fragment, LineBox};
 pub use layout::{BoxType, LayoutBox, LayoutKind, dump_layout, layout_document};
 pub use paint::{DisplayCommand, build_display_list};
@@ -38,6 +40,8 @@ pub struct Page {
     pub layout: LayoutBox,
     pub display_list: Vec<DisplayCommand>,
     pub viewport: Size,
+    /// Decoded images per `<img>` node.
+    pub images: ImageMap,
 }
 
 /// Runs the full pipeline: parse HTML, extract embedded CSS, cascade,
@@ -69,7 +73,14 @@ pub fn build_page_full(
 ) -> Page {
     let document = lumen_html::parse_document(html);
     let stylesheet = lumen_css::parse_stylesheet(&collect_author_css(&document, |_| None));
-    page_from_document(document, stylesheet, viewport, measurer, hovered)
+    page_from_document(
+        document,
+        stylesheet,
+        ImageMap::new(),
+        viewport,
+        measurer,
+        hovered,
+    )
 }
 
 /// Builds a page from an already-parsed document and author stylesheet.
@@ -79,13 +90,14 @@ pub fn build_page_full(
 pub fn page_from_document(
     document: Document,
     stylesheet: lumen_css::Stylesheet,
+    images: ImageMap,
     viewport: Size,
     measurer: &dyn TextMeasurer,
     hovered: Option<lumen_html::NodeId>,
 ) -> Page {
     let styles = compute_styles_hovered(&document, &stylesheet, hovered);
-    let layout = layout_document(&document, &styles, viewport, measurer);
-    let display_list = build_display_list(&layout);
+    let layout = layout_document(&document, &styles, viewport, measurer, &images);
+    let display_list = build_display_list(&layout, &images);
 
     Page {
         document,
@@ -94,6 +106,7 @@ pub fn page_from_document(
         layout,
         display_list,
         viewport,
+        images,
     }
 }
 

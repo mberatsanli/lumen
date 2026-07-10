@@ -8,6 +8,7 @@
 //! intentionally not implemented.
 
 use crate::geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
+use crate::image::ImageMap;
 use crate::inline::{LineBox, layout_inline_run};
 use crate::style::{ComputedStyle, Dimension, Display, StyleMap};
 use crate::text::TextMeasurer;
@@ -15,8 +16,6 @@ use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::fmt::Write as _;
 
 /// The formatting role of a layout box.
-///
-/// `Replaced` is not generated yet; it arrives with images.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoxType {
     Block,
@@ -105,6 +104,7 @@ pub fn layout_document(
     styles: &StyleMap,
     viewport: Size,
     measurer: &dyn TextMeasurer,
+    images: &ImageMap,
 ) -> LayoutBox {
     let root_style = styles
         .by_node
@@ -124,6 +124,7 @@ pub fn layout_document(
             viewport.width,
             viewport,
             measurer,
+            images,
         ) {
             children.push(layout);
         }
@@ -157,6 +158,7 @@ fn layout_node(
     containing_width: f32,
     viewport: Size,
     measurer: &dyn TextMeasurer,
+    images: &ImageMap,
 ) -> Option<LayoutBox> {
     let style = styles.by_node.get(&node_id)?.clone();
     if style.display == Display::None {
@@ -177,6 +179,7 @@ fn layout_node(
             containing_width,
             viewport,
             measurer,
+            images,
         )),
     }
 }
@@ -187,6 +190,8 @@ fn layout_node(
 fn is_inline_level(document: &Document, styles: &StyleMap, node_id: NodeId) -> bool {
     match &document.node(node_id).kind {
         NodeKind::Text(_) => true,
+        // Replaced elements are promoted to block level (no inline images yet).
+        NodeKind::Element(element) if element.tag_name == "img" => false,
         NodeKind::Element(_) => {
             styles
                 .by_node
@@ -219,7 +224,20 @@ fn layout_element(
     containing_width: f32,
     viewport: Size,
     measurer: &dyn TextMeasurer,
+    images: &ImageMap,
 ) -> LayoutBox {
+    if element.tag_name == "img" {
+        return layout_image(
+            node_id,
+            element,
+            style,
+            containing_x,
+            cursor_y,
+            containing_width,
+            viewport,
+            images,
+        );
+    }
     let mut margin = resolve_edges(&style.margin, containing_width, viewport);
     let border = style.border_width;
     let padding = resolve_edges(&style.padding, containing_width, viewport);
@@ -327,6 +345,7 @@ fn layout_element(
                 content_width,
                 viewport,
                 measurer,
+                images,
             ) {
                 children.push(layout);
             }
@@ -366,6 +385,83 @@ fn layout_element(
         dimensions,
         style,
         children,
+    }
+}
+
+/// Lays out an `<img>` as a block-level replaced box. Size comes from CSS
+/// width/height, then the width/height attributes, then the intrinsic
+/// size; a single known dimension keeps the intrinsic aspect ratio.
+#[allow(clippy::too_many_arguments)]
+fn layout_image(
+    node_id: NodeId,
+    element: &ElementData,
+    style: ComputedStyle,
+    containing_x: f32,
+    cursor_y: &mut f32,
+    containing_width: f32,
+    viewport: Size,
+    images: &ImageMap,
+) -> LayoutBox {
+    let margin = resolve_edges(&style.margin, containing_width, viewport);
+    let border = style.border_width;
+    let padding = resolve_edges(&style.padding, containing_width, viewport);
+
+    let attribute = |name: &str| {
+        element
+            .attributes
+            .get(name)
+            .and_then(|value| value.trim().parse::<f32>().ok())
+            .filter(|value| *value >= 0.0)
+    };
+    let intrinsic = images
+        .get(&node_id)
+        .map(|image| (image.width as f32, image.height as f32));
+    let specified_width = style
+        .width
+        .resolve(containing_width, viewport)
+        .or_else(|| attribute("width"));
+    let specified_height = style
+        .height
+        .resolve(0.0, viewport)
+        .filter(|_| !matches!(style.height, Dimension::Percent(_)))
+        .or_else(|| attribute("height"));
+
+    let (content_width, content_height) = match (specified_width, specified_height) {
+        (Some(width), Some(height)) => (width, height),
+        (Some(width), None) => {
+            let height = intrinsic.map_or(width, |(iw, ih)| width * ih / iw.max(1.0));
+            (width, height)
+        }
+        (None, Some(height)) => {
+            let width = intrinsic.map_or(height, |(iw, ih)| height * iw / ih.max(1.0));
+            (width, height)
+        }
+        (None, None) => intrinsic.unwrap_or((0.0, 0.0)),
+    };
+
+    *cursor_y += margin.top;
+    let content_x = containing_x + margin.left + border.left + padding.left;
+    let content_y = *cursor_y + border.top + padding.top;
+    let dimensions = Dimensions {
+        content: Rect {
+            x: content_x,
+            y: content_y,
+            width: content_width,
+            height: content_height,
+        },
+        padding,
+        border,
+        margin,
+    };
+    *cursor_y = dimensions.margin_box().y + dimensions.margin_box().height;
+
+    LayoutBox {
+        node_id,
+        box_type: BoxType::Replaced,
+        kind: LayoutKind::Element("img".to_string()),
+        dimensions,
+        style,
+        children: Vec::new(),
     }
 }
 
@@ -439,6 +535,7 @@ mod tests {
             &styles,
             VIEWPORT,
             &crate::text::HeuristicMeasurer,
+            &crate::image::ImageMap::new(),
         )
     }
 
@@ -678,6 +775,7 @@ mod tests {
             &styles,
             VIEWPORT,
             &crate::text::HeuristicMeasurer,
+            &crate::image::ImageMap::new(),
         );
         // "plain " occupies x 0..48 (6 chars * 8px); the link text follows.
         let link_hit = layout.hit_test(50.0, 5.0).expect("hit on link text");
@@ -702,6 +800,57 @@ mod tests {
     }
 
     #[test]
+    fn image_sizes_from_attributes_css_and_intrinsic_ratio() {
+        use crate::image::{ImageMap, RasterImage};
+        use std::sync::Arc;
+
+        let document = parse_document(
+            "<style>.styled { width: 200px; }</style>\
+             <img src='a' width='40' height='30'>\
+             <img class='styled' src='a'>\
+             <img src='a'>",
+        );
+        let author = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document));
+        let styles = compute_styles(&document, &author);
+        let mut images = ImageMap::new();
+        // 100x50 intrinsic (2:1), attached to every img in the page.
+        for (node, _) in crate::image::collect_image_sources(&document) {
+            images.insert(
+                node,
+                Arc::new(RasterImage {
+                    width: 100,
+                    height: 50,
+                    rgba: vec![0; 100 * 50 * 4],
+                    encoded: Vec::new(),
+                    mime: "image/png",
+                }),
+            );
+        }
+        let layout = layout_document(
+            &document,
+            &styles,
+            VIEWPORT,
+            &crate::text::HeuristicMeasurer,
+            &images,
+        );
+        let boxes: Vec<&LayoutBox> = layout
+            .children
+            .iter()
+            .filter(|child| child.box_type == BoxType::Replaced)
+            .collect();
+        assert_eq!(boxes.len(), 3);
+        // Attributes win when CSS is absent.
+        assert_eq!(boxes[0].content_box().width, 40.0);
+        assert_eq!(boxes[0].content_box().height, 30.0);
+        // CSS width 200 + 2:1 intrinsic ratio → height 100.
+        assert_eq!(boxes[1].content_box().width, 200.0);
+        assert_eq!(boxes[1].content_box().height, 100.0);
+        // Nothing specified → intrinsic size.
+        assert_eq!(boxes[2].content_box().width, 100.0);
+        assert_eq!(boxes[2].content_box().height, 50.0);
+    }
+
+    #[test]
     fn relayout_respects_new_viewport_width() {
         let document = parse_document("<div></div>");
         let styles = compute_styles(&document, &lumen_css::Stylesheet::default());
@@ -713,6 +862,7 @@ mod tests {
                 height: 100.0,
             },
             &crate::text::HeuristicMeasurer,
+            &crate::image::ImageMap::new(),
         );
         let wide = layout_document(
             &document,
@@ -722,6 +872,7 @@ mod tests {
                 height: 100.0,
             },
             &crate::text::HeuristicMeasurer,
+            &crate::image::ImageMap::new(),
         );
         assert_eq!(narrow.children[0].content_box().width, 400.0);
         assert_eq!(wide.children[0].content_box().width, 900.0);

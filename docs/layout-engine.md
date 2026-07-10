@@ -59,8 +59,7 @@ calling it again with the new size (verified by test).
 
 - **No margin collapsing** — adjacent vertical margins add up instead of
   collapsing. Documented deviation; revisit after inline layout.
-- Percent heights are treated as `auto`; auto margins resolve to 0 (no
-  `margin: 0 auto` centering yet).
+- Percent heights are treated as `auto`.
 - Inline element box edges (margin/padding/border/background) are ignored;
   no `vertical-align`.
 - Text measurement is heuristic, not shaped; real font metrics can slot in
