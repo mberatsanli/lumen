@@ -1,0 +1,13 @@
+[package]
+name = "lumen-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lumen-html = { path = "../../crates/lumen-html" }
+lumen-css = { path = "../../crates/lumen-css" }
+lumen-engine = { path = "../../crates/lumen-engine" }
+
+[lints]
+workspace = true

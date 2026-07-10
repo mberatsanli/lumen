@@ -1,0 +1,12 @@
+[package]
+name = "lumen-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lumen-engine = { path = "../../crates/lumen-engine" }
+lumen-platform = { path = "../../crates/lumen-platform" }
+
+[lints]
+workspace = true

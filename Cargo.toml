@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/lumen-html",
+  "crates/lumen-css",
+  "crates/lumen-engine",
+  "crates/lumen-platform",
+  "apps/lumen-cli",
+  "apps/lumen-desktop",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["Melih"]
+repository = "https://github.com/your-username/lumen"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"

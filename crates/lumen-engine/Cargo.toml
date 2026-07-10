@@ -1,0 +1,12 @@
+[package]
+name = "lumen-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lumen-html = { path = "../lumen-html" }
+lumen-css = { path = "../lumen-css" }
+
+[lints]
+workspace = true
