@@ -90,6 +90,10 @@ apps/lumen-desktop     native window shell (winit + softbuffer)
 Architecture details: [docs/architecture.md](docs/architecture.md), decision
 records under [docs/adr/](docs/adr/).
 
+Feature-by-feature compatibility trackers (Lumen vs Chrome/Firefox/Safari):
+[CSS](docs/support/css.md) · [HTML](docs/support/html.md) ·
+[JavaScript](docs/support/javascript.md).
+
 ## Examples
 
 Three demo pages live in `examples/`: `hello.html`, `card.html` and
