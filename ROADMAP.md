@@ -15,22 +15,22 @@
 - [x] SVG output with golden tests
 - [x] CLI for every pipeline stage
 
-## v0.2 — Resources and navigation
+## v0.1 — Resources, navigation, desktop shell (done)
 
-- [ ] ResourceLoader abstraction (file + HTTP)
+- [x] ResourceLoader abstraction (file + HTTP/HTTPS with redirects)
+- [x] Relative URL resolution
+- [x] Session model: load, refresh, back, forward
+- [x] Native window (winit) with software rasterizer
+- [x] Scrolling, resize and relayout
+
+## v0.2 — Better rendering and navigation
+
 - [ ] External stylesheets (`<link rel="stylesheet">`)
-- [ ] Relative URL resolution
-- [ ] Page/session model: load, refresh, back, forward
-
-## v0.3 — Desktop shell
-
-- [ ] Native window (winit)
-- [ ] Software rasterizer for the display list
 - [ ] Real font metrics behind TextMeasurer
-- [ ] Scrolling, resize and relayout
-- [ ] Address bar / file open
+- [ ] Link hit testing and click navigation
+- [ ] Address bar
 
-## v0.4 — Better rendering
+## v0.3 — Better rendering
 
 - [ ] Inline flow and shared line boxes
 - [ ] Margin collapsing

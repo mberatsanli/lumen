@@ -38,14 +38,18 @@ embedded CSS  -> CSS parser ─────┘        |
   `text-align`, pluggable `TextMeasurer` (heuristic metrics by default)
 - Display list (`FillRect`, `StrokeRect`, `DrawText`) with defined paint
   order and deterministic SVG output
-- CLI that inspects every pipeline stage
-- Golden-file SVG tests and 100+ unit/integration tests
+- Display-list software rasterizer (pixel buffer + bitmap font)
+- Resource loading (file/http/https) and a navigation session with history
+- Desktop shell: native window (winit + softbuffer), scrolling, resize
+- CLI that inspects every pipeline stage and accepts URLs
+- Golden-file SVG tests and 120+ unit/integration tests
 
 ## Not implemented (yet or on purpose)
 
 JavaScript, inline flow (inline elements still stack vertically), margin
-collapsing, flexbox/grid, images, real font metrics, networking, `@media`
-and other at-rules, `!important`, `em`/`rem` units.
+collapsing, flexbox/grid, images, real font metrics (the desktop shell
+draws a scaled 8×8 bitmap font on purpose), external stylesheets,
+`@media` and other at-rules, `!important`, `em`/`rem` units.
 
 ## Quick start
 
@@ -53,6 +57,10 @@ and other at-rules, `!important`, `em`/`rem` units.
 cargo test --workspace
 cargo run -p lumen-cli -- render examples/card.html output/card.svg
 open output/card.svg
+
+# or a native window:
+cargo run -p lumen-desktop -- examples/card.html
+cargo run -p lumen-desktop -- https://example.com
 ```
 
 ## CLI
@@ -73,9 +81,10 @@ cargo run -p lumen-cli -- render <file> <out.svg>    # SVG output
 crates/lumen-html      HTML tokenizer, tree builder and DOM
 crates/lumen-css       CSS parser, typed values and selector model
 crates/lumen-engine    style system, layout, display list, SVG renderer
-crates/lumen-platform  platform abstraction (window surface placeholder)
+crates/lumen-platform  resource loading (file/http) and surfaces
+crates/lumen-browser   sessions, navigation and history
 apps/lumen-cli         developer CLI
-apps/lumen-desktop     desktop shell (planned)
+apps/lumen-desktop     native window shell (winit + softbuffer)
 ```
 
 Architecture details: [docs/architecture.md](docs/architecture.md), decision

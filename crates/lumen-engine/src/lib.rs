@@ -6,6 +6,7 @@
 pub mod geometry;
 pub mod layout;
 pub mod paint;
+pub mod raster;
 pub mod style;
 pub mod svg;
 pub mod text;
@@ -13,6 +14,7 @@ pub mod text;
 pub use geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
 pub use layout::{BoxType, LayoutBox, LayoutKind, dump_layout, layout_document};
 pub use paint::{DisplayCommand, build_display_list};
+pub use raster::{Framebuffer, rasterize};
 pub use style::{
     ComputedStyle, Dimension, Display, FontWeight, StyleMap, TextAlign, compute_styles,
 };

@@ -4,10 +4,10 @@ Lumen uses a one-way dependency flow:
 
 ```text
 lumen-html ----\
-                -> lumen-engine -> lumen-cli
-lumen-css -----/                    lumen-desktop
-
-lumen-platform ------------------> lumen-desktop
+                -> lumen-engine ---+-> lumen-cli
+lumen-css -----/                   |   lumen-desktop
+                                   |
+lumen-platform -> lumen-browser ---+
 ```
 
 Inside `lumen-engine`, the pipeline is split into modules
