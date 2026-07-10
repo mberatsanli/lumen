@@ -115,16 +115,23 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
         let content = layout.content_box();
         for line in lines {
             for fragment in &line.fragments {
-                commands.push(DisplayCommand::DrawText {
-                    x: content.x + fragment.x,
-                    y: content.y + line.y + line.baseline,
-                    text: fragment.text.clone(),
-                    color: fragment.style.color,
-                    font_size: fragment.style.font_size,
-                    font_weight: fragment.style.font_weight.0,
-                    underline: fragment.style.underline,
-                    italic: fragment.style.italic,
-                });
+                match &fragment.content {
+                    crate::inline::FragmentContent::Text { text, style } => {
+                        commands.push(DisplayCommand::DrawText {
+                            x: content.x + fragment.x,
+                            y: content.y + line.y + line.baseline,
+                            text: text.clone(),
+                            color: style.color,
+                            font_size: style.font_size,
+                            font_weight: style.font_weight.0,
+                            underline: style.underline,
+                            italic: style.italic,
+                        });
+                    }
+                    crate::inline::FragmentContent::Box(laid) => {
+                        paint_box(laid, images, commands);
+                    }
+                }
             }
         }
     }

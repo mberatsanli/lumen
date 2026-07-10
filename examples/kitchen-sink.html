@@ -66,6 +66,15 @@
     /* --- display --------------------------------------------------------- */
     .ghost { display: none; background-color: red; }
 
+    /* --- inline-block & float ----------------------------------------- */
+    .chip { display: inline-block; padding: 4px 10px;
+            background-color: #e2e8f0; border-width: 1px; border-color: #b6c2d2; }
+    .floaty { float: left; width: 120px; height: 60px; margin-right: 12px;
+              background-color: #dbe7d5; border-width: 1px; border-color: #9fb492; }
+    .floaty-r { float: right; width: 90px; height: 40px; margin-left: 12px;
+                background-color: #f3dcd2; }
+    .cleared { clear: both; background-color: #efe9dc; }
+
     /* --- interaction ------------------------------------------------- */
     .hoverbox { background-color: #e8eef7; padding: 12px; }
     .hoverbox:hover { background-color: #2266aa; color: white; }
@@ -135,6 +144,19 @@
     <h2>Inheritance</h2>
     <div><p>Color, 18px font-size and centering inherited two levels down.
     <span>Spans inherit too.</span></p></div>
+  </div>
+
+  <div class="section">
+    <h2>Inline-block &amp; floats</h2>
+    <p>Chips flow with text: <span class="chip">one</span>
+    <span class="chip">two</span> <span class="chip">three</span> — and wrap
+    like words when the line runs out of space.</p>
+    <div class="floaty"></div>
+    <div class="floaty-r"></div>
+    <p>This paragraph wraps between a left float and a right float. The text
+    lines are narrowed on both sides while the floats are tall enough, then
+    widen back to the full column below them.</p>
+    <p class="cleared">clear: both — this box starts below both floats.</p>
   </div>
 
   <div class="section">

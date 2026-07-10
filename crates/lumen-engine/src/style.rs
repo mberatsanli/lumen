@@ -24,6 +24,8 @@ use std::sync::OnceLock;
 pub enum Display {
     Block,
     Inline,
+    /// Atomic inline: flows in line boxes, lays out like a block inside.
+    InlineBlock,
     None,
 }
 
@@ -86,6 +88,25 @@ pub enum TextAlign {
     Right,
 }
 
+/// `float: left | right`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Float {
+    #[default]
+    None,
+    Left,
+    Right,
+}
+
+/// `clear: left | right | both`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Clear {
+    #[default]
+    None,
+    Left,
+    Right,
+    Both,
+}
+
 /// What `width`/`height` refer to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BoxSizing {
@@ -120,6 +141,8 @@ pub struct ComputedStyle {
     /// `font-style: italic` (rendered as a synthetic shear).
     pub italic: bool,
     pub box_sizing: BoxSizing,
+    pub float: Float,
+    pub clear: Clear,
 }
 
 pub const DEFAULT_FONT_SIZE: f32 = 16.0;
@@ -146,6 +169,8 @@ impl Default for ComputedStyle {
             underline: false,
             italic: false,
             box_sizing: BoxSizing::default(),
+            float: Float::None,
+            clear: Clear::None,
         }
     }
 }
@@ -426,6 +451,7 @@ fn to_computed(
         .and_then(|keyword| match keyword {
             "block" => Some(Display::Block),
             "inline" => Some(Display::Inline),
+            "inline-block" => Some(Display::InlineBlock),
             "none" => Some(Display::None),
             _ => None,
         })
@@ -472,6 +498,19 @@ fn to_computed(
     style.box_sizing = match raw.get("box-sizing").and_then(CssValue::as_keyword) {
         Some("border-box") => BoxSizing::BorderBox,
         _ => BoxSizing::ContentBox,
+    };
+
+    style.float = match raw.get("float").and_then(CssValue::as_keyword) {
+        Some("left") => Float::Left,
+        Some("right") => Float::Right,
+        _ => Float::None,
+    };
+
+    style.clear = match raw.get("clear").and_then(CssValue::as_keyword) {
+        Some("left") => Clear::Left,
+        Some("right") => Clear::Right,
+        Some("both") => Clear::Both,
+        _ => Clear::None,
     };
 
     style.text_align = raw

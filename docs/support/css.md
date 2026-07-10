@@ -98,13 +98,13 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `display: block` | ✅ | ✅ | ✅ | ✅ | |
 | `display: inline` | ✅ | ✅ | ✅ | ✅ | shared line boxes; inline box edges (margin/padding/border/bg) ignored |
 | `display: none` | ✅ | ✅ | ✅ | ✅ | |
-| `display: inline-block` | ❌ | ✅ | ✅ | ✅ | |
+| `display: inline-block` | ✅ | ✅ | ✅ | ✅ | atomic inline; auto width = crude shrink-to-fit (auto-width block children inflate to available) |
 | Flexbox | ❌ | ✅ | ✅ | ✅ | |
 | Grid | ❌ | ✅ | ✅ | ✅ | |
 | Table layout | ❌ | ✅ | ✅ | ✅ | tables flow as plain blocks |
 | `display: list-item` | ❌ | ✅ | ✅ | ✅ | no markers |
 | `position` + offsets + `z-index` | ❌ | ✅ | ✅ | ✅ | |
-| `float` / `clear` | ❌ | ✅ | ✅ | ✅ | |
+| `float` / `clear` | ⚠️ | ✅ | ✅ | ✅ | simplified: floats narrow inline lines in the same container only; block siblings ignore floats except clear |
 | `overflow` | ❌ | ✅ | ✅ | ✅ | boxes never clip/scroll |
 | `vertical-align` | ❌ | ✅ | ✅ | ✅ | |
 | `direction: rtl` / writing modes | ❌ | ✅ | ✅ | ✅ | |

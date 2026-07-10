@@ -14,8 +14,8 @@
 
 use crate::geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
 use crate::image::ImageMap;
-use crate::inline::{LineBox, layout_inline_run};
-use crate::style::{BoxSizing, ComputedStyle, Dimension, Display, StyleMap};
+use crate::inline::{FragmentContent, LineBox, layout_inline_run};
+use crate::style::{BoxSizing, Clear, ComputedStyle, Dimension, Display, Float, StyleMap};
 use crate::text::TextMeasurer;
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::fmt::Write as _;
@@ -66,6 +66,24 @@ impl LayoutBox {
         self.dimensions.margin_box()
     }
 
+    /// Shifts this box and its entire subtree (children, line fragments).
+    pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
+        self.dimensions.content.x += dx;
+        self.dimensions.content.y += dy;
+        if let LayoutKind::Inline { lines } = &mut self.kind {
+            for line in lines {
+                for fragment in &mut line.fragments {
+                    if let FragmentContent::Box(laid) = &mut fragment.content {
+                        laid.translate(dx, dy);
+                    }
+                }
+            }
+        }
+        for child in &mut self.children {
+            child.translate(dx, dy);
+        }
+    }
+
     /// The deepest box under the point (page coordinates, CSS pixels),
     /// checking later siblings first (paint order: they are on top).
     #[must_use]
@@ -87,6 +105,11 @@ impl LayoutBox {
             let content = self.content_box();
             for line in lines {
                 for fragment in &line.fragments {
+                    if let FragmentContent::Box(laid) = &fragment.content
+                        && let Some(hit) = laid.hit_test(x, y)
+                    {
+                        return Some(hit);
+                    }
                     let fx = content.x + fragment.x;
                     let fy = content.y + line.y;
                     if x >= fx && x < fx + fragment.width && y >= fy && y < fy + line.height {
@@ -195,14 +218,23 @@ fn layout_node(
 fn is_inline_level(document: &Document, styles: &StyleMap, node_id: NodeId) -> bool {
     match &document.node(node_id).kind {
         NodeKind::Text(_) => true,
-        // Replaced elements are promoted to block level (no inline images yet).
-        NodeKind::Element(element) if element.tag_name == "img" => false,
-        NodeKind::Element(_) => {
-            styles
-                .by_node
-                .get(&node_id)
-                .is_some_and(|style| style.display == Display::Inline)
-                && !has_block_descendant(document, styles, node_id)
+        NodeKind::Element(element) => {
+            let Some(style) = styles.by_node.get(&node_id) else {
+                return false;
+            };
+            // Floats leave the inline flow.
+            if style.float != Float::None {
+                return false;
+            }
+            // Atomic inlines flow in lines regardless of their contents.
+            if style.display == Display::InlineBlock {
+                return true;
+            }
+            // Replaced elements are promoted to block level (no inline images).
+            if element.tag_name == "img" {
+                return false;
+            }
+            style.display == Display::Inline && !has_block_descendant(document, styles, node_id)
         }
         NodeKind::Document => false,
     }
@@ -254,6 +286,139 @@ fn has_block_descendant(document: &Document, styles: &StyleMap, node_id: NodeId)
             .get(&descendant)
             .is_some_and(|style| style.display == Display::Block)
     })
+}
+
+/// Active floats of one block container (margin boxes, page coordinates).
+#[derive(Debug, Default)]
+struct FloatContext {
+    left: Vec<Rect>,
+    right: Vec<Rect>,
+}
+
+impl FloatContext {
+    /// Usable `(indent, width)` inside `[content_x, content_x+width)` for a
+    /// line starting at absolute `y`.
+    fn bounds_at(&self, content_x: f32, content_width: f32, y: f32) -> (f32, f32) {
+        let intersects = |rect: &&Rect| y >= rect.y && y < rect.y + rect.height;
+        let left_edge = self
+            .left
+            .iter()
+            .filter(intersects)
+            .map(|rect| rect.x + rect.width)
+            .fold(content_x, f32::max);
+        let right_edge = self
+            .right
+            .iter()
+            .filter(intersects)
+            .map(|rect| rect.x)
+            .fold(content_x + content_width, f32::min);
+        let indent = left_edge - content_x;
+        (indent, (right_edge - left_edge).max(0.0))
+    }
+
+    /// The lowest bottom edge of the given side(s); `y` when none.
+    fn clearance(&self, clear: Clear, y: f32) -> f32 {
+        let bottom = |rects: &[Rect]| {
+            rects
+                .iter()
+                .map(|rect| rect.y + rect.height)
+                .fold(y, f32::max)
+        };
+        match clear {
+            Clear::None => y,
+            Clear::Left => bottom(&self.left),
+            Clear::Right => bottom(&self.right),
+            Clear::Both => bottom(&self.left).max(bottom(&self.right)),
+        }
+    }
+
+    fn lowest_bottom(&self) -> f32 {
+        self.left
+            .iter()
+            .chain(&self.right)
+            .map(|rect| rect.y + rect.height)
+            .fold(0.0, f32::max)
+    }
+}
+
+/// Rightmost used extent of a laid-out subtree — the crude "preferred
+/// width" behind shrink-to-fit for inline-blocks and floats. Auto-width
+/// block descendants inflate to the probe width (documented limitation).
+fn natural_right(layout: &LayoutBox) -> f32 {
+    match &layout.kind {
+        LayoutKind::Inline { lines } => {
+            let content = layout.content_box();
+            lines
+                .iter()
+                .flat_map(|line| line.fragments.iter())
+                .map(|fragment| content.x + fragment.x + fragment.width)
+                .fold(content.x, f32::max)
+        }
+        _ if layout.box_type == BoxType::Replaced
+            || !matches!(layout.style.width, Dimension::Auto) =>
+        {
+            let border_box = layout.border_box();
+            border_box.x + border_box.width
+        }
+        _ => {
+            let inner = layout
+                .children
+                .iter()
+                .map(natural_right)
+                .fold(layout.content_box().x, f32::max);
+            inner + layout.dimensions.padding.right + layout.dimensions.border.right
+        }
+    }
+}
+
+/// Lays out an element as an isolated box (for inline-blocks and floats):
+/// auto widths shrink to fit their content, capped by `available`.
+#[allow(clippy::too_many_arguments)]
+fn layout_atomic_box(
+    document: &Document,
+    styles: &StyleMap,
+    node_id: NodeId,
+    available: f32,
+    viewport: Size,
+    measurer: &dyn TextMeasurer,
+    images: &ImageMap,
+) -> LayoutBox {
+    let NodeKind::Element(element) = &document.node(node_id).kind else {
+        unreachable!("atomic boxes are always elements");
+    };
+    let mut style = styles.by_node.get(&node_id).cloned().unwrap_or_default();
+    if matches!(style.width, Dimension::Auto) && element.tag_name != "img" {
+        let probe = layout_element(
+            document,
+            styles,
+            node_id,
+            element,
+            style.clone(),
+            0.0,
+            &mut 0.0,
+            available,
+            viewport,
+            measurer,
+            images,
+        );
+        // Measure the probe's children (the target's own padding/border sit
+        // outside its content width and must not be double-counted).
+        let content_x = probe.content_box().x;
+        let natural = (probe
+            .children
+            .iter()
+            .map(natural_right)
+            .fold(content_x, f32::max)
+            - content_x)
+            .min(available)
+            .max(0.0);
+        style.width = Dimension::Px(natural);
+        style.box_sizing = BoxSizing::ContentBox;
+    }
+    layout_element(
+        document, styles, node_id, element, style, 0.0, &mut 0.0, available, viewport, measurer,
+        images,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -360,30 +525,60 @@ fn layout_element(
     let mut child_cursor_y = content_y;
     let mut children = Vec::new();
     let mut run: Vec<NodeId> = Vec::new();
+    let mut floats = FloatContext::default();
     // Bottom margin of the previous in-flow block sibling, for sibling
     // margin collapsing; None at the start or after inline content.
     let mut previous_bottom_margin: Option<f32> = None;
     // The first block child's top margin already collapsed into the parent.
     let mut suppress_next_top = child_top_collapse;
 
-    let flush_run = |run: &mut Vec<NodeId>, cursor_y: &mut f32, children: &mut Vec<LayoutBox>| {
+    fn flush_run(
+        document: &Document,
+        styles: &StyleMap,
+        run: &mut Vec<NodeId>,
+        owner: NodeId,
+        style: &ComputedStyle,
+        content_x: f32,
+        content_width: f32,
+        cursor_y: &mut f32,
+        floats: &FloatContext,
+        viewport: Size,
+        measurer: &dyn TextMeasurer,
+        images: &ImageMap,
+        children: &mut Vec<LayoutBox>,
+    ) {
         if run.is_empty() {
             return;
         }
-        let (lines, height) =
-            layout_inline_run(document, styles, run, &style, content_width, measurer);
+        let run_top = *cursor_y;
+        let bounds = |line_top: f32| floats.bounds_at(content_x, content_width, run_top + line_top);
+        let mut layout_atomic = |node_id: NodeId, available: f32| {
+            layout_atomic_box(
+                document, styles, node_id, available, viewport, measurer, images,
+            )
+        };
+        let (lines, height) = layout_inline_run(
+            document,
+            styles,
+            run,
+            style,
+            (content_x, run_top),
+            &bounds,
+            measurer,
+            &mut layout_atomic,
+        );
         run.clear();
         if lines.is_empty() {
             return;
         }
         children.push(LayoutBox {
-            node_id,
+            node_id: owner,
             box_type: BoxType::AnonymousBlock,
             kind: LayoutKind::Inline { lines },
             dimensions: Dimensions {
                 content: Rect {
                     x: content_x,
-                    y: *cursor_y,
+                    y: run_top,
                     width: content_width,
                     height,
                 },
@@ -393,13 +588,62 @@ fn layout_element(
             children: Vec::new(),
         });
         *cursor_y += height;
-    };
+    }
 
     for child in document.children(node_id) {
-        let child_display = styles.by_node.get(child).map(|style| style.display);
-        if child_display == Some(Display::None) {
+        let Some(child_style) = styles.by_node.get(child) else {
+            continue;
+        };
+        if child_style.display == Display::None {
             continue;
         }
+
+        // Floats: laid out out-of-flow at the requested side, narrowing
+        // subsequent inline content; the vertical cursor does not advance.
+        if child_style.float != Float::None
+            && matches!(&document.node(*child).kind, NodeKind::Element(_))
+        {
+            let side = child_style.float;
+            let laid = layout_atomic_box(
+                document,
+                styles,
+                *child,
+                content_width,
+                viewport,
+                measurer,
+                images,
+            );
+            let margin_box = laid.margin_box();
+            let (width, height) = (margin_box.width, margin_box.height);
+            // Find the highest y at or below the cursor where the float fits.
+            let mut y = child_cursor_y;
+            for _ in 0..64 {
+                let (indent, available) = floats.bounds_at(content_x, content_width, y);
+                if width <= available || available >= content_width {
+                    let x = match side {
+                        Float::Right => content_x + indent + available - width,
+                        _ => content_x + indent,
+                    };
+                    let mut laid = laid;
+                    laid.translate(x - margin_box.x, y - margin_box.y);
+                    let rect = Rect {
+                        x,
+                        y,
+                        width,
+                        height,
+                    };
+                    match side {
+                        Float::Right => floats.right.push(rect),
+                        _ => floats.left.push(rect),
+                    }
+                    children.push(laid);
+                    break;
+                }
+                y = floats.lowest_bottom().max(y + 1.0);
+            }
+            continue;
+        }
+
         if is_inline_level(document, styles, *child) {
             // Whitespace-only text between blocks is not content and must
             // not interrupt margin collapsing.
@@ -413,7 +657,30 @@ fn layout_element(
                 suppress_next_top = None;
             }
         } else {
-            flush_run(&mut run, &mut child_cursor_y, &mut children);
+            flush_run(
+                document,
+                styles,
+                &mut run,
+                node_id,
+                &style,
+                content_x,
+                content_width,
+                &mut child_cursor_y,
+                &floats,
+                viewport,
+                measurer,
+                images,
+                &mut children,
+            );
+            // clear: drop below the floats of the given side(s).
+            if child_style.clear != Clear::None {
+                let cleared = floats.clearance(child_style.clear, child_cursor_y);
+                if cleared > child_cursor_y {
+                    child_cursor_y = cleared;
+                    previous_bottom_margin = None;
+                    suppress_next_top = None;
+                }
+            }
             // Sibling margin collapsing: undo the doubled gap so it equals
             // the collapsed value. The suppressed first top margin (already
             // collapsed into the parent) is removed entirely.
@@ -445,7 +712,26 @@ fn layout_element(
             }
         }
     }
-    flush_run(&mut run, &mut child_cursor_y, &mut children);
+    flush_run(
+        document,
+        styles,
+        &mut run,
+        node_id,
+        &style,
+        content_x,
+        content_width,
+        &mut child_cursor_y,
+        &floats,
+        viewport,
+        measurer,
+        images,
+        &mut children,
+    );
+    // A container's auto height contains its floats (BFC-root behavior).
+    child_cursor_y = child_cursor_y.max(floats.lowest_bottom().min(f32::MAX));
+    if floats.lowest_bottom() > 0.0 {
+        child_cursor_y = child_cursor_y.max(floats.lowest_bottom());
+    }
 
     // Phase 5: height. Explicit heights win (border-box heights shrink by
     // vertical padding and border); auto grows from the children. Percent
@@ -595,7 +881,7 @@ fn dump_layout_box(layout: &LayoutBox, depth: usize, output: &mut String) {
             let joined = lines
                 .iter()
                 .flat_map(|line| line.fragments.iter())
-                .map(|fragment| fragment.text.as_str())
+                .filter_map(|fragment| fragment.text())
                 .collect::<Vec<_>>()
                 .join(" ");
             format!(
@@ -811,7 +1097,7 @@ mod tests {
         let texts: Vec<&str> = lines[0]
             .fragments
             .iter()
-            .map(|fragment| fragment.text.as_str())
+            .filter_map(|fragment| fragment.text())
             .collect();
         assert_eq!(texts, vec!["one", "two", "three"]);
         // "one " = 4 chars * 8px, span starts after the space.
@@ -835,8 +1121,8 @@ mod tests {
             panic!("expected inline content");
         };
         assert_eq!(lines.len(), 2);
-        assert_eq!(lines[0].fragments[0].text, "a");
-        assert_eq!(lines[1].fragments[0].text, "b");
+        assert_eq!(lines[0].fragments[0].text(), Some("a"));
+        assert_eq!(lines[1].fragments[0].text(), Some("b"));
     }
 
     #[test]
@@ -1050,6 +1336,92 @@ mod tests {
         let child = &parent.children[0];
         assert_eq!(parent.border_box().y, 10.0);
         assert_eq!(child.border_box().y, 10.0 + 4.0 + 30.0);
+    }
+
+    #[test]
+    fn inline_block_flows_in_the_line_and_lays_out_inside() {
+        let layout = layout_of(
+            "<style>
+                .chip { display: inline-block; width: 60px; height: 20px;
+                        background-color: #eee; }
+             </style><div>before <span class='chip'></span> after</div>",
+        );
+        let anonymous = &layout.children[0].children[0];
+        let LayoutKind::Inline { lines } = &anonymous.kind else {
+            panic!("expected inline content");
+        };
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].fragments.len(), 3);
+        // "before " = 7 chars * 8px = 56; chip occupies the next 60px slot.
+        let chip = &lines[0].fragments[1];
+        assert_eq!(chip.x, 56.0);
+        assert_eq!(chip.width, 60.0);
+        let FragmentContent::Box(chip_box) = &chip.content else {
+            panic!("expected an atomic box");
+        };
+        // Bottom sits on the baseline (= its own 20px height here... baseline
+        // is max(text 16, box 20) = 20): top = line.y + 20 - 20 = 0.
+        assert_eq!(chip_box.border_box().y, 0.0);
+        assert_eq!(chip_box.border_box().x, 56.0);
+        // Text after the chip continues on the same line.
+        assert_eq!(lines[0].fragments[2].x, 56.0 + 60.0 + 8.0);
+    }
+
+    #[test]
+    fn auto_width_inline_block_shrinks_to_content() {
+        let layout = layout_of(
+            "<style>.tag { display: inline-block; padding: 5px; }</style>\
+             <div><span class='tag'>hi</span> rest</div>",
+        );
+        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+            panic!("expected inline content");
+        };
+        // Content "hi" = 16px + 2*5 padding = 26 margin-box width.
+        assert_eq!(lines[0].fragments[0].width, 26.0);
+    }
+
+    #[test]
+    fn float_left_narrows_following_lines() {
+        let layout = layout_of(
+            "<style>
+                .f { float: left; width: 100px; height: 30px; background-color: #eee; }
+             </style>\
+             <div class='wrap'><div class='f'></div>aaaa bbbb cccc</div>",
+        );
+        let wrap = &layout.children[0];
+        // First child is the float, positioned at the left edge, no flow advance.
+        let float_box = &wrap.children[0];
+        assert_eq!(float_box.border_box().x, 0.0);
+        assert_eq!(float_box.border_box().y, 0.0);
+        let LayoutKind::Inline { lines } = &wrap.children[1].kind else {
+            panic!("expected inline content");
+        };
+        // The line starts to the right of the 100px float.
+        assert_eq!(lines[0].fragments[0].x, 100.0);
+        // Container height includes the float.
+        assert!(wrap.border_box().height >= 30.0);
+    }
+
+    #[test]
+    fn float_right_hugs_the_right_edge() {
+        let layout = layout_of(
+            "<style>.f { float: right; width: 50px; height: 10px; }</style>\
+             <div><div class='f'></div>text</div>",
+        );
+        let float_box = &layout.children[0].children[0];
+        assert_eq!(float_box.border_box().x, 800.0 - 50.0);
+    }
+
+    #[test]
+    fn clear_drops_below_floats() {
+        let layout = layout_of(
+            "<style>
+                .f { float: left; width: 100px; height: 40px; }
+                .c { clear: left; height: 10px; }
+             </style><div><div class='f'></div><div class='c'></div></div>",
+        );
+        let cleared = &layout.children[0].children[1];
+        assert_eq!(cleared.border_box().y, 40.0);
     }
 
     #[test]
