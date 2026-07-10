@@ -40,7 +40,20 @@ pub fn parse_stylesheet(source: &str) -> Stylesheet {
     let mut rest = source.as_str();
     let mut source_order = 0;
 
-    while let Some(open) = rest.find('{') {
+    loop {
+        rest = rest.trim_start();
+        if rest.is_empty() {
+            break;
+        }
+        // At-rules (`@media`, `@import`, ...) are unsupported: skip the
+        // whole construct with balanced braces so nested rules inside the
+        // block cannot desynchronize the parser.
+        if rest.starts_with('@') {
+            rest = skip_at_rule(rest);
+            continue;
+        }
+
+        let Some(open) = rest.find('{') else { break };
         let selector_source = rest[..open].trim();
         let after_open = &rest[open + 1..];
         // Recovery: a missing `}` closes the block at end of input.
@@ -135,6 +148,26 @@ fn edge_values(components: &[CssValue]) -> Option<[CssValue; 4]> {
         4 => Some([get(0), get(1), get(2), get(3)]),
         _ => None,
     }
+}
+
+/// Skips one at-rule: either a statement ending in `;` (`@import ...;`) or
+/// a block with balanced braces (`@media ... { ... }`). Returns the rest.
+fn skip_at_rule(source: &str) -> &str {
+    let mut depth = 0usize;
+    for (index, character) in source.char_indices() {
+        match character {
+            ';' if depth == 0 => return &source[index + 1..],
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return &source[index + 1..];
+                }
+            }
+            _ => {}
+        }
+    }
+    ""
 }
 
 fn strip_comments(source: &str) -> String {
@@ -275,6 +308,37 @@ mod tests {
         let sheet = parse_stylesheet("p { color: red;");
         assert_eq!(sheet.rules.len(), 1);
         assert_eq!(sheet.rules[0].declarations.len(), 1);
+    }
+
+    #[test]
+    fn media_block_is_skipped_without_desync() {
+        // Regression: the parser used to close the @media block at the
+        // first `}`, swallowing every rule that followed.
+        let sheet = parse_stylesheet(
+            "p { color: red; }
+             @media (max-width: 700px) {
+                 div { margin: 0; }
+                 body { background-color: white; }
+             }
+             h1 { color: blue; }",
+        );
+        assert_eq!(sheet.rules.len(), 2);
+        assert_eq!(
+            sheet.rules[1].selectors[0].compounds[0].tag.as_deref(),
+            Some("h1")
+        );
+    }
+
+    #[test]
+    fn statement_at_rules_are_skipped() {
+        let sheet = parse_stylesheet("@charset \"utf-8\"; @import url(x.css); p { color: red; }");
+        assert_eq!(sheet.rules.len(), 1);
+    }
+
+    #[test]
+    fn unterminated_at_rule_consumes_rest() {
+        let sheet = parse_stylesheet("p { color: red; } @media (x) { div { color: blue; }");
+        assert_eq!(sheet.rules.len(), 1);
     }
 
     #[test]
