@@ -34,16 +34,22 @@ pub enum Dimension {
     Auto,
     Px(f32),
     Percent(f32),
+    /// Percent of the viewport width / height.
+    Vw(f32),
+    Vh(f32),
 }
 
 impl Dimension {
-    /// Resolves against the containing block size; `Auto` resolves to `None`.
+    /// Resolves against the containing block size and the viewport;
+    /// `Auto` resolves to `None`.
     #[must_use]
-    pub fn resolve(&self, containing: f32) -> Option<f32> {
+    pub fn resolve(&self, containing: f32, viewport: crate::geometry::Size) -> Option<f32> {
         match self {
             Self::Auto => None,
             Self::Px(value) => Some(*value),
             Self::Percent(percent) => Some(containing * percent / 100.0),
+            Self::Vw(percent) => Some(viewport.width * percent / 100.0),
+            Self::Vh(percent) => Some(viewport.height * percent / 100.0),
         }
     }
 
@@ -55,6 +61,8 @@ impl Dimension {
             CssValue::Length(pixels, lumen_css::Unit::Px) => Some(Self::Px(*pixels)),
             CssValue::Length(factor, lumen_css::Unit::Em) => Some(Self::Px(factor * font_size)),
             CssValue::Length(percent, lumen_css::Unit::Percent) => Some(Self::Percent(*percent)),
+            CssValue::Length(percent, lumen_css::Unit::Vw) => Some(Self::Vw(*percent)),
+            CssValue::Length(percent, lumen_css::Unit::Vh) => Some(Self::Vh(*percent)),
             _ => None,
         }
     }
@@ -623,6 +631,15 @@ mod tests {
             style_of(&document, &styles, "div").width,
             Dimension::Percent(50.0)
         );
-        assert_eq!(Dimension::Percent(50.0).resolve(300.0), Some(150.0));
+        assert_eq!(
+            Dimension::Percent(50.0).resolve(
+                300.0,
+                crate::geometry::Size {
+                    width: 0.0,
+                    height: 0.0
+                }
+            ),
+            Some(150.0)
+        );
     }
 }

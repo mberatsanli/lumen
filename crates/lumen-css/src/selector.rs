@@ -23,6 +23,9 @@ pub struct CompoundSelector {
     pub tag: Option<String>,
     pub id: Option<String>,
     pub classes: Vec<String>,
+    /// Supported pseudo-classes (`link`, `visited`). They match anything
+    /// (Lumen has no visited state), but count toward specificity.
+    pub pseudo_classes: Vec<String>,
 }
 
 impl CompoundSelector {
@@ -30,7 +33,7 @@ impl CompoundSelector {
     pub fn specificity(&self) -> Specificity {
         Specificity {
             ids: u16::from(self.id.is_some()),
-            classes: self.classes.len() as u16,
+            classes: (self.classes.len() + self.pseudo_classes.len()) as u16,
             types: u16::from(self.tag.is_some()),
         }
     }
@@ -79,9 +82,24 @@ pub fn parse_selector(source: &str) -> Option<Selector> {
     Some(Selector { compounds })
 }
 
+/// Pseudo-classes the engine can honestly treat as always-true.
+const SUPPORTED_PSEUDO_CLASSES: [&str; 2] = ["link", "visited"];
+
 fn parse_compound(source: &str) -> Option<CompoundSelector> {
     let mut compound = CompoundSelector::default();
-    let mut rest = source;
+    // Split off pseudo-classes first: `a:link` -> base `a` + pseudo `link`.
+    let mut parts = source.split(':');
+    let base = parts.next()?;
+    for pseudo in parts {
+        if !SUPPORTED_PSEUDO_CLASSES.contains(&pseudo) {
+            return None; // Unsupported pseudo-class drops the rule.
+        }
+        compound.pseudo_classes.push(pseudo.to_string());
+    }
+    let mut rest = base;
+    if rest.is_empty() && !compound.pseudo_classes.is_empty() {
+        return None; // Bare `:link` is unsupported.
+    }
 
     if rest == "*" {
         return Some(compound);
@@ -135,6 +153,7 @@ mod tests {
             tag: tag.map(str::to_string),
             id: id.map(str::to_string),
             classes: classes.iter().map(|class| (*class).to_string()).collect(),
+            pseudo_classes: Vec::new(),
         }
     }
 
@@ -186,10 +205,27 @@ mod tests {
     }
 
     #[test]
+    fn supported_pseudo_classes_match_and_add_specificity() {
+        let selector = parse_selector("a:link").unwrap();
+        assert_eq!(selector.compounds[0].tag.as_deref(), Some("a"));
+        assert_eq!(selector.compounds[0].pseudo_classes, vec!["link"]);
+        assert_eq!(
+            selector.specificity(),
+            Specificity {
+                ids: 0,
+                classes: 1,
+                types: 1
+            }
+        );
+        assert!(parse_selector("a:visited").is_some());
+    }
+
+    #[test]
     fn rejects_unsupported_selectors() {
         assert!(parse_selector("").is_none());
         assert!(parse_selector("p > a").is_none());
         assert!(parse_selector("a:hover").is_none());
+        assert!(parse_selector(":link").is_none());
         assert!(parse_selector(".").is_none());
         assert!(parse_selector("#").is_none());
         assert!(parse_selector("div..x").is_none());

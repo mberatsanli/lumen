@@ -85,6 +85,7 @@ pub fn layout_document(
             0.0,
             &mut cursor_y,
             viewport.width,
+            viewport,
             measurer,
         ) {
             children.push(layout);
@@ -117,6 +118,7 @@ fn layout_node(
     containing_x: f32,
     cursor_y: &mut f32,
     containing_width: f32,
+    viewport: Size,
     measurer: &dyn TextMeasurer,
 ) -> Option<LayoutBox> {
     let style = styles.by_node.get(&node_id)?.clone();
@@ -166,6 +168,7 @@ fn layout_node(
             containing_x,
             cursor_y,
             containing_width,
+            viewport,
             measurer,
         )),
     }
@@ -181,24 +184,28 @@ fn layout_element(
     containing_x: f32,
     cursor_y: &mut f32,
     containing_width: f32,
+    viewport: Size,
     measurer: &dyn TextMeasurer,
 ) -> LayoutBox {
-    let mut margin = resolve_edges(&style.margin, containing_width);
+    let mut margin = resolve_edges(&style.margin, containing_width, viewport);
     let border = style.border_width;
-    let padding = resolve_edges(&style.padding, containing_width);
+    let padding = resolve_edges(&style.padding, containing_width, viewport);
 
     // Phase 1: width. Explicit widths set the content box; auto fills the
     // containing block minus margins, borders and paddings.
-    let content_width = style.width.resolve(containing_width).unwrap_or_else(|| {
-        (containing_width
-            - margin.left
-            - margin.right
-            - border.left
-            - border.right
-            - padding.left
-            - padding.right)
-            .max(0.0)
-    });
+    let content_width = style
+        .width
+        .resolve(containing_width, viewport)
+        .unwrap_or_else(|| {
+            (containing_width
+                - margin.left
+                - margin.right
+                - border.left
+                - border.right
+                - padding.left
+                - padding.right)
+                .max(0.0)
+        });
 
     // With an explicit width, auto margins absorb the leftover space:
     // both auto centers the box, one auto pushes it to the other side.
@@ -244,6 +251,7 @@ fn layout_element(
             content_x,
             &mut child_cursor_y,
             content_width,
+            viewport,
             measurer,
         ) {
             children.push(layout);
@@ -251,10 +259,12 @@ fn layout_element(
     }
 
     // Phase 5: height. Explicit heights win; auto grows from the children.
+    // Percent heights are unsupported and treated as auto; vh works.
     let content_height = match style.height {
-        Dimension::Px(height) => height,
-        // Percent heights are unsupported; treated as auto.
         Dimension::Auto | Dimension::Percent(_) => (child_cursor_y - content_y).max(0.0),
+        explicit => explicit
+            .resolve(containing_width, viewport)
+            .unwrap_or_else(|| (child_cursor_y - content_y).max(0.0)),
     };
 
     let dimensions = Dimensions {
@@ -285,8 +295,9 @@ fn layout_element(
 
 /// Percentages resolve against the containing block width; `auto` margins
 /// and paddings resolve to zero (no centering yet).
-fn resolve_edges(edges: &EdgeSizes<Dimension>, containing_width: f32) -> Edges {
-    let resolve = |dimension: &Dimension| dimension.resolve(containing_width).unwrap_or(0.0);
+fn resolve_edges(edges: &EdgeSizes<Dimension>, containing_width: f32, viewport: Size) -> Edges {
+    let resolve =
+        |dimension: &Dimension| dimension.resolve(containing_width, viewport).unwrap_or(0.0);
     Edges {
         top: resolve(&edges.top),
         right: resolve(&edges.right),
