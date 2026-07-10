@@ -37,8 +37,13 @@ Per element, in order:
    cursor advances by each child's margin-box height.
 5. **Height** — explicit `height` wins; `auto` grows from the children.
 
-Text nodes become `Inline` boxes occupying one full-width line of
-`line_height` pixels — real text measurement and wrapping are milestone 11.
+Text nodes collapse whitespace, then wrap greedily into line boxes via the
+`TextMeasurer` abstraction (`text.rs`). The default `HeuristicMeasurer` is
+a deliberate approximation — half an em per character — so wrapping
+structure is right even though exact widths are not; tests use exact fake
+measurers. A word wider than the line overflows on its own line. The text
+box's height is `lines × line_height`; `text-align: left|center|right`
+positions each line at paint time using its measured width.
 
 `layout_document` is a pure function; relayout on viewport resize is simply
 calling it again with the new size (verified by test).
@@ -49,9 +54,10 @@ calling it again with the new size (verified by test).
   collapsing. Documented deviation; revisit after inline layout.
 - Percent heights are treated as `auto`; auto margins resolve to 0 (no
   `margin: 0 auto` centering yet).
-- `Display::Inline` boxes still stack vertically like blocks.
-- `default_min_height` gives empty non-container elements an 8px floor — a
-  legacy hack to keep empty paragraphs visible until real text metrics land.
+- `Display::Inline` boxes still stack vertically like blocks; consecutive
+  inline elements do not share a line box yet.
+- Text measurement is heuristic, not shaped; real font metrics can slot in
+  behind `TextMeasurer` without layout changes.
 
 ## Painting
 

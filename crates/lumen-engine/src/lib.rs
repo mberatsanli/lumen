@@ -8,6 +8,7 @@ pub mod layout;
 pub mod paint;
 pub mod style;
 pub mod svg;
+pub mod text;
 
 pub use geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
 pub use layout::{BoxType, LayoutBox, LayoutKind, dump_layout, layout_document};
@@ -16,6 +17,7 @@ pub use style::{
     ComputedStyle, Dimension, Display, FontWeight, StyleMap, TextAlign, compute_styles,
 };
 pub use svg::render_svg;
+pub use text::{HeuristicMeasurer, Line, TextMeasurer, TextMetrics, TextStyle};
 
 use lumen_html::{Document, NodeKind};
 
@@ -58,7 +60,7 @@ pub fn build_page(html: &str, viewport: Size) -> Result<Page, EngineError> {
     let document = lumen_html::parse_document(html);
     let stylesheet = lumen_css::parse_stylesheet(&extract_embedded_css(&document))?;
     let styles = compute_styles(&document, &stylesheet);
-    let layout = layout_document(&document, &styles, viewport);
+    let layout = layout_document(&document, &styles, viewport, &HeuristicMeasurer);
     let display_list = build_display_list(&layout);
 
     Ok(Page {
@@ -228,6 +230,86 @@ mod tests {
         let body = &page.layout.children[0];
         let div = &body.children[0];
         assert_eq!(div.content_box().width, 400.0);
+    }
+
+    #[test]
+    fn long_text_wraps_into_multiple_lines() {
+        // 30 chars/word at 16px * 0.5 = 8px/char; container 200px fits 25 chars.
+        let page = page(
+            "<style>div { width: 200px; margin: 0; padding: 0; }</style>\
+             <div>aaaaaaaaaa bbbbbbbbbb cccccccccc dddddddddd</div>",
+        );
+        let texts: Vec<&str> = page
+            .display_list
+            .iter()
+            .filter_map(|command| match command {
+                DisplayCommand::DrawText { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            texts,
+            vec!["aaaaaaaaaa bbbbbbbbbb", "cccccccccc dddddddddd"]
+        );
+        let div = &page.layout.children[0];
+        let text_box = &div.children[0];
+        // Two lines at the default 1.4 * 16px line height.
+        assert_eq!(
+            text_box.content_box().height,
+            2.0 * text_box.style.line_height
+        );
+    }
+
+    #[test]
+    fn inherited_font_size_affects_wrapping() {
+        // Same text: 16px wraps in 200px, 8px does not.
+        let big = page(
+            "<style>div { width: 200px; font-size: 16px; }</style>\
+             <div>aaaaaaaaaa bbbbbbbbbb cccccccccc</div>",
+        );
+        let small = page(
+            "<style>div { width: 200px; font-size: 8px; }</style>\
+             <div>aaaaaaaaaa bbbbbbbbbb cccccccccc</div>",
+        );
+        let count = |page: &Page| {
+            page.display_list
+                .iter()
+                .filter(|command| matches!(command, DisplayCommand::DrawText { .. }))
+                .count()
+        };
+        assert_eq!(count(&big), 2);
+        assert_eq!(count(&small), 1);
+    }
+
+    #[test]
+    fn text_align_center_and_right_position_lines() {
+        // "hi" at 16px * 0.5 = 16px wide in a 200px container.
+        let centered = page(
+            "<style>div { width: 200px; margin: 0; padding: 0; text-align: center; }</style>\
+             <div>hi</div>",
+        );
+        let righted = page(
+            "<style>div { width: 200px; margin: 0; padding: 0; text-align: right; }</style>\
+             <div>hi</div>",
+        );
+        let x_of = |page: &Page| {
+            page.display_list.iter().find_map(|command| match command {
+                DisplayCommand::DrawText { x, .. } => Some(*x),
+                _ => None,
+            })
+        };
+        assert_eq!(x_of(&centered), Some(92.0)); // (200 - 16) / 2
+        assert_eq!(x_of(&righted), Some(184.0)); // 200 - 16
+    }
+
+    #[test]
+    fn whitespace_collapses_across_newlines() {
+        let page = page("<p>a \n\n   b\t c</p>");
+        let text = page.display_list.iter().find_map(|command| match command {
+            DisplayCommand::DrawText { text, .. } => Some(text.clone()),
+            _ => None,
+        });
+        assert_eq!(text, Some("a b c".to_string()));
     }
 
     #[test]

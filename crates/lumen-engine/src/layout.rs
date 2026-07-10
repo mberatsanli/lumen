@@ -9,6 +9,7 @@
 
 use crate::geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
 use crate::style::{ComputedStyle, Dimension, Display, StyleMap};
+use crate::text::{Line, TextMeasurer, TextStyle, break_into_lines};
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::fmt::Write as _;
 
@@ -24,11 +25,11 @@ pub enum BoxType {
     Replaced,
 }
 
-/// What the box renders: an element or a text run.
+/// What the box renders: an element or a wrapped text run.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LayoutKind {
     Element(String),
-    Text(String),
+    Text { lines: Vec<Line> },
 }
 
 /// A laid-out box with full box-model geometry.
@@ -62,7 +63,12 @@ impl LayoutBox {
 /// Lays out the whole document against a viewport. Pure function of its
 /// inputs: relayout after a viewport change is just calling it again.
 #[must_use]
-pub fn layout_document(document: &Document, styles: &StyleMap, viewport: Size) -> LayoutBox {
+pub fn layout_document(
+    document: &Document,
+    styles: &StyleMap,
+    viewport: Size,
+    measurer: &dyn TextMeasurer,
+) -> LayoutBox {
     let root_style = styles
         .by_node
         .get(&document.root())
@@ -72,9 +78,15 @@ pub fn layout_document(document: &Document, styles: &StyleMap, viewport: Size) -
     let mut cursor_y = 0.0;
     let mut children = Vec::new();
     for child in document.children(document.root()) {
-        if let Some(layout) =
-            layout_node(document, styles, *child, 0.0, &mut cursor_y, viewport.width)
-        {
+        if let Some(layout) = layout_node(
+            document,
+            styles,
+            *child,
+            0.0,
+            &mut cursor_y,
+            viewport.width,
+            measurer,
+        ) {
             children.push(layout);
         }
     }
@@ -97,6 +109,7 @@ pub fn layout_document(document: &Document, styles: &StyleMap, viewport: Size) -
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn layout_node(
     document: &Document,
     styles: &StyleMap,
@@ -104,6 +117,7 @@ fn layout_node(
     containing_x: f32,
     cursor_y: &mut f32,
     containing_width: f32,
+    measurer: &dyn TextMeasurer,
 ) -> Option<LayoutBox> {
     let style = styles.by_node.get(&node_id)?.clone();
     if style.display == Display::None {
@@ -113,11 +127,17 @@ fn layout_node(
     match &document.node(node_id).kind {
         NodeKind::Document => None,
         NodeKind::Text(text) => {
+            // Whitespace collapsing: runs of whitespace become one space.
             let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
             if normalized.is_empty() {
                 return None;
             }
-            let height = style.line_height;
+            let text_style = TextStyle {
+                font_size: style.font_size,
+                font_weight: style.font_weight,
+            };
+            let lines = break_into_lines(&normalized, &text_style, containing_width, measurer);
+            let height = lines.len() as f32 * style.line_height;
             let content = Rect {
                 x: containing_x,
                 y: *cursor_y,
@@ -128,7 +148,7 @@ fn layout_node(
             Some(LayoutBox {
                 node_id,
                 box_type: BoxType::Inline,
-                kind: LayoutKind::Text(normalized),
+                kind: LayoutKind::Text { lines },
                 dimensions: Dimensions {
                     content,
                     ..Dimensions::default()
@@ -146,6 +166,7 @@ fn layout_node(
             containing_x,
             cursor_y,
             containing_width,
+            measurer,
         )),
     }
 }
@@ -160,6 +181,7 @@ fn layout_element(
     containing_x: f32,
     cursor_y: &mut f32,
     containing_width: f32,
+    measurer: &dyn TextMeasurer,
 ) -> LayoutBox {
     let margin = resolve_edges(&style.margin, containing_width);
     let border = style.border_width;
@@ -196,6 +218,7 @@ fn layout_element(
             content_x,
             &mut child_cursor_y,
             content_width,
+            measurer,
         ) {
             children.push(layout);
         }
@@ -205,9 +228,7 @@ fn layout_element(
     let content_height = match style.height {
         Dimension::Px(height) => height,
         // Percent heights are unsupported; treated as auto.
-        Dimension::Auto | Dimension::Percent(_) => {
-            (child_cursor_y - content_y).max(default_min_height(element))
-        }
+        Dimension::Auto | Dimension::Percent(_) => (child_cursor_y - content_y).max(0.0),
     };
 
     let dimensions = Dimensions {
@@ -248,15 +269,6 @@ fn resolve_edges(edges: &EdgeSizes<Dimension>, containing_width: f32) -> Edges {
     }
 }
 
-/// Legacy minimum for empty non-container elements; removed once real text
-/// metrics land (milestone 11).
-fn default_min_height(element: &ElementData) -> f32 {
-    match element.tag_name.as_str() {
-        "body" | "html" | "div" => 0.0,
-        _ => 8.0,
-    }
-}
-
 /// Human-readable layout dump (border-box coordinates).
 #[must_use]
 pub fn dump_layout(layout: &LayoutBox) -> String {
@@ -269,7 +281,18 @@ fn dump_layout_box(layout: &LayoutBox, depth: usize, output: &mut String) {
     let indent = "  ".repeat(depth);
     let label = match &layout.kind {
         LayoutKind::Element(tag) => format!("<{tag}>"),
-        LayoutKind::Text(text) => format!("\"{text}\""),
+        LayoutKind::Text { lines } => {
+            let joined = lines
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!(
+                "\"{joined}\" ({} line{})",
+                lines.len(),
+                if lines.len() == 1 { "" } else { "s" }
+            )
+        }
     };
     let rect = layout.border_box();
     let _ = writeln!(
@@ -297,7 +320,12 @@ mod tests {
         let document = parse_document(html);
         let author = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document)).unwrap();
         let styles = compute_styles(&document, &author);
-        layout_document(&document, &styles, VIEWPORT)
+        layout_document(
+            &document,
+            &styles,
+            VIEWPORT,
+            &crate::text::HeuristicMeasurer,
+        )
     }
 
     /// The brief's canonical deterministic-geometry example.
@@ -435,6 +463,7 @@ mod tests {
                 width: 400.0,
                 height: 100.0,
             },
+            &crate::text::HeuristicMeasurer,
         );
         let wide = layout_document(
             &document,
@@ -443,6 +472,7 @@ mod tests {
                 width: 900.0,
                 height: 100.0,
             },
+            &crate::text::HeuristicMeasurer,
         );
         assert_eq!(narrow.children[0].content_box().width, 400.0);
         assert_eq!(wide.children[0].content_box().width, 900.0);

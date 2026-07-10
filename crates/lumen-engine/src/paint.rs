@@ -5,6 +5,7 @@
 
 use crate::geometry::{EdgeSizes, Rect};
 use crate::layout::{LayoutBox, LayoutKind};
+use crate::style::TextAlign;
 use lumen_css::Color;
 
 /// A single backend-independent paint command.
@@ -59,16 +60,23 @@ fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
         });
     }
 
-    if let LayoutKind::Text(text) = &layout.kind {
+    if let LayoutKind::Text { lines } = &layout.kind {
         let content = layout.content_box();
-        commands.push(DisplayCommand::DrawText {
-            x: content.x,
-            y: content.y + layout.style.font_size,
-            text: text.clone(),
-            color: layout.style.color,
-            font_size: layout.style.font_size,
-            font_weight: layout.style.font_weight.0,
-        });
+        for (index, line) in lines.iter().enumerate() {
+            let x = match layout.style.text_align {
+                TextAlign::Left => content.x,
+                TextAlign::Center => content.x + (content.width - line.width) / 2.0,
+                TextAlign::Right => content.x + content.width - line.width,
+            };
+            commands.push(DisplayCommand::DrawText {
+                x,
+                y: content.y + index as f32 * layout.style.line_height + layout.style.font_size,
+                text: line.text.clone(),
+                color: layout.style.color,
+                font_size: layout.style.font_size,
+                font_weight: layout.style.font_weight.0,
+            });
+        }
     }
 
     for child in &layout.children {
