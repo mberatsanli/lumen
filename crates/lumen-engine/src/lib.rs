@@ -10,6 +10,7 @@ pub mod inline;
 pub mod layout;
 pub mod paint;
 pub mod raster;
+pub mod selection;
 pub mod style;
 pub mod svg;
 pub mod text;
@@ -21,6 +22,9 @@ pub use inline::{Fragment, LineBox};
 pub use layout::{BoxType, LayoutBox, LayoutKind, dump_layout, layout_document};
 pub use paint::{DisplayCommand, build_display_list};
 pub use raster::{Framebuffer, rasterize, rasterize_over, rasterize_with};
+pub use selection::{
+    Caret, Selection, TextRun, caret_at_point, collect_text_runs, highlight_rects, selected_text,
+};
 pub use style::{
     ComputedStyle, Dimension, Display, FontWeight, StyleMap, TextAlign, compute_styles,
     compute_styles_hovered,
