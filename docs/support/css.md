@@ -82,9 +82,10 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `margin: auto` centering | ✅ | ✅ | ✅ | ✅ | horizontal only |
 | `padding` + longhands | ✅ | ✅ | ✅ | ✅ | |
 | `border-width` | ✅ | ✅ | ✅ | ✅ | per-side via shorthand |
-| `border-color` | ✅ | ✅ | ✅ | ✅ | defaults to text color |
-| `border-style` | ❌ | ✅ | ✅ | ✅ | always renders solid |
-| `border` shorthand | ❌ | ✅ | ✅ | ✅ | |
+| `border-color` | ✅ | ✅ | ✅ | ✅ | per side (1–4 values); defaults to text color |
+| `border-style` | ⚠️ | ✅ | ✅ | ✅ | none/hidden hide; solid renders; dashed/dotted parse but render solid; initial behaves as solid (deviation) |
+| `border` shorthand | ✅ | ✅ | ✅ | ✅ | any order; missing width = 3px |
+| Per-side `border-top/right/bottom/left` | ✅ | ✅ | ✅ | ✅ | width/style/color any order |
 | `border-radius` | ❌ | ✅ | ✅ | ✅ | |
 | `box-sizing` | ✅ | ✅ | ✅ | ✅ | border-box and content-box |
 | `outline` | ❌ | ✅ | ✅ | ✅ | |

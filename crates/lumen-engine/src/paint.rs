@@ -17,11 +17,11 @@ pub enum DisplayCommand {
         color: Color,
     },
     /// A border frame: `rect` is the border box, `widths` the per-edge
-    /// thicknesses drawn inward from its edges.
+    /// thicknesses drawn inward from its edges, each with its own color.
     StrokeRect {
         rect: Rect,
         widths: EdgeSizes<f32>,
-        color: Color,
+        colors: EdgeSizes<Color>,
     },
     DrawText {
         x: f32,
@@ -92,7 +92,7 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
         commands.push(DisplayCommand::StrokeRect {
             rect: border_box,
             widths,
-            color: layout.style.border_color,
+            colors: layout.style.border_color,
         });
     }
 
@@ -106,7 +106,7 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
             None => commands.push(DisplayCommand::StrokeRect {
                 rect: border_box,
                 widths: EdgeSizes::uniform(1.0),
-                color: Color::rgb(0x80, 0x80, 0x80),
+                colors: EdgeSizes::uniform(Color::rgb(0x80, 0x80, 0x80)),
             }),
         }
     }
@@ -158,11 +158,11 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
             DisplayCommand::StrokeRect {
                 rect,
                 widths,
-                color,
+                colors,
             } => {
                 let _ = writeln!(
                     output,
-                    "StrokeRect x={} y={} w={} h={} widths={}/{}/{}/{} color={color}",
+                    "StrokeRect x={} y={} w={} h={} widths={}/{}/{}/{} colors={}/{}/{}/{}",
                     rect.x,
                     rect.y,
                     rect.width,
@@ -170,7 +170,11 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
                     widths.top,
                     widths.right,
                     widths.bottom,
-                    widths.left
+                    widths.left,
+                    colors.top,
+                    colors.right,
+                    colors.bottom,
+                    colors.left
                 );
             }
             DisplayCommand::DrawText {
@@ -287,6 +291,22 @@ mod tests {
         assert_eq!(rect.width, 104.0);
         assert_eq!(rect.height, 14.0);
         assert_eq!(widths.top, 2.0);
+    }
+
+    #[test]
+    fn border_edges_carry_their_own_colors() {
+        let list = commands(
+            "<style>div { border: 2px solid #111111; border-left-color: #222222; height: 5px; }\
+             </style><div></div>",
+        );
+        let Some(DisplayCommand::StrokeRect { colors, .. }) = list
+            .iter()
+            .find(|command| matches!(command, DisplayCommand::StrokeRect { .. }))
+        else {
+            panic!("no StrokeRect in {list:?}");
+        };
+        assert_eq!(colors.top.to_string(), "#111111");
+        assert_eq!(colors.left.to_string(), "#222222");
     }
 
     #[test]

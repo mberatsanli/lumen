@@ -110,10 +110,9 @@ pub fn rasterize_over(
             DisplayCommand::StrokeRect {
                 rect,
                 widths,
-                color,
+                colors,
             } => {
                 let rect = shift(rect);
-                let color = pack(*color);
                 // Border widths scale too, but stay at least one device
                 // pixel so hairline borders never disappear.
                 let width_of = |value: f32| {
@@ -124,27 +123,39 @@ pub fn rasterize_over(
                     }
                 };
                 let strips = [
-                    Rect {
-                        height: width_of(widths.top),
-                        ..rect
-                    },
-                    Rect {
-                        x: rect.x + rect.width - width_of(widths.right),
-                        width: width_of(widths.right),
-                        ..rect
-                    },
-                    Rect {
-                        y: rect.y + rect.height - width_of(widths.bottom),
-                        height: width_of(widths.bottom),
-                        ..rect
-                    },
-                    Rect {
-                        width: width_of(widths.left),
-                        ..rect
-                    },
+                    (
+                        Rect {
+                            height: width_of(widths.top),
+                            ..rect
+                        },
+                        colors.top,
+                    ),
+                    (
+                        Rect {
+                            x: rect.x + rect.width - width_of(widths.right),
+                            width: width_of(widths.right),
+                            ..rect
+                        },
+                        colors.right,
+                    ),
+                    (
+                        Rect {
+                            y: rect.y + rect.height - width_of(widths.bottom),
+                            height: width_of(widths.bottom),
+                            ..rect
+                        },
+                        colors.bottom,
+                    ),
+                    (
+                        Rect {
+                            width: width_of(widths.left),
+                            ..rect
+                        },
+                        colors.left,
+                    ),
                 ];
-                for strip in strips {
-                    framebuffer.fill(strip, color);
+                for (strip, color) in strips {
+                    framebuffer.fill(strip, pack(color));
                 }
             }
             DisplayCommand::DrawImage { rect, image } => {
@@ -439,7 +450,7 @@ mod tests {
                 height: 10.0,
             },
             widths: EdgeSizes::uniform(1.0),
-            color: RED,
+            colors: EdgeSizes::uniform(RED),
         }];
         let framebuffer = rasterize(&commands, 10, 10, 0.0);
         assert_eq!(framebuffer.pixel(0, 0), 0x00ff_0000);

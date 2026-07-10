@@ -46,7 +46,7 @@ interaction) — not just a DOM node.
 | `<ul> <ol> <li>` | ⚠️ | ✅ | ✅ | ✅ | block only; no bullets/numbers/indent |
 | `<dl> <dt> <dd>` | ❌ | ✅ | ✅ | ✅ | |
 | `<pre>` | ⚠️ | ✅ | ✅ | ✅ | whitespace still collapses; not monospace |
-| `<hr>` | ⚠️ | ✅ | ✅ | ✅ | void+block but invisible (no default border) |
+| `<hr>` | ✅ | ✅ | ✅ | ✅ | UA: 1px solid top border |
 | `<figure> <figcaption>` | ❌ | ✅ | ✅ | ✅ | |
 | `<details> <summary>` | ❌ | ✅ | ✅ | ✅ | |
 | `<dialog>` | ❌ | ✅ | ✅ | ✅ | |

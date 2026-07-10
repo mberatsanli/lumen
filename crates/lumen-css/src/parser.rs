@@ -133,21 +133,75 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
         }
         return;
     }
-    let longhand = |side: &str| match name {
-        "border-width" => format!("border-{side}-width"),
-        _ => format!("{name}-{side}"),
+    let expand_edges = |suffix_for: &dyn Fn(&str) -> String,
+                        components: &[CssValue],
+                        output: &mut Vec<Declaration>| {
+        let Some(edges) = edge_values(components) else {
+            return;
+        };
+        for (side, value) in SIDES.iter().zip(edges) {
+            output.push(Declaration {
+                name: suffix_for(side),
+                value,
+            });
+        }
     };
-    match name {
-        "margin" | "padding" | "border-width" => {
-            let Some(edges) = edge_values(&components) else {
-                return;
-            };
-            for (side, value) in ["top", "right", "bottom", "left"].iter().zip(edges) {
+
+    // One border side: width/style/color in any order; missing width is
+    // 3px (CSS medium), missing style is solid, missing color falls back
+    // to the element color at computed-style time.
+    let expand_border_side =
+        |side: &str, components: &[CssValue], output: &mut Vec<Declaration>| {
+            let mut width = CssValue::Length(3.0, crate::value::Unit::Px);
+            let mut style = CssValue::Keyword("solid".to_string());
+            let mut color = None;
+            for component in components {
+                match component {
+                    CssValue::Length(..) | CssValue::Number(_) => width = component.clone(),
+                    CssValue::Color(_) => color = Some(component.clone()),
+                    CssValue::Keyword(keyword) if BORDER_STYLES.contains(&keyword.as_str()) => {
+                        style = component.clone();
+                    }
+                    _ => {}
+                }
+            }
+            output.push(Declaration {
+                name: format!("border-{side}-width"),
+                value: width,
+            });
+            output.push(Declaration {
+                name: format!("border-{side}-style"),
+                value: style,
+            });
+            if let Some(color) = color {
                 output.push(Declaration {
-                    name: longhand(side),
-                    value,
+                    name: format!("border-{side}-color"),
+                    value: color,
                 });
             }
+        };
+
+    match name {
+        "margin" | "padding" => {
+            expand_edges(&|side| format!("{name}-{side}"), &components, output);
+        }
+        "border-width" => {
+            expand_edges(&|side| format!("border-{side}-width"), &components, output);
+        }
+        "border-style" => {
+            expand_edges(&|side| format!("border-{side}-style"), &components, output);
+        }
+        "border-color" => {
+            expand_edges(&|side| format!("border-{side}-color"), &components, output);
+        }
+        "border" => {
+            for side in SIDES {
+                expand_border_side(side, &components, output);
+            }
+        }
+        "border-top" | "border-right" | "border-bottom" | "border-left" => {
+            let side = &name["border-".len()..];
+            expand_border_side(side, &components, output);
         }
         _ => output.push(Declaration {
             name: name.to_string(),
@@ -155,6 +209,9 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
         }),
     }
 }
+
+const SIDES: [&str; 4] = ["top", "right", "bottom", "left"];
+const BORDER_STYLES: [&str; 5] = ["none", "hidden", "solid", "dashed", "dotted"];
 
 /// CSS 1-to-4 value expansion: top, right, bottom, left.
 fn edge_values(components: &[CssValue]) -> Option<[CssValue; 4]> {
@@ -276,6 +333,76 @@ mod tests {
             ]
         );
         assert_eq!(declarations[1].value, px(2.0));
+    }
+
+    #[test]
+    fn border_shorthand_expands_width_style_color() {
+        let declarations = parse_declarations("border: 1px solid #cccccc");
+        assert_eq!(declarations.len(), 12);
+        let find = |name: &str| {
+            declarations
+                .iter()
+                .find(|declaration| declaration.name == name)
+                .map(|declaration| declaration.value.clone())
+        };
+        assert_eq!(find("border-top-width"), Some(px(1.0)));
+        assert_eq!(
+            find("border-left-style"),
+            Some(CssValue::Keyword("solid".to_string()))
+        );
+        assert_eq!(
+            find("border-bottom-color"),
+            Some(CssValue::Color(Color::rgb(0xcc, 0xcc, 0xcc)))
+        );
+        // Order-independent, defaults for missing parts (medium = 3px).
+        let declarations = parse_declarations("border: red");
+        let find = |name: &str| {
+            declarations
+                .iter()
+                .find(|declaration| declaration.name == name)
+                .map(|declaration| declaration.value.clone())
+        };
+        assert_eq!(find("border-top-width"), Some(px(3.0)));
+        assert_eq!(
+            find("border-top-color"),
+            Some(CssValue::Color(Color::rgb(255, 0, 0)))
+        );
+    }
+
+    #[test]
+    fn border_side_shorthand_targets_one_side() {
+        let declarations = parse_declarations("border-top: 2px dashed #112233");
+        let names: Vec<&str> = declarations
+            .iter()
+            .map(|declaration| declaration.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["border-top-width", "border-top-style", "border-top-color"]
+        );
+    }
+
+    #[test]
+    fn border_color_and_style_expand_per_side() {
+        let declarations = parse_declarations("border-color: red blue; border-style: solid none");
+        let find = |name: &str| {
+            declarations
+                .iter()
+                .find(|declaration| declaration.name == name)
+                .map(|declaration| declaration.value.clone())
+        };
+        assert_eq!(
+            find("border-right-color"),
+            Some(CssValue::Color(Color::rgb(0, 0, 255)))
+        );
+        assert_eq!(
+            find("border-bottom-color"),
+            Some(CssValue::Color(Color::rgb(255, 0, 0)))
+        );
+        assert_eq!(
+            find("border-left-style"),
+            Some(CssValue::Keyword("none".to_string()))
+        );
     }
 
     #[test]

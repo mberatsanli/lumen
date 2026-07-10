@@ -115,6 +115,19 @@ pub enum AlignItems {
     End,
 }
 
+/// Border line style. Deviation from CSS: the initial value behaves as
+/// `solid` (so `border-width` alone shows a border, as the project brief
+/// expects); `none`/`hidden` suppress the border. `dashed`/`dotted` parse
+/// but render solid for now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BorderStyle {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+    None,
+}
+
 /// `float: left | right`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Float {
@@ -156,7 +169,8 @@ pub struct ComputedStyle {
     pub margin: EdgeSizes<Dimension>,
     pub padding: EdgeSizes<Dimension>,
     pub border_width: EdgeSizes<f32>,
-    pub border_color: Color,
+    pub border_color: EdgeSizes<Color>,
+    pub border_style: EdgeSizes<BorderStyle>,
     pub font_size: f32,
     pub font_weight: FontWeight,
     /// Resolved to pixels.
@@ -194,7 +208,8 @@ impl Default for ComputedStyle {
             margin: EdgeSizes::uniform(Dimension::Px(0.0)),
             padding: EdgeSizes::uniform(Dimension::Px(0.0)),
             border_width: EdgeSizes::uniform(0.0),
-            border_color: DEFAULT_COLOR,
+            border_color: EdgeSizes::uniform(DEFAULT_COLOR),
+            border_style: EdgeSizes::uniform(BorderStyle::Solid),
             font_size: DEFAULT_FONT_SIZE,
             font_weight: FontWeight::default(),
             line_height: DEFAULT_FONT_SIZE * DEFAULT_LINE_HEIGHT_FACTOR,
@@ -244,6 +259,7 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             h1 { font-size: 32px; font-weight: 700; margin-top: 12px; margin-bottom: 12px; }
             h2 { font-size: 24px; font-weight: 700; margin-top: 10px; margin-bottom: 10px; }
             p { font-size: 16px; margin-top: 8px; margin-bottom: 8px; }
+            hr { border-top: 1px solid #808080; margin-top: 8px; margin-bottom: 8px; }
             a { color: #0000ee; text-decoration: underline; }
             strong, b { font-weight: 700; }
             em, i { font-style: italic; }
@@ -505,17 +521,49 @@ fn to_computed(
     style.margin = edge_dimensions(raw, "margin", Dimension::Px(0.0), style.font_size);
     style.padding = edge_dimensions(raw, "padding", Dimension::Px(0.0), style.font_size);
 
-    style.border_width = EdgeSizes {
-        top: edge_px(raw, "border-top-width", style.font_size),
-        right: edge_px(raw, "border-right-width", style.font_size),
-        bottom: edge_px(raw, "border-bottom-width", style.font_size),
-        left: edge_px(raw, "border-left-width", style.font_size),
+    let border_style_of = |side: &str| match raw
+        .get(&format!("border-{side}-style"))
+        .and_then(CssValue::as_keyword)
+    {
+        Some("none" | "hidden") => BorderStyle::None,
+        Some("dashed") => BorderStyle::Dashed,
+        Some("dotted") => BorderStyle::Dotted,
+        _ => BorderStyle::Solid,
     };
-    // Initial border color is the element's own color (like `currentColor`).
-    style.border_color = raw
-        .get("border-color")
-        .and_then(CssValue::as_color)
-        .unwrap_or(style.color);
+    style.border_style = EdgeSizes {
+        top: border_style_of("top"),
+        right: border_style_of("right"),
+        bottom: border_style_of("bottom"),
+        left: border_style_of("left"),
+    };
+
+    // A side with border-style none has no border, whatever its width.
+    let width_of = |side: &str, border_style: BorderStyle| {
+        if border_style == BorderStyle::None {
+            0.0
+        } else {
+            edge_px(raw, &format!("border-{side}-width"), style.font_size)
+        }
+    };
+    style.border_width = EdgeSizes {
+        top: width_of("top", style.border_style.top),
+        right: width_of("right", style.border_style.right),
+        bottom: width_of("bottom", style.border_style.bottom),
+        left: width_of("left", style.border_style.left),
+    };
+
+    // Missing border colors fall back to the element color (currentColor).
+    let color_of = |side: &str| {
+        raw.get(&format!("border-{side}-color"))
+            .and_then(CssValue::as_color)
+            .unwrap_or(style.color)
+    };
+    style.border_color = EdgeSizes {
+        top: color_of("top"),
+        right: color_of("right"),
+        bottom: color_of("bottom"),
+        left: color_of("left"),
+    };
 
     style.font_weight = match raw.get("font-weight") {
         Some(CssValue::Number(weight)) => FontWeight((*weight as u16).clamp(1, 1000)),
@@ -782,7 +830,7 @@ mod tests {
             styles_for("<style>div { color: #ff0000; border-width: 2px; }</style><div>t</div>");
         let div = style_of(&document, &styles, "div");
         assert_eq!(div.border_width.top, 2.0);
-        assert_eq!(div.border_color, Color::rgb(255, 0, 0));
+        assert_eq!(div.border_color.top, Color::rgb(255, 0, 0));
     }
 
     #[test]
@@ -811,6 +859,40 @@ mod tests {
         let div = style_of(&document, &styles, "div");
         assert_eq!(div.margin.left, Dimension::Auto);
         assert_eq!(div.margin.top, Dimension::Px(0.0));
+    }
+
+    #[test]
+    fn border_style_none_suppresses_the_width() {
+        let (document, styles) =
+            styles_for("<style>div { border-width: 4px; border-style: none; }</style><div>t</div>");
+        assert_eq!(style_of(&document, &styles, "div").border_width.top, 0.0);
+
+        let (document, styles) = styles_for(
+            "<style>div { border: 2px solid red; border-bottom-style: none; }</style><div>t</div>",
+        );
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.border_width.top, 2.0);
+        assert_eq!(div.border_width.bottom, 0.0);
+    }
+
+    #[test]
+    fn per_side_border_colors_with_current_color_fallback() {
+        let (document, styles) = styles_for(
+            "<style>div { color: #112233; border-width: 1px;
+                          border-top-color: red; }</style><div>t</div>",
+        );
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.border_color.top, Color::rgb(255, 0, 0));
+        assert_eq!(div.border_color.left, Color::rgb(0x11, 0x22, 0x33));
+    }
+
+    #[test]
+    fn hr_gets_a_default_top_border() {
+        let (document, styles) = styles_for("<body><hr></body>");
+        let hr = style_of(&document, &styles, "hr");
+        assert_eq!(hr.border_width.top, 1.0);
+        assert_eq!(hr.border_color.top, Color::rgb(0x80, 0x80, 0x80));
+        assert_eq!(hr.display, Display::Block);
     }
 
     #[test]

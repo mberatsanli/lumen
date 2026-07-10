@@ -38,27 +38,29 @@ pub fn render_svg(page: &Page) -> String {
             DisplayCommand::StrokeRect {
                 rect,
                 widths,
-                color,
+                colors,
             } => {
                 // Four edge strips drawn inward from the border box, so the
                 // output stays plain rectangles (no stroke alignment issues).
                 let edges = [
-                    (rect.x, rect.y, rect.width, widths.top),
+                    (rect.x, rect.y, rect.width, widths.top, colors.top),
                     (
                         rect.x + rect.width - widths.right,
                         rect.y,
                         widths.right,
                         rect.height,
+                        colors.right,
                     ),
                     (
                         rect.x,
                         rect.y + rect.height - widths.bottom,
                         rect.width,
                         widths.bottom,
+                        colors.bottom,
                     ),
-                    (rect.x, rect.y, widths.left, rect.height),
+                    (rect.x, rect.y, widths.left, rect.height, colors.left),
                 ];
-                for (x, y, width, height) in edges {
+                for (x, y, width, height, color) in edges {
                     if width > 0.0 && height > 0.0 {
                         let _ = writeln!(
                             svg,

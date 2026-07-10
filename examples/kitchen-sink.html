@@ -44,6 +44,10 @@
     .boxes { padding: 8px 24px; }              /* 2-value shorthand */
     .edge { margin: 4px 8px 12px 16px; }       /* 4-value shorthand */
     .thick { border-width: 4px 1px; border-color: #a05232; }
+    .shorthand { border: 2px solid #4a7c59; }
+    .rainbow { border-width: 4px;
+               border-color: #c0392b #2980b9 #27ae60 #8e44ad; }
+    .noline { border: 3px solid red; border-style: none; background-color: #f7f3ea; }
     .half { width: 50%; height: 40px; background-color: #cfe3d4; }
     .fixed { width: 200px; height: 2em; background-color: #d4dcec; }
     .push-right { width: 160px; margin-left: auto; height: 24px;
@@ -140,6 +144,11 @@
     <p class="muted right">↑ margin-left: auto pushes that box right.</p>
     <div class="bb"><p>border-box: 200px includes padding+border.</p></div>
     <div class="cb"><p>content-box: same declarations, wider box.</p></div>
+    <div class="shorthand"><p>border: 2px solid — the shorthand.</p></div>
+    <div class="rainbow"><p>border-color: four different sides.</p></div>
+    <div class="noline"><p>border-style: none wins — no red border here.</p></div>
+    <hr>
+    <p class="muted">↑ a default UA &lt;hr&gt; rule.</p>
   </div>
 
   <div class="section">
