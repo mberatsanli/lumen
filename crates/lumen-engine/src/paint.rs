@@ -1,10 +1,9 @@
 //! Display-list generation from the layout tree.
 //!
-//! Paint order per box: background, then children (text is painted where
-//! its own box appears in the tree). Borders arrive with the box-model
-//! milestone.
+//! Paint order per box: background, border, then children (text is painted
+//! where its own box appears in the tree).
 
-use crate::geometry::Rect;
+use crate::geometry::{EdgeSizes, Rect};
 use crate::layout::{LayoutBox, LayoutKind};
 use lumen_css::Color;
 
@@ -13,6 +12,13 @@ use lumen_css::Color;
 pub enum DisplayCommand {
     FillRect {
         rect: Rect,
+        color: Color,
+    },
+    /// A border frame: `rect` is the border box, `widths` the per-edge
+    /// thicknesses drawn inward from its edges.
+    StrokeRect {
+        rect: Rect,
+        widths: EdgeSizes<f32>,
         color: Color,
     },
     DrawText {
@@ -35,17 +41,29 @@ pub fn build_display_list(layout: &LayoutBox) -> Vec<DisplayCommand> {
 }
 
 fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
+    let border_box = layout.border_box();
+
     if let Some(background) = layout.style.background_color {
         commands.push(DisplayCommand::FillRect {
-            rect: layout.rect,
+            rect: border_box,
             color: background,
         });
     }
 
+    let widths = layout.dimensions.border;
+    if widths.top > 0.0 || widths.right > 0.0 || widths.bottom > 0.0 || widths.left > 0.0 {
+        commands.push(DisplayCommand::StrokeRect {
+            rect: border_box,
+            widths,
+            color: layout.style.border_color,
+        });
+    }
+
     if let LayoutKind::Text(text) = &layout.kind {
+        let content = layout.content_box();
         commands.push(DisplayCommand::DrawText {
-            x: layout.rect.x,
-            y: layout.rect.y + layout.style.font_size,
+            x: content.x,
+            y: content.y + layout.style.font_size,
             text: text.clone(),
             color: layout.style.color,
             font_size: layout.style.font_size,
@@ -55,5 +73,82 @@ fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
 
     for child in &layout.children {
         paint_box(child, commands);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::build_page;
+    use crate::geometry::Size;
+
+    fn commands(html: &str) -> Vec<DisplayCommand> {
+        build_page(
+            html,
+            Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        )
+        .unwrap()
+        .display_list
+    }
+
+    #[test]
+    fn background_precedes_border_precedes_text() {
+        let list = commands(
+            "<style>div { background-color: #eee; border-width: 1px; }</style><div>hi</div>",
+        );
+        let kinds: Vec<&str> = list
+            .iter()
+            .map(|command| match command {
+                DisplayCommand::FillRect { .. } => "fill",
+                DisplayCommand::StrokeRect { .. } => "stroke",
+                DisplayCommand::DrawText { .. } => "text",
+            })
+            .collect();
+        assert_eq!(kinds, vec!["fill", "stroke", "text"]);
+    }
+
+    #[test]
+    fn no_border_command_without_border_width() {
+        let list = commands("<style>div { background-color: #eee; }</style><div></div>");
+        assert!(
+            !list
+                .iter()
+                .any(|command| matches!(command, DisplayCommand::StrokeRect { .. }))
+        );
+    }
+
+    #[test]
+    fn border_command_covers_border_box() {
+        let list = commands(
+            "<style>div { width: 100px; height: 10px; border-width: 2px; }</style><div></div>",
+        );
+        let Some(DisplayCommand::StrokeRect { rect, widths, .. }) = list
+            .iter()
+            .find(|command| matches!(command, DisplayCommand::StrokeRect { .. }))
+        else {
+            panic!("no StrokeRect in {list:?}");
+        };
+        assert_eq!(rect.width, 104.0);
+        assert_eq!(rect.height, 14.0);
+        assert_eq!(widths.top, 2.0);
+    }
+
+    #[test]
+    fn parent_background_painted_before_child_background() {
+        let list = commands(
+            "<style>.a { background-color: #111111; } .b { background-color: #222222; }</style>\
+             <div class='a'><div class='b'></div></div>",
+        );
+        let fills: Vec<String> = list
+            .iter()
+            .filter_map(|command| match command {
+                DisplayCommand::FillRect { color, .. } => Some(color.to_string()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fills, vec!["#111111", "#222222"]);
     }
 }

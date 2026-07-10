@@ -9,8 +9,8 @@ pub mod paint;
 pub mod style;
 pub mod svg;
 
-pub use geometry::{EdgeSizes, Edges, Rect, Size};
-pub use layout::{LayoutBox, LayoutKind, dump_layout, layout_document};
+pub use geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
+pub use layout::{BoxType, LayoutBox, LayoutKind, dump_layout, layout_document};
 pub use paint::{DisplayCommand, build_display_list};
 pub use style::{
     ComputedStyle, Dimension, Display, FontWeight, StyleMap, TextAlign, compute_styles,
@@ -191,9 +191,9 @@ mod tests {
         );
         let body = &page.layout.children[0];
         let div = &body.children[0];
-        assert_eq!(div.rect.x, 20.0);
-        assert_eq!(div.rect.y, 10.0);
-        assert_eq!(div.rect.height, 30.0);
+        assert_eq!(div.border_box().x, 20.0);
+        assert_eq!(div.border_box().y, 10.0);
+        assert_eq!(div.border_box().height, 30.0);
     }
 
     #[test]
@@ -227,7 +227,7 @@ mod tests {
         );
         let body = &page.layout.children[0];
         let div = &body.children[0];
-        assert_eq!(div.rect.width, 400.0);
+        assert_eq!(div.content_box().width, 400.0);
     }
 
     #[test]
@@ -236,6 +236,6 @@ mod tests {
             page("<style>p { line-height: 2; font-size: 20px; margin: 0; }</style><p>Text</p>");
         let p = &page.layout.children[0];
         let text = &p.children[0];
-        assert_eq!(text.rect.height, 40.0);
+        assert_eq!(text.content_box().height, 40.0);
     }
 }
