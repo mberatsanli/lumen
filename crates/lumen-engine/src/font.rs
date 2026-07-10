@@ -8,19 +8,18 @@
 //! rasterizer to the built-in bitmap font.
 
 use crate::text::{TextMeasurer, TextMetrics, TextStyle};
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 /// A loaded scalable font usable for both measurement and rasterization.
 ///
 /// Rasterized glyphs are cached per (character, size), which makes
-/// repeated frames (scrolling, resizing) cheap. The cache uses interior
-/// mutability, so `SystemFont` is not `Sync`; share it within one thread
-/// via `Rc`.
+/// repeated frames (scrolling, resizing) cheap. The cache sits behind a
+/// `Mutex`, so the font is `Sync` and can be shared via `Arc` — including
+/// with background loader threads.
 pub struct SystemFont {
     font: fontdue::Font,
-    glyph_cache: RefCell<HashMap<(char, u32), Rc<Glyph>>>,
+    glyph_cache: Mutex<HashMap<(char, u32), Arc<Glyph>>>,
 }
 
 /// A rasterized glyph: metrics plus an 8-bit coverage bitmap.
@@ -52,7 +51,7 @@ impl SystemFont {
             .ok()
             .map(|font| Self {
                 font,
-                glyph_cache: RefCell::new(HashMap::new()),
+                glyph_cache: Mutex::new(HashMap::new()),
             })
     }
 
@@ -68,15 +67,19 @@ impl SystemFont {
     /// Rasterizes one character at `font_size` (cached), returning metrics
     /// and an 8-bit coverage bitmap (row-major, `metrics.width` per row).
     #[must_use]
-    pub fn rasterize(&self, character: char, font_size: f32) -> Rc<Glyph> {
-        self.glyph_cache
-            .borrow_mut()
-            .entry((character, font_size.to_bits()))
-            .or_insert_with(|| {
-                let (metrics, coverage) = self.font.rasterize(character, font_size);
-                Rc::new(Glyph { metrics, coverage })
-            })
-            .clone()
+    pub fn rasterize(&self, character: char, font_size: f32) -> Arc<Glyph> {
+        let rasterize = || {
+            let (metrics, coverage) = self.font.rasterize(character, font_size);
+            Arc::new(Glyph { metrics, coverage })
+        };
+        match self.glyph_cache.lock() {
+            Ok(mut cache) => cache
+                .entry((character, font_size.to_bits()))
+                .or_insert_with(rasterize)
+                .clone(),
+            // A poisoned cache just means uncached rasterization.
+            Err(_) => rasterize(),
+        }
     }
 
     /// The ascent (baseline distance from the top of the line) at

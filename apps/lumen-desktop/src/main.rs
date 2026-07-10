@@ -16,9 +16,10 @@
 use lumen_browser::Session;
 use lumen_engine::{DisplayCommand, Rect, Size, SystemFont, rasterize_over, rasterize_with};
 use lumen_engine::{TextMeasurer, TextMetrics, TextStyle};
-use lumen_platform::{DefaultLoader, url_from_user_input};
+use lumen_platform::{DefaultLoader, Url, url_from_user_input};
 use std::num::NonZeroU32;
 use std::rc::Rc;
+use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -30,31 +31,66 @@ const SCROLL_STEP: f32 = 48.0;
 /// Address-bar height in CSS pixels.
 const BAR_HEIGHT: f32 = 36.0;
 
+/// A navigation action executed on a background thread, so slow servers
+/// never freeze the UI.
+enum Nav {
+    Load(Url),
+    Follow(String),
+    Back,
+    Forward,
+    Refresh,
+}
+
+impl Nav {
+    fn label(&self) -> String {
+        match self {
+            Self::Load(url) => url.to_string(),
+            Self::Follow(href) => href.clone(),
+            Self::Back => "back".to_string(),
+            Self::Forward => "forward".to_string(),
+            Self::Refresh => "refresh".to_string(),
+        }
+    }
+}
+
+/// Sent back from the loader thread when a navigation finishes.
+struct NavDone {
+    session: Box<Session<DefaultLoader>>,
+    error: Option<String>,
+}
+
+/// The session is either usable or away on a loader thread.
+enum SessionState {
+    Ready(Box<Session<DefaultLoader>>),
+    Loading { target: String },
+}
+
 fn main() {
     let Some(input) = std::env::args().nth(1) else {
         eprintln!("usage: lumen-desktop <file-or-url>");
         std::process::exit(2);
     };
 
-    let event_loop = match EventLoop::new() {
+    let event_loop = match EventLoop::<NavDone>::with_user_event().build() {
         Ok(event_loop) => event_loop,
         Err(error) => {
             eprintln!("error: cannot start event loop: {error}");
             std::process::exit(1);
         }
     };
+    let proxy = event_loop.create_proxy();
 
-    let mut app = App::new(input);
+    let mut app = App::new(input, proxy);
     if let Err(error) = event_loop.run_app(&mut app) {
         eprintln!("error: {error}");
         std::process::exit(1);
     }
 }
 
-/// Shares one loaded font between the session's measurer and the
-/// rasterizer.
+/// Shares one loaded font between the session's measurer (which may move
+/// to a loader thread) and the rasterizer.
 #[derive(Clone)]
-struct SharedFont(Rc<SystemFont>);
+struct SharedFont(Arc<SystemFont>);
 
 impl TextMeasurer for SharedFont {
     fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics {
@@ -64,8 +100,9 @@ impl TextMeasurer for SharedFont {
 
 struct App {
     input: String,
-    session: Session<DefaultLoader>,
-    font: Option<Rc<SystemFont>>,
+    state: SessionState,
+    proxy: winit::event_loop::EventLoopProxy<NavDone>,
+    font: Option<Arc<SystemFont>>,
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     scroll_y: f32,
@@ -76,8 +113,8 @@ struct App {
 }
 
 impl App {
-    fn new(input: String) -> Self {
-        let font = SystemFont::load_default().map(Rc::new);
+    fn new(input: String, proxy: winit::event_loop::EventLoopProxy<NavDone>) -> Self {
+        let font = SystemFont::load_default().map(Arc::new);
         if font.is_none() {
             eprintln!("note: no system font found, using the built-in bitmap font");
         }
@@ -93,7 +130,8 @@ impl App {
         }
         Self {
             input,
-            session,
+            state: SessionState::Ready(Box::new(session)),
+            proxy,
             font,
             window: None,
             surface: None,
@@ -101,6 +139,45 @@ impl App {
             cursor: None,
             url_input: None,
         }
+    }
+
+    fn session(&self) -> Option<&Session<DefaultLoader>> {
+        match &self.state {
+            SessionState::Ready(session) => Some(session),
+            SessionState::Loading { .. } => None,
+        }
+    }
+
+    /// Runs a navigation on a background thread; the session comes back
+    /// through a user event. Ignored while another navigation is running.
+    fn start_nav(&mut self, nav: Nav) {
+        if matches!(self.state, SessionState::Loading { .. }) {
+            return;
+        }
+        let target = nav.label();
+        let SessionState::Ready(mut session) =
+            std::mem::replace(&mut self.state, SessionState::Loading { target })
+        else {
+            return;
+        };
+        let viewport = self.viewport();
+        let proxy = self.proxy.clone();
+        std::thread::spawn(move || {
+            session.set_viewport(viewport);
+            let result = match nav {
+                Nav::Load(url) => session.load(url).map(|_| ()),
+                Nav::Follow(href) => session.follow(&href).map(|_| ()),
+                Nav::Back => session.back().map(|_| ()),
+                Nav::Forward => session.forward().map(|_| ()),
+                Nav::Refresh => session.refresh().map(|_| ()),
+            };
+            let _ = proxy.send_event(NavDone {
+                session,
+                error: result.err().map(|error| error.to_string()),
+            });
+        });
+        self.update_title();
+        self.request_redraw();
     }
 
     fn scale(&self) -> f32 {
@@ -160,7 +237,7 @@ impl App {
                 x: 12.0,
                 y: 25.0,
                 text: "<".to_string(),
-                color: if self.session.can_go_back() {
+                color: if self.session().is_some_and(Session::can_go_back) {
                     enabled
                 } else {
                     disabled
@@ -174,7 +251,7 @@ impl App {
                 x: 36.0,
                 y: 25.0,
                 text: ">".to_string(),
-                color: if self.session.can_go_forward() {
+                color: if self.session().is_some_and(Session::can_go_forward) {
                     enabled
                 } else {
                     disabled
@@ -189,10 +266,13 @@ impl App {
                 color: Color::rgb(0xff, 0xff, 0xff),
             },
         ];
-        let (text, color) = match &self.url_input {
-            Some(input) => (format!("{input}_"), enabled),
-            None => (
-                self.session
+        let (text, color) = match (&self.url_input, &self.state) {
+            (Some(input), _) => (format!("{input}_"), enabled),
+            (None, SessionState::Loading { target }) => {
+                (format!("Loading {target}…"), Color::rgb(0x6a, 0x66, 0x72))
+            }
+            (None, SessionState::Ready(session)) => (
+                session
                     .current_url()
                     .map_or_else(|| self.input.clone(), ToString::to_string),
                 Color::rgb(0x6a, 0x66, 0x72),
@@ -213,8 +293,8 @@ impl App {
 
     fn max_scroll(&self) -> f32 {
         let content = self
-            .session
-            .page()
+            .session()
+            .and_then(Session::page)
             .map_or(0.0, |page| page.layout.content_box().height);
         (content - self.viewport().height).max(0.0)
     }
@@ -229,11 +309,14 @@ impl App {
     /// the pointer shape, and redraws when the hovered node changed.
     fn update_hover(&mut self) {
         let hit = self.page_cursor().and_then(|(x, y)| {
-            self.session
-                .page()
+            self.session()
+                .and_then(Session::page)
                 .and_then(|page| page.layout.hit_test(x, y))
         });
-        let over_link = hit.is_some_and(|node| self.session.link_target(node).is_some());
+        let over_link = hit.is_some_and(|node| {
+            self.session()
+                .is_some_and(|session| session.link_target(node).is_some())
+        });
         if let Some(window) = &self.window {
             window.set_cursor(if over_link {
                 CursorIcon::Pointer
@@ -241,7 +324,9 @@ impl App {
                 CursorIcon::Default
             });
         }
-        if self.session.set_hovered(hit) {
+        if let SessionState::Ready(session) = &mut self.state
+            && session.set_hovered(hit)
+        {
             self.request_redraw();
         }
     }
@@ -258,36 +343,30 @@ impl App {
             self.request_redraw();
         }
         let Some(node) = self.page_cursor().and_then(|(x, y)| {
-            self.session
-                .page()
+            self.session()
+                .and_then(Session::page)
                 .and_then(|page| page.layout.hit_test(x, y))
         }) else {
             return;
         };
-        if let Some(href) = self.session.link_target(node) {
-            self.navigate(|session| session.follow(&href).map(|_| ()));
+        if let Some(href) = self.session().and_then(|session| session.link_target(node)) {
+            self.start_nav(Nav::Follow(href));
         }
     }
 
     fn chrome_click(&mut self, x: f32) {
         match x {
-            x if (8.0..32.0).contains(&x) => {
-                self.navigate(|session| session.back().map(|_| ()));
-            }
-            x if (32.0..56.0).contains(&x) => {
-                self.navigate(|session| session.forward().map(|_| ()));
-            }
-            x if x >= 60.0 => {
-                self.focus_url_bar();
-            }
+            x if (8.0..32.0).contains(&x) => self.start_nav(Nav::Back),
+            x if (32.0..56.0).contains(&x) => self.start_nav(Nav::Forward),
+            x if x >= 60.0 => self.focus_url_bar(),
             _ => {}
         }
     }
 
     fn focus_url_bar(&mut self) {
         self.url_input = Some(
-            self.session
-                .current_url()
+            self.session()
+                .and_then(Session::current_url)
                 .map_or_else(String::new, ToString::to_string),
         );
         self.request_redraw();
@@ -303,7 +382,7 @@ impl App {
             return;
         }
         match url_from_user_input(&input) {
-            Ok(url) => self.navigate(move |session| session.load(url).map(|_| ())),
+            Ok(url) => self.start_nav(Nav::Load(url)),
             Err(error) => {
                 eprintln!("address bar: {error}");
                 self.request_redraw();
@@ -319,33 +398,34 @@ impl App {
 
     fn update_title(&self) {
         if let Some(window) = &self.window {
-            let url = self
-                .session
-                .current_url()
-                .map_or_else(|| self.input.clone(), ToString::to_string);
-            window.set_title(&format!("Lumen — {url}"));
+            let label = match &self.state {
+                SessionState::Loading { target } => format!("Lumen — loading {target}"),
+                SessionState::Ready(session) => format!(
+                    "Lumen — {}",
+                    session
+                        .current_url()
+                        .map_or_else(|| self.input.clone(), ToString::to_string)
+                ),
+            };
+            window.set_title(&label);
         }
     }
 
     fn redraw(&mut self) {
         let scale = self.scale();
         let chrome = self.chrome_commands();
-        let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else {
+        let Some(size) = self.window.as_ref().map(|window| window.inner_size()) else {
             return;
         };
-        let size = window.inner_size();
         let (Some(width), Some(height)) =
             (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
         else {
             return;
         };
-        if surface.resize(width, height).is_err() {
-            return;
-        }
 
         // Page first (offset below the bar via the scroll shift), then the
         // chrome painted over it.
-        let mut framebuffer = match self.session.page() {
+        let mut framebuffer = match self.session().and_then(Session::page) {
             Some(page) => rasterize_with(
                 &page.display_list,
                 size.width,
@@ -357,6 +437,13 @@ impl App {
             None => lumen_engine::Framebuffer::new(size.width, size.height),
         };
         rasterize_over(&mut framebuffer, &chrome, 0.0, scale, self.font.as_deref());
+
+        let Some(surface) = self.surface.as_mut() else {
+            return;
+        };
+        if surface.resize(width, height).is_err() {
+            return;
+        }
         let Ok(mut buffer) = surface.buffer_mut() else {
             return;
         };
@@ -407,31 +494,18 @@ impl App {
                 self.request_redraw();
             }
             Key::Character(text) => match text.as_str() {
-                "r" => self.navigate(|session| session.refresh().map(|_| ())),
-                "[" => self.navigate(|session| session.back().map(|_| ())),
-                "]" => self.navigate(|session| session.forward().map(|_| ())),
+                "r" => self.start_nav(Nav::Refresh),
+                "[" => self.start_nav(Nav::Back),
+                "]" => self.start_nav(Nav::Forward),
                 "l" => self.focus_url_bar(),
                 _ => {}
             },
             _ => {}
         }
     }
-
-    fn navigate(
-        &mut self,
-        action: impl FnOnce(&mut Session<DefaultLoader>) -> Result<(), lumen_platform::LoadError>,
-    ) {
-        if let Err(error) = action(&mut self.session) {
-            eprintln!("navigation: {error}");
-        } else {
-            self.scroll_y = 0.0;
-        }
-        self.update_title();
-        self.request_redraw();
-    }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler<NavDone> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -465,16 +539,30 @@ impl ApplicationHandler for App {
         }
         self.window = Some(window);
 
-        let input = self.input.clone();
-        let result = url_from_user_input(&input).and_then(|url| self.session.load(url).map(|_| ()));
-        if let Err(error) = result {
-            eprintln!("error: cannot load {input}: {error}");
-            event_loop.exit();
-            return;
+        match url_from_user_input(&self.input) {
+            Ok(url) => self.start_nav(Nav::Load(url)),
+            Err(error) => {
+                eprintln!("error: cannot load {}: {error}", self.input);
+                event_loop.exit();
+                return;
+            }
         }
-        let viewport = self.viewport();
-        self.session.set_viewport(viewport);
         self.update_title();
+        self.request_redraw();
+    }
+
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, done: NavDone) {
+        if let Some(error) = done.error {
+            eprintln!("navigation: {error}");
+        } else {
+            self.scroll_y = 0.0;
+        }
+        let mut session = done.session;
+        // The window may have resized while the session was away.
+        session.set_viewport(self.viewport());
+        self.state = SessionState::Ready(session);
+        self.update_title();
+        self.update_hover();
         self.request_redraw();
     }
 
@@ -488,7 +576,9 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(_) => {
                 let viewport = self.viewport();
-                self.session.set_viewport(viewport);
+                if let SessionState::Ready(session) = &mut self.state {
+                    session.set_viewport(viewport);
+                }
                 self.scroll_y = self.scroll_y.clamp(0.0, self.max_scroll());
                 self.request_redraw();
             }
@@ -499,7 +589,9 @@ impl ApplicationHandler for App {
             }
             WindowEvent::CursorLeft { .. } => {
                 self.cursor = None;
-                if self.session.set_hovered(None) {
+                if let SessionState::Ready(session) = &mut self.state
+                    && session.set_hovered(None)
+                {
                     self.request_redraw();
                 }
             }

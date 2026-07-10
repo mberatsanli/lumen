@@ -96,10 +96,24 @@ impl ResourceLoader for FileLoader {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HttpLoader;
 
+/// Shared HTTP agent: 5s connect / 20s total per request, so a stalled
+/// server can never hang a caller indefinitely.
+fn agent() -> &'static ureq::Agent {
+    static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+    AGENT.get_or_init(|| {
+        ureq::Agent::config_builder()
+            .timeout_connect(Some(std::time::Duration::from_secs(5)))
+            .timeout_global(Some(std::time::Duration::from_secs(20)))
+            .build()
+            .into()
+    })
+}
+
 impl ResourceLoader for HttpLoader {
     fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
         use ureq::ResponseExt as _;
-        let mut response = ureq::get(request.url.as_str())
+        let mut response = agent()
+            .get(request.url.as_str())
             .call()
             .map_err(|error| LoadError::Http(error.to_string()))?;
         let final_url = response

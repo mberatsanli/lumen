@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lumen Compatibility Lab</title>
+  <link rel="stylesheet" href="./assets/lab.css">
+  <script src="./assets/lab.js" defer></script>
+</head>
+<body>
+  <div class="page">
+    <nav class="topbar" aria-label="Compatibility lab navigation">
+      <a href="./index.html">Overview</a>
+      <a href="./html.html">HTML</a>
+      <a href="./css.html">CSS</a>
+      <a href="./js.html">JavaScript</a>
+    </nav>
+
+    <header class="hero">
+      <h1>Lumen Compatibility Lab</h1>
+      <p>
+        Open this same folder in Lumen and in Chrome. Chrome shows the web
+        platform behavior; Lumen shows which pieces are implemented, ignored
+        or still missing.
+      </p>
+      <p class="css-loaded">External CSS loaded from <code>assets/lab.css</code>.</p>
+      <p id="js-status" class="js-pending">External JS has not run.</p>
+      <noscript>
+        <p class="warning">JavaScript is disabled or unavailable in this browser.</p>
+      </noscript>
+    </header>
+
+    <main>
+      <section class="section">
+        <h2>Test areas</h2>
+        <div class="grid">
+          <article class="test-card">
+            <h3><a href="./html.html">HTML elements</a></h3>
+            <p>
+              Text semantics, lists, tables, forms, embedded content,
+              navigation, template and interactive HTML elements.
+            </p>
+          </article>
+          <article class="test-card">
+            <h3><a href="./css.html">CSS features</a></h3>
+            <p>
+              Selectors, cascade, units, box model, layout modes, backgrounds,
+              effects, media queries and animation.
+            </p>
+          </article>
+          <article class="test-card">
+            <h3><a href="./js.html">JavaScript APIs</a></h3>
+            <p>
+              External and inline scripts, DOM mutation, events, timers,
+              fetch, storage, modules and canvas.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Network probes</h2>
+        <p>
+          The lab deliberately references external files so request behavior is
+          visible without a devtools panel.
+        </p>
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th>Resource</th>
+              <th>Used by</th>
+              <th>Expected browser behavior</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><a href="./assets/lab.css">assets/lab.css</a></td>
+              <td>All pages</td>
+              <td>Styles the page chrome and status probes.</td>
+            </tr>
+            <tr>
+              <td><a href="./assets/lab.js">assets/lab.js</a></td>
+              <td>All pages</td>
+              <td>Changes the JS status text when script execution works.</td>
+            </tr>
+            <tr>
+              <td><a href="./assets/sample.svg">assets/sample.svg</a></td>
+              <td>HTML page</td>
+              <td>Renders as an image in browsers with image support.</td>
+            </tr>
+            <tr>
+              <td><a href="./assets/sample.json">assets/sample.json</a></td>
+              <td>JS page</td>
+              <td>Fetched by JavaScript in browsers with Fetch API support.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section">
+        <h2>How to read differences</h2>
+        <ul class="status-list">
+          <li>If Chrome changes text but Lumen does not, script execution is missing.</li>
+          <li>If a styled probe is plain in Lumen, that stylesheet or CSS feature did not apply.</li>
+          <li>If a control is visible but not interactive, parsing works but browser behavior is missing.</li>
+          <li>If a link loads but history or fragment behavior differs, navigation support is partial.</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

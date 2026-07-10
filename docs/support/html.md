@@ -66,7 +66,7 @@ interaction) — not just a DOM node.
 
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
-| `<img>` | ⚠️ | ✅ | ✅ | ✅ | PNG/JPEG; width/height attrs + CSS + intrinsic ratio; block-level (no inline images); no SVG/GIF/WebP, no srcset/lazy |
+| `<img>` | ⚠️ | ✅ | ✅ | ✅ | PNG/JPEG; width/height attrs + CSS + intrinsic ratio; block-level; max 32 images/page; no SVG/GIF/WebP, no srcset/lazy |
 | `<picture> <source>` | ❌ | ✅ | ✅ | ✅ | |
 | Inline `<svg>` | ❌ | ✅ | ✅ | ✅ | |
 | `<video> <audio>` | ❌ | ✅ | ✅ | ✅ | out of scope |
@@ -113,8 +113,8 @@ interaction) — not just a DOM node.
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
 | `file://` documents | ✅ | ✅ | ✅ | ✅ | |
-| `http(s)://` + redirects | ✅ | ✅ | ✅ | ✅ | |
+| `http(s)://` + redirects | ✅ | ✅ | ✅ | ✅ | 5s connect / 20s request timeouts |
 | Relative URL resolution | ✅ | ✅ | ✅ | ✅ | against final URL |
-| History back/forward/refresh | ⚠️ | ✅ | ✅ | ✅ | re-fetches; no cache; desktop has address bar + nav buttons |
+| History back/forward/refresh | ⚠️ | ✅ | ✅ | ✅ | re-fetches; no cache; desktop: address bar + nav buttons, loads on background thread |
 | Fragment `#anchor` scroll | ❌ | ✅ | ✅ | ✅ | |
 | Cookies / cache / compression | ❌ | ✅ | ✅ | ✅ | |

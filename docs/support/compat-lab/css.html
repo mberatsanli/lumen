@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lumen CSS Compatibility Lab</title>
+  <link rel="stylesheet" href="./assets/lab.css">
+  <link rel="stylesheet" href="./assets/css-tests.css">
+  <script src="./assets/lab.js" defer></script>
+</head>
+<body>
+  <div class="page">
+    <nav class="topbar" aria-label="Compatibility lab navigation">
+      <a href="./index.html">Overview</a>
+      <a href="./html.html">HTML</a>
+      <a href="./css.html">CSS</a>
+      <a href="./js.html">JavaScript</a>
+    </nav>
+
+    <header class="hero">
+      <h1>CSS Compatibility Lab</h1>
+      <p class="css-injection-proof">CSS page stylesheet loaded from <code>assets/css-tests.css</code>.</p>
+      <p id="css-js-injection" class="js-pending">External JS did not modify this CSS page.</p>
+    </header>
+
+    <main>
+      <section class="section">
+        <h2>Selectors</h2>
+        <div class="sample-box selector-parent">
+          <p class="child-target">Child selector <code>.selector-parent &gt; .child-target</code>.</p>
+        </div>
+        <p class="sample-box sibling-source">Adjacent sibling source.</p>
+        <p class="sample-box sibling-target">Adjacent sibling target.</p>
+        <p class="sample-box" data-attribute-target="yes">Attribute selector target.</p>
+        <p class="muted">
+          Lumen supports universal, type, class, id, compound, descendant,
+          selector list and hover. These probes show currently missing selector families.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2>Cascade and values</h2>
+        <p class="sample-box important-test">
+          <code>!important</code> should make this green in Chrome.
+        </p>
+        <p class="sample-box calc-test">
+          <code>calc(100% - 48px)</code> should reduce this box width in Chrome.
+        </p>
+        <p class="sample-box rem-test">
+          <code>rem</code> font sizing should be larger in Chrome.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2>Layout modes</h2>
+        <div class="sample-box inline-block-test">
+          <span>inline-block A</span>
+          <span>inline-block B</span>
+          <span>inline-block C</span>
+        </div>
+        <div class="sample-box flex-test">
+          <div>flex 1</div>
+          <div>flex 2</div>
+          <div>flex 3</div>
+        </div>
+        <div class="sample-box grid-test">
+          <div>grid A</div>
+          <div>grid B wide</div>
+          <div>grid C</div>
+        </div>
+        <div class="sample-box position-test">
+          <p>Relative container.</p>
+          <span>absolute child</span>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Box, backgrounds and effects</h2>
+        <p class="sample-box radius-shadow-test">
+          Border radius and box shadow.
+        </p>
+        <p class="sample-box overflow-test">
+          Overflow hidden should clip this long text in Chrome when it exceeds the box height.
+        </p>
+        <p class="sample-box gradient-test">
+          Linear gradient background.
+        </p>
+        <p class="sample-box transform-test">
+          Transform should rotate and move this box.
+        </p>
+        <p class="sample-box animation-test">
+          Animation should pulse this box in Chrome.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2>Media query</h2>
+        <p class="sample-box media-query-test">
+          Narrow the browser below 800px. Chrome applies the media query.
+        </p>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

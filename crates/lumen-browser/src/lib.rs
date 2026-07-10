@@ -20,7 +20,7 @@ use std::sync::Arc;
 pub struct Session<L: ResourceLoader> {
     loader: L,
     viewport: Size,
-    measurer: Box<dyn TextMeasurer>,
+    measurer: Box<dyn TextMeasurer + Send>,
     history: Vec<Url>,
     /// Index of the current entry in `history`, if any page is loaded.
     index: Option<usize>,
@@ -55,7 +55,7 @@ impl<L: ResourceLoader> Session<L> {
 
     /// Replaces the text measurer (e.g. with real font metrics) and
     /// relayouts the current page if one is loaded. No network access.
-    pub fn set_measurer(&mut self, measurer: Box<dyn TextMeasurer>) {
+    pub fn set_measurer(&mut self, measurer: Box<dyn TextMeasurer + Send>) {
         self.measurer = measurer;
         self.relayout();
     }
@@ -208,8 +208,13 @@ impl<L: ResourceLoader> Session<L> {
         self.author = lumen_css::parse_stylesheet(&author_css);
 
         // Images: fetched once per page; failures leave a placeholder box.
+        // Capped so image-heavy pages cannot stall navigation for minutes.
+        const MAX_IMAGES_PER_PAGE: usize = 32;
         self.images = ImageMap::new();
-        for (node, src) in collect_image_sources(&document) {
+        for (node, src) in collect_image_sources(&document)
+            .into_iter()
+            .take(MAX_IMAGES_PER_PAGE)
+        {
             let Ok(url) = resolve(&base, &src) else {
                 continue;
             };

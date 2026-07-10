@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lumen JavaScript Compatibility Lab</title>
+  <link rel="stylesheet" href="./assets/lab.css">
+  <script src="./assets/lab.js" defer></script>
+  <script src="./assets/js-tests.js" defer></script>
+  <script type="module">
+    var node = document.getElementById("module-test-output");
+    if (node) {
+      node.textContent = "Module script executed.";
+    }
+  </script>
+</head>
+<body>
+  <div class="page">
+    <nav class="topbar" aria-label="Compatibility lab navigation">
+      <a href="./index.html">Overview</a>
+      <a href="./html.html">HTML</a>
+      <a href="./css.html">CSS</a>
+      <a href="./js.html">JavaScript</a>
+    </nav>
+
+    <header class="hero">
+      <h1>JavaScript Compatibility Lab</h1>
+      <p class="css-loaded">External CSS loaded.</p>
+      <p id="js-status" class="js-pending">Common external JS has not run.</p>
+      <p id="js-boot-status" class="js-pending">Page external JS has not run.</p>
+      <noscript>
+        <p class="warning">No script execution. This is the expected Lumen v0.x behavior.</p>
+      </noscript>
+    </header>
+
+    <main>
+      <section class="section">
+        <h2>DOM mutation</h2>
+        <div id="dom-created-output" class="dynamic-output">
+          No dynamic DOM node has been created.
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Events</h2>
+        <button id="click-test-button" type="button">Click event test</button>
+        <p id="click-test-output" class="dynamic-output">No click event observed.</p>
+        <label for="input-test-field">Input event test</label>
+        <input id="input-test-field" value="edit me">
+        <p id="input-test-output" class="dynamic-output">No input event observed.</p>
+      </section>
+
+      <section class="section">
+        <h2>Timers, storage and fetch</h2>
+        <p id="timer-test-output" class="dynamic-output">Timer has not ticked.</p>
+        <button id="storage-test-button" type="button">Write localStorage</button>
+        <p id="storage-test-output" class="dynamic-output">Storage not touched.</p>
+        <button id="fetch-test-button" type="button">Fetch JSON fixture</button>
+        <p id="fetch-test-output" class="dynamic-output">Fetch not started.</p>
+      </section>
+
+      <section class="section">
+        <h2>Inline, module and canvas</h2>
+        <p id="inline-test-output" class="dynamic-output">Inline script has not run.</p>
+        <p id="module-test-output" class="dynamic-output">Module script has not run.</p>
+        <canvas id="canvas-test" width="220" height="100">Canvas fallback text.</canvas>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    var inlineOutput = document.getElementById("inline-test-output");
+    if (inlineOutput) {
+      inlineOutput.textContent = "Inline script executed.";
+    }
+  </script>
+</body>
+</html>

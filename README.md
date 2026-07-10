@@ -92,13 +92,15 @@ Architecture details: [docs/architecture.md](docs/architecture.md), decision
 records under [docs/adr/](docs/adr/).
 
 Feature-by-feature compatibility trackers (Lumen vs Chrome/Firefox/Safari):
+[compat lab](docs/support/compat-lab/index.html) ·
 [HTML](docs/support/html.md) · [CSS](docs/support/css.md) ·
 [JavaScript](docs/support/javascript.md) ·
 [network/navigation](docs/support/network.md) ·
+[request lifecycle](docs/support/request-lifecycle.md) ·
 [encoding/MIME](docs/support/encoding.md) ·
 [DOM/events](docs/support/dom-events.md) ·
 [media/fonts](docs/support/media-fonts.md) ·
-[accessibility](docs/support/accessibility.md) ·
+[accessibility](docs/support/accessibility.md) · [devtools](docs/support/devtools.md) ·
 [web-platform tests](docs/support/wpt.md).
 
 ## Examples
