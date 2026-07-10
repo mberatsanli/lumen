@@ -94,6 +94,132 @@
       </section>
 
       <section class="section">
+        <h2>Background images</h2>
+        <p class="muted">
+          These probes use <code>assets/background-tile.svg</code>. Chrome
+          should show image painting, repetition, positioning and sizing.
+          Lumen currently makes missing image-backed background support obvious.
+        </p>
+
+        <h3>Image, color fallback and repeat</h3>
+        <div class="grid two">
+          <p class="background-probe bg-image-basic">
+            <code>background-image: url(...)</code> over a fallback color.
+          </p>
+          <p class="background-probe bg-repeat">
+            Default repeated image tile.
+          </p>
+          <p class="background-probe bg-no-repeat">
+            <code>background-repeat: no-repeat</code>.
+          </p>
+          <p class="background-probe bg-repeat-x">
+            <code>background-repeat: repeat-x</code>.
+          </p>
+          <p class="background-probe bg-repeat-y">
+            <code>background-repeat: repeat-y</code>.
+          </p>
+          <p class="background-probe bg-missing-url">
+            Missing image URL should leave only the fallback color.
+          </p>
+        </div>
+
+        <h3>Position and size</h3>
+        <div class="grid two">
+          <p class="background-probe bg-position-center">
+            <code>background-position: center</code>.
+          </p>
+          <p class="background-probe bg-position-corner">
+            <code>background-position: right bottom</code>.
+          </p>
+          <p class="background-probe bg-position-pixels">
+            <code>background-position: 24px 16px</code>.
+          </p>
+          <p class="background-probe bg-size-fixed">
+            <code>background-size: 48px 48px</code>.
+          </p>
+          <p class="background-probe bg-size-contain">
+            <code>background-size: contain</code>.
+          </p>
+          <p class="background-probe bg-size-cover">
+            <code>background-size: cover</code>.
+          </p>
+        </div>
+
+        <h3>Clip, origin, shorthand and multiple backgrounds</h3>
+        <div class="grid two">
+          <p class="background-probe bg-origin-content">
+            <code>background-origin: content-box</code>.
+          </p>
+          <p class="background-probe bg-clip-content">
+            <code>background-clip: content-box</code>.
+          </p>
+          <p class="background-probe bg-attachment-fixed">
+            <code>background-attachment: fixed</code>.
+          </p>
+          <p class="background-probe bg-shorthand">
+            <code>background</code> shorthand with image, position, size and repeat.
+          </p>
+          <p class="background-probe bg-multiple">
+            Multiple backgrounds: gradient plus image tile.
+          </p>
+          <p class="background-probe bg-local-relative">
+            Relative asset URL resolved from the external CSS file.
+          </p>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Borders and radii</h2>
+        <p class="muted">
+          These probes isolate per-side borders and per-corner radius behavior.
+          Chrome should show every side and corner independently; Lumen should
+          make unsupported pieces obvious.
+        </p>
+
+        <h3>Per-side border longhands</h3>
+        <div class="grid two">
+          <p class="border-probe border-top-only">Top border only.</p>
+          <p class="border-probe border-right-only">Right border only.</p>
+          <p class="border-probe border-bottom-only">Bottom border only.</p>
+          <p class="border-probe border-left-only">Left border only.</p>
+        </div>
+
+        <h3>Mixed widths, colors and shorthand</h3>
+        <div class="grid two">
+          <p class="border-probe border-mixed-longhands">
+            Four sides via individual width and color longhands.
+          </p>
+          <p class="border-probe border-width-shorthand">
+            <code>border-width: 4px 8px 12px 16px</code>.
+          </p>
+          <p class="border-probe border-color-shorthand">
+            <code>border-color</code> with four different colors.
+          </p>
+          <p class="border-probe border-top-shorthand">
+            <code>border-top: 8px solid red</code> shorthand.
+          </p>
+          <p class="border-probe border-style-dashed">
+            Dashed style in Chrome; Lumen currently renders solid or ignores style.
+          </p>
+          <p class="border-probe border-style-dotted">
+            Dotted style in Chrome; useful for border-style parsing.
+          </p>
+        </div>
+
+        <h3>Border radius shorthand and corners</h3>
+        <div class="grid two">
+          <p class="border-probe radius-all">All corners with <code>border-radius</code>.</p>
+          <p class="border-probe radius-top-left">Top-left corner only.</p>
+          <p class="border-probe radius-top-right">Top-right corner only.</p>
+          <p class="border-probe radius-bottom-right">Bottom-right corner only.</p>
+          <p class="border-probe radius-bottom-left">Bottom-left corner only.</p>
+          <p class="border-probe radius-right-side">Right side: top-right + bottom-right.</p>
+          <p class="border-probe radius-left-side">Left side: top-left + bottom-left.</p>
+          <p class="border-probe radius-diagonal">Diagonal corners: top-left + bottom-right.</p>
+        </div>
+      </section>
+
+      <section class="section">
         <h2>Media query</h2>
         <p class="sample-box media-query-test">
           Narrow the browser below 800px. Chrome applies the media query.

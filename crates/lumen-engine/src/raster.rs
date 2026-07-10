@@ -125,6 +125,7 @@ pub fn rasterize_over(
                 rect,
                 widths,
                 colors,
+                styles,
                 radius,
             } => {
                 let rect = shift(rect);
@@ -157,6 +158,8 @@ pub fn rasterize_over(
                             ..rect
                         },
                         colors.top,
+                        styles.top,
+                        true,
                     ),
                     (
                         Rect {
@@ -165,6 +168,8 @@ pub fn rasterize_over(
                             ..rect
                         },
                         colors.right,
+                        styles.right,
+                        false,
                     ),
                     (
                         Rect {
@@ -173,6 +178,8 @@ pub fn rasterize_over(
                             ..rect
                         },
                         colors.bottom,
+                        styles.bottom,
+                        true,
                     ),
                     (
                         Rect {
@@ -180,10 +187,12 @@ pub fn rasterize_over(
                             ..rect
                         },
                         colors.left,
+                        styles.left,
+                        false,
                     ),
                 ];
-                for (strip, color) in strips {
-                    framebuffer.fill(strip, pack(color));
+                for (strip, color, style, horizontal) in strips {
+                    fill_edge(framebuffer, &strip, pack(color), style, horizontal);
                 }
             }
             DisplayCommand::DrawImage { rect, image } => {
@@ -405,6 +414,54 @@ fn blend_glyph(
     }
 }
 
+/// Fills one border edge strip, segmenting it for dashed/dotted styles.
+fn fill_edge(
+    framebuffer: &mut Framebuffer,
+    strip: &Rect,
+    color: u32,
+    style: crate::style::BorderStyle,
+    horizontal: bool,
+) {
+    use crate::style::BorderStyle;
+    let thickness = if horizontal {
+        strip.height
+    } else {
+        strip.width
+    };
+    let (dash, gap) = match style {
+        BorderStyle::Dashed => (3.0 * thickness, 2.0 * thickness),
+        BorderStyle::Dotted => (thickness, thickness),
+        _ => {
+            framebuffer.fill(*strip, color);
+            return;
+        }
+    };
+    let length = if horizontal {
+        strip.width
+    } else {
+        strip.height
+    };
+    let mut offset = 0.0;
+    while offset < length {
+        let segment = dash.min(length - offset);
+        let rect = if horizontal {
+            Rect {
+                x: strip.x + offset,
+                width: segment,
+                ..*strip
+            }
+        } else {
+            Rect {
+                y: strip.y + offset,
+                height: segment,
+                ..*strip
+            }
+        };
+        framebuffer.fill(rect, color);
+        offset += dash + gap;
+    }
+}
+
 fn scale_radius(radius: &Corners<f32>, scale: f32) -> Corners<f32> {
     Corners {
         top_left: radius.top_left * scale,
@@ -602,6 +659,7 @@ mod tests {
             },
             widths: EdgeSizes::uniform(1.0),
             colors: EdgeSizes::uniform(RED),
+            styles: EdgeSizes::uniform(crate::style::BorderStyle::Solid),
             radius: Corners::uniform(0.0),
         }];
         let framebuffer = rasterize(&commands, 10, 10, 0.0);
@@ -666,6 +724,32 @@ mod tests {
         assert_eq!(framebuffer.pixel(9, 5), 0x00ff_0000); // exclusive at 10,6
         assert_eq!(framebuffer.pixel(10, 2), 0x00ff_ffff);
         assert_eq!(framebuffer.pixel(3, 2), 0x00ff_ffff);
+    }
+
+    #[test]
+    fn dotted_edges_leave_gaps() {
+        let commands = vec![DisplayCommand::StrokeRect {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 20.0,
+                height: 10.0,
+            },
+            widths: EdgeSizes {
+                top: 2.0,
+                right: 0.0,
+                bottom: 0.0,
+                left: 0.0,
+            },
+            colors: EdgeSizes::uniform(RED),
+            styles: EdgeSizes::uniform(crate::style::BorderStyle::Dotted),
+            radius: Corners::uniform(0.0),
+        }];
+        let framebuffer = rasterize(&commands, 20, 10, 0.0);
+        // Dot (0..2), gap (2..4), dot (4..6): 2px on / 2px off.
+        assert_eq!(framebuffer.pixel(0, 0), 0x00ff_0000);
+        assert_eq!(framebuffer.pixel(2, 0), 0x00ff_ffff);
+        assert_eq!(framebuffer.pixel(4, 0), 0x00ff_0000);
     }
 
     #[test]

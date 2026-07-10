@@ -261,6 +261,10 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             html, body { margin: 0; padding: 0; color: #111111; font-size: 16px; }
             h1 { font-size: 32px; font-weight: 700; margin-top: 12px; margin-bottom: 12px; }
             h2 { font-size: 24px; font-weight: 700; margin-top: 10px; margin-bottom: 10px; }
+            h3 { font-size: 19px; font-weight: 700; margin-top: 9px; margin-bottom: 9px; }
+            h4 { font-size: 16px; font-weight: 700; margin-top: 11px; margin-bottom: 11px; }
+            h5 { font-size: 13px; font-weight: 700; margin-top: 11px; margin-bottom: 11px; }
+            h6 { font-size: 11px; font-weight: 700; margin-top: 12px; margin-bottom: 12px; }
             p { font-size: 16px; margin-top: 8px; margin-bottom: 8px; }
             hr { border-top: 1px solid #808080; margin-top: 8px; margin-bottom: 8px; }
             a { color: #0000ee; text-decoration: underline; }
@@ -903,6 +907,20 @@ mod tests {
         assert_eq!(hr.border_width.top, 1.0);
         assert_eq!(hr.border_color.top, Color::rgb(0x80, 0x80, 0x80));
         assert_eq!(hr.display, Display::Block);
+    }
+
+    #[test]
+    fn small_headings_get_ua_sizes_and_weight() {
+        let (document, styles) =
+            styles_for("<body><h3>a</h3><h4>b</h4><h5>c</h5><h6>d</h6></body>");
+        assert_eq!(style_of(&document, &styles, "h3").font_size, 19.0);
+        assert_eq!(style_of(&document, &styles, "h4").font_size, 16.0);
+        assert_eq!(style_of(&document, &styles, "h5").font_size, 13.0);
+        assert_eq!(style_of(&document, &styles, "h6").font_size, 11.0);
+        assert_eq!(
+            style_of(&document, &styles, "h3").font_weight,
+            FontWeight(700)
+        );
     }
 
     #[test]

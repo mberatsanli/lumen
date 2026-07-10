@@ -83,7 +83,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `padding` + longhands | ✅ | ✅ | ✅ | ✅ | |
 | `border-width` | ✅ | ✅ | ✅ | ✅ | per-side via shorthand |
 | `border-color` | ✅ | ✅ | ✅ | ✅ | per side (1–4 values); defaults to text color |
-| `border-style` | ⚠️ | ✅ | ✅ | ✅ | none/hidden hide; solid renders; dashed/dotted parse but render solid; initial behaves as solid (deviation) |
+| `border-style` | ⚠️ | ✅ | ✅ | ✅ | none/hidden hide; solid/dashed/dotted render (square borders; rounded rings stay solid); initial behaves as solid (deviation) |
 | `border` shorthand | ✅ | ✅ | ✅ | ✅ | any order; missing width = 3px |
 | Per-side `border-top/right/bottom/left` | ✅ | ✅ | ✅ | ✅ | width/style/color any order |
 | `border-radius` | ⚠️ | ✅ | ✅ | ✅ | 1–4 value shorthand + per-corner longhands (px/em); rounds background + border; rounded border ring is single color/width; no % radii, no elliptical, no overflow clipping |

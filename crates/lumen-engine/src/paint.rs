@@ -6,6 +6,7 @@
 use crate::geometry::{Corners, EdgeSizes, Rect};
 use crate::image::{ImageMap, RasterImage};
 use crate::layout::{BoxType, LayoutBox, LayoutKind};
+use crate::style::BorderStyle;
 use lumen_css::Color;
 use std::sync::Arc;
 
@@ -27,6 +28,8 @@ pub enum DisplayCommand {
         rect: Rect,
         widths: EdgeSizes<f32>,
         colors: EdgeSizes<Color>,
+        /// Per-edge line styles; dashed/dotted apply to square borders.
+        styles: EdgeSizes<BorderStyle>,
         radius: Corners<f32>,
     },
     DrawText {
@@ -103,6 +106,7 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
             rect: border_box,
             widths,
             colors: layout.style.border_color,
+            styles: layout.style.border_style,
             radius,
         });
     }
@@ -118,6 +122,7 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
                 rect: border_box,
                 widths: EdgeSizes::uniform(1.0),
                 colors: EdgeSizes::uniform(Color::rgb(0x80, 0x80, 0x80)),
+                styles: EdgeSizes::uniform(BorderStyle::Solid),
                 radius: Corners::uniform(0.0),
             }),
         }
@@ -180,6 +185,7 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
                 rect,
                 widths,
                 colors,
+                styles: _,
                 radius: _,
             } => {
                 let _ = writeln!(

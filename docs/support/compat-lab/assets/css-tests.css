@@ -109,6 +109,236 @@
   animation: pulse-lab 1.2s infinite alternate;
 }
 
+.background-probe {
+  min-height: 96px;
+  margin: 8px 0;
+  padding: 16px;
+  color: #0f172a;
+  background-color: #fee2e2;
+  border-style: solid;
+  border-width: 4px;
+  border-color: #334155;
+}
+
+.bg-image-basic {
+  background-image: url("./background-tile.svg");
+}
+
+.bg-repeat {
+  background-image: url("./background-tile.svg");
+  background-repeat: repeat;
+}
+
+.bg-no-repeat {
+  background-image: url("./background-tile.svg");
+  background-repeat: no-repeat;
+}
+
+.bg-repeat-x {
+  background-image: url("./background-tile.svg");
+  background-repeat: repeat-x;
+}
+
+.bg-repeat-y {
+  background-image: url("./background-tile.svg");
+  background-repeat: repeat-y;
+}
+
+.bg-missing-url {
+  background-color: #fef9c3;
+  background-image: url("./missing-background.svg");
+}
+
+.bg-position-center {
+  background-image: url("./background-tile.svg");
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.bg-position-corner {
+  background-image: url("./background-tile.svg");
+  background-repeat: no-repeat;
+  background-position: right bottom;
+}
+
+.bg-position-pixels {
+  background-image: url("./background-tile.svg");
+  background-repeat: no-repeat;
+  background-position: 24px 16px;
+}
+
+.bg-size-fixed {
+  background-image: url("./background-tile.svg");
+  background-repeat: no-repeat;
+  background-size: 48px 48px;
+}
+
+.bg-size-contain {
+  background-image: url("./background-tile.svg");
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+
+.bg-size-cover {
+  color: #ffffff;
+  background-image: url("./background-tile.svg");
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.bg-origin-content {
+  padding: 28px;
+  background-image: url("./background-tile.svg");
+  background-repeat: no-repeat;
+  background-origin: content-box;
+}
+
+.bg-clip-content {
+  padding: 28px;
+  background-image: url("./background-tile.svg");
+  background-repeat: repeat;
+  background-clip: content-box;
+}
+
+.bg-attachment-fixed {
+  background-image: url("./background-tile.svg");
+  background-repeat: repeat;
+  background-attachment: fixed;
+}
+
+.bg-shorthand {
+  background: #e0f2fe url("./background-tile.svg") right 16px bottom 16px / 56px 56px no-repeat;
+}
+
+.bg-multiple {
+  color: #ffffff;
+  background-image:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.72), rgba(14, 116, 144, 0.72)),
+    url("./background-tile.svg");
+  background-repeat: no-repeat, repeat;
+  background-size: cover, 40px 40px;
+}
+
+.bg-local-relative {
+  background-image: url(background-tile.svg);
+  background-repeat: no-repeat;
+  background-position: right top;
+}
+
+.border-probe {
+  margin: 8px 0;
+  padding: 14px;
+  background: #ffffff;
+  border-style: solid;
+  border-width: 0;
+  border-color: #334155;
+}
+
+.border-top-only {
+  border-top-width: 8px;
+  border-top-color: #dc2626;
+}
+
+.border-right-only {
+  border-right-width: 8px;
+  border-right-color: #2563eb;
+}
+
+.border-bottom-only {
+  border-bottom-width: 8px;
+  border-bottom-color: #16a34a;
+}
+
+.border-left-only {
+  border-left-width: 8px;
+  border-left-color: #d97706;
+}
+
+.border-mixed-longhands {
+  border-top-width: 4px;
+  border-right-width: 8px;
+  border-bottom-width: 12px;
+  border-left-width: 16px;
+  border-top-color: #dc2626;
+  border-right-color: #2563eb;
+  border-bottom-color: #16a34a;
+  border-left-color: #d97706;
+}
+
+.border-width-shorthand {
+  border-width: 4px 8px 12px 16px;
+  border-color: #475569;
+}
+
+.border-color-shorthand {
+  border-width: 8px;
+  border-color: #dc2626 #2563eb #16a34a #d97706;
+}
+
+.border-top-shorthand {
+  border-top: 8px solid #dc2626;
+}
+
+.border-style-dashed {
+  border-width: 5px;
+  border-color: #7c3aed;
+  border-style: dashed;
+}
+
+.border-style-dotted {
+  border-width: 5px;
+  border-color: #0891b2;
+  border-style: dotted;
+}
+
+.radius-all,
+.radius-top-left,
+.radius-top-right,
+.radius-bottom-right,
+.radius-bottom-left,
+.radius-right-side,
+.radius-left-side,
+.radius-diagonal {
+  border-width: 4px;
+  border-color: #334155;
+  background: #f8fafc;
+}
+
+.radius-all {
+  border-radius: 28px;
+}
+
+.radius-top-left {
+  border-top-left-radius: 32px;
+}
+
+.radius-top-right {
+  border-top-right-radius: 32px;
+}
+
+.radius-bottom-right {
+  border-bottom-right-radius: 32px;
+}
+
+.radius-bottom-left {
+  border-bottom-left-radius: 32px;
+}
+
+.radius-right-side {
+  border-top-right-radius: 32px;
+  border-bottom-right-radius: 32px;
+}
+
+.radius-left-side {
+  border-top-left-radius: 32px;
+  border-bottom-left-radius: 32px;
+}
+
+.radius-diagonal {
+  border-top-left-radius: 32px;
+  border-bottom-right-radius: 32px;
+}
+
 @keyframes pulse-lab {
   from {
     opacity: 0.45;

@@ -52,6 +52,7 @@ pub fn render_svg(page: &Page) -> String {
                 rect,
                 widths,
                 colors,
+                styles,
                 radius,
             } => {
                 if !radius.is_zero() {
@@ -82,13 +83,17 @@ pub fn render_svg(page: &Page) -> String {
                 // Four edge strips drawn inward from the border box, so the
                 // output stays plain rectangles (no stroke alignment issues).
                 let edges = [
-                    (rect.x, rect.y, rect.width, widths.top, colors.top),
+                    (
+                        rect.x, rect.y, rect.width, widths.top, colors.top, styles.top, true,
+                    ),
                     (
                         rect.x + rect.width - widths.right,
                         rect.y,
                         widths.right,
                         rect.height,
                         colors.right,
+                        styles.right,
+                        false,
                     ),
                     (
                         rect.x,
@@ -96,15 +101,43 @@ pub fn render_svg(page: &Page) -> String {
                         rect.width,
                         widths.bottom,
                         colors.bottom,
+                        styles.bottom,
+                        true,
                     ),
-                    (rect.x, rect.y, widths.left, rect.height, colors.left),
+                    (
+                        rect.x,
+                        rect.y,
+                        widths.left,
+                        rect.height,
+                        colors.left,
+                        styles.left,
+                        false,
+                    ),
                 ];
-                for (x, y, width, height, color) in edges {
-                    if width > 0.0 && height > 0.0 {
-                        let _ = writeln!(
-                            svg,
-                            "<rect x=\"{x}\" y=\"{y}\" width=\"{width}\" height=\"{height}\" fill=\"{color}\"/>",
-                        );
+                for (x, y, width, height, color, style, horizontal) in edges {
+                    if width <= 0.0 || height <= 0.0 {
+                        continue;
+                    }
+                    let thickness = if horizontal { height } else { width };
+                    match dash_pattern(style, thickness) {
+                        None => {
+                            let _ = writeln!(
+                                svg,
+                                "<rect x=\"{x}\" y=\"{y}\" width=\"{width}\" height=\"{height}\" fill=\"{color}\"/>",
+                            );
+                        }
+                        Some((dash, gap)) => {
+                            // A centered line with a dash pattern.
+                            let (x1, y1, x2, y2) = if horizontal {
+                                (x, y + thickness / 2.0, x + width, y + thickness / 2.0)
+                            } else {
+                                (x + thickness / 2.0, y, x + thickness / 2.0, y + height)
+                            };
+                            let _ = writeln!(
+                                svg,
+                                "<line x1=\"{x1}\" y1=\"{y1}\" x2=\"{x2}\" y2=\"{y2}\" stroke=\"{color}\" stroke-width=\"{thickness}\" stroke-dasharray=\"{dash} {gap}\"/>",
+                            );
+                        }
                     }
                 }
             }
@@ -138,6 +171,15 @@ pub fn render_svg(page: &Page) -> String {
     }
     svg.push_str("</svg>\n");
     svg
+}
+
+/// Dash/gap lengths for a border style, `None` for solid.
+fn dash_pattern(style: crate::style::BorderStyle, thickness: f32) -> Option<(f32, f32)> {
+    match style {
+        crate::style::BorderStyle::Dashed => Some((3.0 * thickness, 2.0 * thickness)),
+        crate::style::BorderStyle::Dotted => Some((thickness, thickness)),
+        _ => None,
+    }
 }
 
 /// A rounded-rectangle path (clockwise, arcs at each corner).
@@ -226,6 +268,23 @@ mod tests {
             "expected a rounded path: {svg}"
         );
         assert!(svg.contains("A 8 8 0 0 1"));
+    }
+
+    #[test]
+    fn dashed_borders_emit_dasharray_lines() {
+        let page = crate::build_page(
+            "<style>div { border: 4px dashed #112233; height: 20px; }</style><div></div>",
+            crate::Size {
+                width: 200.0,
+                height: 100.0,
+            },
+        );
+        let svg = render_svg(&page);
+        assert!(
+            svg.contains("stroke-dasharray=\"12 8\""),
+            "expected dashed lines: {svg}"
+        );
+        assert!(svg.contains("stroke=\"#112233\""));
     }
 
     #[test]

@@ -6,3 +6,6 @@
 
 # Golden test fixtures are committed on purpose
 !crates/lumen-engine/tests/golden/*.svg
+
+# Compatibility lab fixtures are loaded by example pages.
+!docs/support/compat-lab/assets/*.svg
