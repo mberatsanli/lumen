@@ -107,6 +107,8 @@ pub struct ComputedStyle {
     /// `text-decoration: underline`. Approximation: treated as inherited
     /// so text nodes inside links pick it up.
     pub underline: bool,
+    /// `font-style: italic` (rendered as a synthetic shear).
+    pub italic: bool,
 }
 
 pub const DEFAULT_FONT_SIZE: f32 = 16.0;
@@ -131,6 +133,7 @@ impl Default for ComputedStyle {
             line_height: DEFAULT_FONT_SIZE * DEFAULT_LINE_HEIGHT_FACTOR,
             text_align: TextAlign::Left,
             underline: false,
+            italic: false,
         }
     }
 }
@@ -144,13 +147,14 @@ pub struct StyleMap {
 /// Properties whose declared values propagate to children.
 /// (`text-decoration` is not inherited in CSS — it *propagates by
 /// painting*; treating it as inherited approximates that.)
-const INHERITED_PROPERTIES: [&str; 6] = [
+const INHERITED_PROPERTIES: [&str; 7] = [
     "color",
     "font-size",
     "font-weight",
     "line-height",
     "text-align",
     "text-decoration",
+    "font-style",
 ];
 
 /// The built-in user-agent stylesheet (weakest cascade origin).
@@ -166,6 +170,9 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             h2 { font-size: 24px; font-weight: 700; margin-top: 10px; margin-bottom: 10px; }
             p { font-size: 16px; margin-top: 8px; margin-bottom: 8px; }
             a { color: #0000ee; text-decoration: underline; }
+            strong, b { font-weight: 700; }
+            em, i { font-style: italic; }
+            code { font-size: 0.875em; }
         ";
         lumen_css::parse_stylesheet(source)
     })
@@ -443,6 +450,11 @@ fn to_computed(
     style.underline = matches!(
         raw.get("text-decoration").and_then(CssValue::as_keyword),
         Some("underline")
+    );
+
+    style.italic = matches!(
+        raw.get("font-style").and_then(CssValue::as_keyword),
+        Some("italic" | "oblique")
     );
 
     style.text_align = raw

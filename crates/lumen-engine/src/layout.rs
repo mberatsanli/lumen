@@ -1,22 +1,22 @@
-//! Vertical block layout.
+//! Block layout with inline formatting.
 //!
 //! Layout runs in the classic phases per box: resolve width, position
 //! horizontally, position vertically, lay out children, resolve height.
-//! Every visible element becomes a block-level box stacked top to bottom;
-//! inline flow and line wrapping are later milestones (`Display::Inline`
-//! elements currently stack like blocks). Margin collapsing is intentionally
-//! not implemented.
+//! Block-level children stack vertically; consecutive inline-level
+//! children (text and inline elements) form runs laid into shared line
+//! boxes inside anonymous blocks (see `inline.rs`). Margin collapsing is
+//! intentionally not implemented.
 
 use crate::geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
+use crate::inline::{LineBox, layout_inline_run};
 use crate::style::{ComputedStyle, Dimension, Display, StyleMap};
-use crate::text::{Line, TextMeasurer, TextStyle, break_into_lines};
+use crate::text::TextMeasurer;
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::fmt::Write as _;
 
 /// The formatting role of a layout box.
 ///
-/// `AnonymousBlock` and `Replaced` are not generated yet; they arrive with
-/// inline layout and images respectively.
+/// `Replaced` is not generated yet; it arrives with images.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoxType {
     Block,
@@ -25,11 +25,14 @@ pub enum BoxType {
     Replaced,
 }
 
-/// What the box renders: an element or a wrapped text run.
+/// What the box renders: an element box or flowed inline content.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LayoutKind {
     Element(String),
-    Text { lines: Vec<Line> },
+    /// Line boxes produced by inline layout (text and inline elements).
+    Inline {
+        lines: Vec<LineBox>,
+    },
 }
 
 /// A laid-out box with full box-model geometry.
@@ -71,8 +74,25 @@ impl LayoutBox {
         let rect = self.border_box();
         let inside =
             x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
+        if !inside {
+            return None;
+        }
+        // Inside inline content, individual fragments are the hit targets,
+        // so a link is hit only on its own words.
+        if let LayoutKind::Inline { lines } = &self.kind {
+            let content = self.content_box();
+            for line in lines {
+                for fragment in &line.fragments {
+                    let fx = content.x + fragment.x;
+                    let fy = content.y + line.y;
+                    if x >= fx && x < fx + fragment.width && y >= fy && y < fy + line.height {
+                        return Some(fragment.node_id);
+                    }
+                }
+            }
+        }
         // The #document root is not a hit target.
-        (inside && !matches!(&self.kind, LayoutKind::Element(tag) if tag == "#document"))
+        (!matches!(&self.kind, LayoutKind::Element(tag) if tag == "#document"))
             .then_some(self.node_id)
     }
 }
@@ -144,38 +164,8 @@ fn layout_node(
     }
 
     match &document.node(node_id).kind {
-        NodeKind::Document => None,
-        NodeKind::Text(text) => {
-            // Whitespace collapsing: runs of whitespace become one space.
-            let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
-            if normalized.is_empty() {
-                return None;
-            }
-            let text_style = TextStyle {
-                font_size: style.font_size,
-                font_weight: style.font_weight,
-            };
-            let lines = break_into_lines(&normalized, &text_style, containing_width, measurer);
-            let height = lines.len() as f32 * style.line_height;
-            let content = Rect {
-                x: containing_x,
-                y: *cursor_y,
-                width: containing_width,
-                height,
-            };
-            *cursor_y += height;
-            Some(LayoutBox {
-                node_id,
-                box_type: BoxType::Inline,
-                kind: LayoutKind::Text { lines },
-                dimensions: Dimensions {
-                    content,
-                    ..Dimensions::default()
-                },
-                style,
-                children: Vec::new(),
-            })
-        }
+        // Text nodes are laid out by their parent's inline run, never here.
+        NodeKind::Document | NodeKind::Text(_) => None,
         NodeKind::Element(element) => Some(layout_element(
             document,
             styles,
@@ -189,6 +179,32 @@ fn layout_node(
             measurer,
         )),
     }
+}
+
+/// Whether this child participates in inline flow (text, or an inline
+/// element with no block-level descendant — blocks inside inlines get
+/// promoted to block-level, a simplification of CSS's splitting rules).
+fn is_inline_level(document: &Document, styles: &StyleMap, node_id: NodeId) -> bool {
+    match &document.node(node_id).kind {
+        NodeKind::Text(_) => true,
+        NodeKind::Element(_) => {
+            styles
+                .by_node
+                .get(&node_id)
+                .is_some_and(|style| style.display == Display::Inline)
+                && !has_block_descendant(document, styles, node_id)
+        }
+        NodeKind::Document => false,
+    }
+}
+
+fn has_block_descendant(document: &Document, styles: &StyleMap, node_id: NodeId) -> bool {
+    document.descendants(node_id).any(|descendant| {
+        styles
+            .by_node
+            .get(&descendant)
+            .is_some_and(|style| style.display == Display::Block)
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -257,23 +273,66 @@ fn layout_element(
     let border_box_y = *cursor_y;
     let content_y = border_box_y + border.top + padding.top;
 
-    // Phase 4: children, laid out against this box's content box.
+    // Phase 4: children. Consecutive inline-level children (text, inline
+    // elements) form runs laid out into shared line boxes inside an
+    // anonymous block; block-level children lay out as blocks.
     let mut child_cursor_y = content_y;
     let mut children = Vec::new();
+    let mut run: Vec<NodeId> = Vec::new();
+
+    let flush_run = |run: &mut Vec<NodeId>, cursor_y: &mut f32, children: &mut Vec<LayoutBox>| {
+        if run.is_empty() {
+            return;
+        }
+        let (lines, height) =
+            layout_inline_run(document, styles, run, &style, content_width, measurer);
+        run.clear();
+        if lines.is_empty() {
+            return;
+        }
+        children.push(LayoutBox {
+            node_id,
+            box_type: BoxType::AnonymousBlock,
+            kind: LayoutKind::Inline { lines },
+            dimensions: Dimensions {
+                content: Rect {
+                    x: content_x,
+                    y: *cursor_y,
+                    width: content_width,
+                    height,
+                },
+                ..Dimensions::default()
+            },
+            style: style.clone(),
+            children: Vec::new(),
+        });
+        *cursor_y += height;
+    };
+
     for child in document.children(node_id) {
-        if let Some(layout) = layout_node(
-            document,
-            styles,
-            *child,
-            content_x,
-            &mut child_cursor_y,
-            content_width,
-            viewport,
-            measurer,
-        ) {
-            children.push(layout);
+        let child_display = styles.by_node.get(child).map(|style| style.display);
+        if child_display == Some(Display::None) {
+            continue;
+        }
+        if is_inline_level(document, styles, *child) {
+            run.push(*child);
+        } else {
+            flush_run(&mut run, &mut child_cursor_y, &mut children);
+            if let Some(layout) = layout_node(
+                document,
+                styles,
+                *child,
+                content_x,
+                &mut child_cursor_y,
+                content_width,
+                viewport,
+                measurer,
+            ) {
+                children.push(layout);
+            }
         }
     }
+    flush_run(&mut run, &mut child_cursor_y, &mut children);
 
     // Phase 5: height. Explicit heights win; auto grows from the children.
     // Percent heights are unsupported and treated as auto; vh works.
@@ -335,10 +394,11 @@ fn dump_layout_box(layout: &LayoutBox, depth: usize, output: &mut String) {
     let indent = "  ".repeat(depth);
     let label = match &layout.kind {
         LayoutKind::Element(tag) => format!("<{tag}>"),
-        LayoutKind::Text { lines } => {
+        LayoutKind::Inline { lines } => {
             let joined = lines
                 .iter()
-                .map(|line| line.text.as_str())
+                .flat_map(|line| line.fragments.iter())
+                .map(|fragment| fragment.text.as_str())
                 .collect::<Vec<_>>()
                 .join(" ");
             format!(
@@ -539,6 +599,109 @@ mod tests {
     }
 
     #[test]
+    fn inline_elements_share_a_line_with_text() {
+        // 8px/char at default 16px font.
+        let layout = layout_of(
+            "<style>div { width: 400px; margin: 0; padding: 0; }</style>\
+             <div>one <span>two</span> three</div>",
+        );
+        let anonymous = &layout.children[0].children[0];
+        let LayoutKind::Inline { lines } = &anonymous.kind else {
+            panic!("expected inline content");
+        };
+        assert_eq!(lines.len(), 1, "all words share one line: {lines:?}");
+        let texts: Vec<&str> = lines[0]
+            .fragments
+            .iter()
+            .map(|fragment| fragment.text.as_str())
+            .collect();
+        assert_eq!(texts, vec!["one", "two", "three"]);
+        // "one " = 4 chars * 8px, span starts after the space.
+        assert_eq!(lines[0].fragments[1].x, 32.0);
+    }
+
+    #[test]
+    fn words_join_without_boundary_whitespace() {
+        let layout = layout_of("<div>foo<span>bar</span></div>");
+        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+            panic!("expected inline content");
+        };
+        // No space between fragments: "foo" ends at 24, "bar" starts at 24.
+        assert_eq!(lines[0].fragments[1].x, 24.0);
+    }
+
+    #[test]
+    fn br_forces_a_line_break() {
+        let layout = layout_of("<div>a<br>b</div>");
+        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+            panic!("expected inline content");
+        };
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].fragments[0].text, "a");
+        assert_eq!(lines[1].fragments[0].text, "b");
+    }
+
+    #[test]
+    fn mixed_block_and_inline_children_get_anonymous_blocks() {
+        let layout = layout_of("<div>before<p>block</p>after</div>");
+        let div = &layout.children[0];
+        assert_eq!(div.children.len(), 3);
+        assert_eq!(div.children[0].box_type, BoxType::AnonymousBlock);
+        assert_eq!(div.children[1].box_type, BoxType::Block);
+        assert_eq!(div.children[2].box_type, BoxType::AnonymousBlock);
+        // Vertical order: run, block, run.
+        assert!(div.children[0].content_box().y < div.children[1].content_box().y);
+        assert!(div.children[1].content_box().y < div.children[2].content_box().y);
+    }
+
+    #[test]
+    fn line_height_uses_tallest_fragment() {
+        let layout = layout_of(
+            "<style>span { font-size: 32px; line-height: 1; }</style>\
+             <div>small <span>BIG</span></div>",
+        );
+        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+            panic!("expected inline content");
+        };
+        // Default 16px text line-height is 22.4; the span's is 32.
+        assert_eq!(lines[0].height, 32.0);
+        assert_eq!(lines[0].baseline, 32.0);
+    }
+
+    #[test]
+    fn fragment_hit_test_targets_the_text_node() {
+        let document = parse_document("<div>plain <a href='x'>link</a></div>");
+        let author = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document));
+        let styles = compute_styles(&document, &author);
+        let layout = layout_document(
+            &document,
+            &styles,
+            VIEWPORT,
+            &crate::text::HeuristicMeasurer,
+        );
+        // "plain " occupies x 0..48 (6 chars * 8px); the link text follows.
+        let link_hit = layout.hit_test(50.0, 5.0).expect("hit on link text");
+        let plain_hit = layout.hit_test(5.0, 5.0).expect("hit on plain text");
+        assert_ne!(link_hit, plain_hit);
+        let link_ancestor = std::iter::once(link_hit)
+            .chain(document.ancestors(link_hit))
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "a")
+            });
+        assert!(link_ancestor.is_some());
+        let plain_ancestor = std::iter::once(plain_hit)
+            .chain(document.ancestors(plain_hit))
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "a")
+            });
+        assert!(plain_ancestor.is_none());
+    }
+
+    #[test]
     fn relayout_respects_new_viewport_width() {
         let document = parse_document("<div></div>");
         let styles = compute_styles(&document, &lumen_css::Stylesheet::default());
@@ -565,10 +728,12 @@ mod tests {
     }
 
     #[test]
-    fn text_box_is_inline_elements_are_blocks() {
+    fn text_becomes_anonymous_inline_content_inside_blocks() {
         let layout = layout_of("<div>hi</div>");
         let div = &layout.children[0];
         assert_eq!(div.box_type, BoxType::Block);
-        assert_eq!(div.children[0].box_type, BoxType::Inline);
+        let anonymous = &div.children[0];
+        assert_eq!(anonymous.box_type, BoxType::AnonymousBlock);
+        assert!(matches!(&anonymous.kind, LayoutKind::Inline { lines } if lines.len() == 1));
     }
 }

@@ -5,6 +5,7 @@
 
 pub mod font;
 pub mod geometry;
+pub mod inline;
 pub mod layout;
 pub mod paint;
 pub mod raster;
@@ -14,6 +15,7 @@ pub mod text;
 
 pub use font::SystemFont;
 pub use geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
+pub use inline::{Fragment, LineBox};
 pub use layout::{BoxType, LayoutBox, LayoutKind, dump_layout, layout_document};
 pub use paint::{DisplayCommand, build_display_list};
 pub use raster::{Framebuffer, rasterize, rasterize_with};
@@ -22,7 +24,7 @@ pub use style::{
     compute_styles_hovered,
 };
 pub use svg::render_svg;
-pub use text::{HeuristicMeasurer, Line, TextMeasurer, TextMetrics, TextStyle};
+pub use text::{HeuristicMeasurer, TextMeasurer, TextMetrics, TextStyle};
 
 use lumen_html::{Document, NodeKind};
 
@@ -368,6 +370,24 @@ mod tests {
             _ => None,
         });
         assert_eq!(text, Some("a b c".to_string()));
+    }
+
+    #[test]
+    fn ua_defaults_for_strong_and_em() {
+        let page = page("<p>x <strong>bold</strong> <em>slant</em></p>");
+        let find = |needle: &str| {
+            page.display_list.iter().find_map(|command| match command {
+                DisplayCommand::DrawText {
+                    text,
+                    font_weight,
+                    italic,
+                    ..
+                } if text == needle => Some((*font_weight, *italic)),
+                _ => None,
+            })
+        };
+        assert_eq!(find("bold"), Some((700, false)));
+        assert_eq!(find("slant"), Some((400, true)));
     }
 
     #[test]

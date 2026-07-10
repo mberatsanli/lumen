@@ -37,13 +37,20 @@ Per element, in order:
    cursor advances by each child's margin-box height.
 5. **Height** — explicit `height` wins; `auto` grows from the children.
 
-Text nodes collapse whitespace, then wrap greedily into line boxes via the
-`TextMeasurer` abstraction (`text.rs`). The default `HeuristicMeasurer` is
-a deliberate approximation — half an em per character — so wrapping
-structure is right even though exact widths are not; tests use exact fake
-measurers. A word wider than the line overflows on its own line. The text
-box's height is `lines × line_height`; `text-align: left|center|right`
-positions each line at paint time using its measured width.
+Consecutive inline-level children (text nodes and inline elements with no
+block descendants) form runs laid out by `inline.rs` into shared line
+boxes inside an `AnonymousBlock`. Words carry the computed style of their
+text node, so `<strong>`, `<a>`, `<em>` runs mix on one line with correct
+weight/color/underline/italic per fragment. Whitespace collapses across
+node boundaries (`foo<span>bar</span>` joins, `foo <span>bar</span>`
+keeps the space); `<br>` forces a hard break; a word wider than the line
+overflows alone. Line height is the tallest fragment's line-height (with
+the container's as the strut); the baseline approximates the tallest font
+size. `text-align` shifts whole lines at layout time. Measurement stays
+behind `TextMeasurer` (`text.rs`), heuristic by default, real font in the
+desktop shell. Deliberate simplifications: inline elements contribute no
+box edges (margins/paddings/borders/backgrounds ignored) and there is no
+`vertical-align`.
 
 `layout_document` is a pure function; relayout on viewport resize is simply
 calling it again with the new size (verified by test).
@@ -54,8 +61,8 @@ calling it again with the new size (verified by test).
   collapsing. Documented deviation; revisit after inline layout.
 - Percent heights are treated as `auto`; auto margins resolve to 0 (no
   `margin: 0 auto` centering yet).
-- `Display::Inline` boxes still stack vertically like blocks; consecutive
-  inline elements do not share a line box yet.
+- Inline element box edges (margin/padding/border/background) are ignored;
+  no `vertical-align`.
 - Text measurement is heuristic, not shaped; real font metrics can slot in
   behind `TextMeasurer` without layout changes.
 

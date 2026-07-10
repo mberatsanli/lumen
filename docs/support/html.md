@@ -55,9 +55,9 @@ interaction) — not just a DOM node.
 
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
-| `<a href>` | ⚠️ | ✅ | ✅ | ✅ | clickable, :hover, pointer, UA underline — but no inline flow |
-| `<span> <strong> <em> <b> <i> <code> <small>` | ⚠️ | ✅ | ✅ | ✅ | inline computed + inheritance; still stack vertically; no UA bold/italic/mono |
-| `<br>` | ❌ | ✅ | ✅ | ✅ | parsed, produces no line break |
+| `<a href>` | ✅ | ✅ | ✅ | ✅ | inline flow, clickable, :hover, pointer, UA blue underline |
+| `<span> <strong> <em> <b> <i> <code> <small>` | ✅ | ✅ | ✅ | ✅ | inline flow; UA: strong/b bold, em/i synthetic italic, code 0.875em (no monospace yet) |
+| `<br>` | ✅ | ✅ | ✅ | ✅ | hard line break in inline flow |
 | `<sub> <sup>` | ❌ | ✅ | ✅ | ✅ | |
 | `<mark> <ins> <del> <s> <u>` | ❌ | ✅ | ✅ | ✅ | |
 | `<abbr title>` | ❌ | ✅ | ✅ | ✅ | |

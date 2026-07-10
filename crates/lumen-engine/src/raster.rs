@@ -141,9 +141,11 @@ pub fn rasterize_with(
                 font_size,
                 font_weight,
                 underline,
+                italic,
             } => {
                 let (x, y, font_size) = (x * scale, (y - scroll_y) * scale, font_size * scale);
                 let packed = pack(*color);
+                let shear = if *italic { 0.21 } else { 0.0 };
                 let text_width = match font {
                     Some(font) => draw_text_scalable(
                         &mut framebuffer,
@@ -154,6 +156,7 @@ pub fn rasterize_with(
                         packed,
                         font_size,
                         *font_weight,
+                        shear,
                     ),
                     None => draw_text(
                         &mut framebuffer,
@@ -163,6 +166,7 @@ pub fn rasterize_with(
                         packed,
                         font_size,
                         *font_weight,
+                        shear,
                     ),
                 };
                 if *underline {
@@ -185,7 +189,8 @@ pub fn rasterize_with(
 /// Draws a text run with the 8×8 bitmap font. `y` is the baseline; the
 /// glyph cell is `0.5 * font_size` wide (matching the heuristic measurer)
 /// and `0.8 * font_size` tall above the baseline. Weights ≥ 600 are
-/// emboldened by a 1px double-strike.
+/// emboldened by a 1px double-strike; `shear` fakes italics.
+#[allow(clippy::too_many_arguments)]
 fn draw_text(
     framebuffer: &mut Framebuffer,
     x: f32,
@@ -194,6 +199,7 @@ fn draw_text(
     color: u32,
     font_size: f32,
     font_weight: u16,
+    shear: f32,
 ) -> f32 {
     let advance = font_size * 0.5;
     let cell_height = font_size * 0.8;
@@ -207,7 +213,9 @@ fn draw_text(
         else {
             continue;
         };
-        let cell_x = x + index as f32 * advance;
+        // Synthetic italic: shift the cell right proportionally to its
+        // height above the baseline (crude shear, but visibly slanted).
+        let cell_x = x + index as f32 * advance + shear * cell_height * 0.5;
         draw_glyph(
             framebuffer,
             &glyph,
@@ -260,7 +268,8 @@ fn draw_glyph(
 
 /// Draws a text run with a scalable font; `y` is the baseline. Glyph
 /// coverage is alpha-blended onto the framebuffer. Weights ≥ 600 get a 1px
-/// double-strike (single-face fonts have no real bold).
+/// double-strike (single-face fonts have no real bold); `shear` produces a
+/// synthetic italic slant.
 #[allow(clippy::too_many_arguments)]
 fn draw_text_scalable(
     framebuffer: &mut Framebuffer,
@@ -271,6 +280,7 @@ fn draw_text_scalable(
     color: u32,
     font_size: f32,
     font_weight: u16,
+    shear: f32,
 ) -> f32 {
     let mut pen_x = x;
     let bold = font_weight >= 600;
@@ -285,6 +295,8 @@ fn draw_text_scalable(
             glyph_x,
             glyph_y,
             color,
+            y,
+            shear,
         );
         if bold {
             blend_glyph(
@@ -294,6 +306,8 @@ fn draw_text_scalable(
                 glyph_x + 1.0,
                 glyph_y,
                 color,
+                y,
+                shear,
             );
         }
         pen_x += glyph.metrics.advance_width;
@@ -301,6 +315,7 @@ fn draw_text_scalable(
     pen_x - x
 }
 
+#[allow(clippy::too_many_arguments)]
 fn blend_glyph(
     framebuffer: &mut Framebuffer,
     coverage: &[u8],
@@ -308,6 +323,8 @@ fn blend_glyph(
     origin_x: f32,
     origin_y: f32,
     color: u32,
+    baseline_y: f32,
+    shear: f32,
 ) {
     if glyph_width == 0 {
         return;
@@ -316,8 +333,11 @@ fn blend_glyph(
         if *alpha == 0 {
             continue;
         }
-        let pixel_x = origin_x + (index % glyph_width) as f32;
-        let pixel_y = origin_y + (index / glyph_width) as f32;
+        let row_y = origin_y + (index / glyph_width) as f32;
+        // Synthetic italic: rows above the baseline shift right.
+        let slant = shear * (baseline_y - row_y).max(0.0);
+        let pixel_x = origin_x + (index % glyph_width) as f32 + slant;
+        let pixel_y = row_y;
         if pixel_x < 0.0 || pixel_y < 0.0 {
             continue;
         }
@@ -412,6 +432,7 @@ mod tests {
             font_size: 16.0,
             font_weight: 400,
             underline: false,
+            italic: false,
         }];
         let framebuffer = rasterize(&commands, 20, 20, 0.0);
         let painted = framebuffer

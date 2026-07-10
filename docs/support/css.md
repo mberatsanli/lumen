@@ -96,7 +96,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
 | `display: block` | ✅ | ✅ | ✅ | ✅ | |
-| `display: inline` | ⚠️ | ✅ | ✅ | ✅ | computed, but inline boxes still stack vertically |
+| `display: inline` | ✅ | ✅ | ✅ | ✅ | shared line boxes; inline box edges (margin/padding/border/bg) ignored |
 | `display: none` | ✅ | ✅ | ✅ | ✅ | |
 | `display: inline-block` | ❌ | ✅ | ✅ | ✅ | |
 | Flexbox | ❌ | ✅ | ✅ | ✅ | |
@@ -136,7 +136,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `text-align: justify` | ❌ | ✅ | ✅ | ✅ | |
 | `text-decoration: underline/none` | ⚠️ | ✅ | ✅ | ✅ | no line-through/color/style; propagation ≈ inheritance |
 | `font-family` | ❌ | ✅ | ✅ | ✅ | one system font, no fallback lists |
-| `font-style: italic` | ❌ | ✅ | ✅ | ✅ | |
+| `font-style: italic` | ✅ | ✅ | ✅ | ✅ | synthetic shear (no real italic face) |
 | `font` shorthand | ❌ | ✅ | ✅ | ✅ | |
 | `letter-/word-spacing` | ❌ | ✅ | ✅ | ✅ | |
 | `text-transform` | ❌ | ✅ | ✅ | ✅ | |

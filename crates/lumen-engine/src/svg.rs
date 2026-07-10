@@ -63,15 +63,21 @@ pub fn render_svg(page: &Page) -> String {
                 font_size,
                 font_weight,
                 underline,
+                italic,
             } => {
                 let decoration = if *underline {
                     " text-decoration=\"underline\""
                 } else {
                     ""
                 };
+                let slant = if *italic {
+                    " font-style=\"italic\""
+                } else {
+                    ""
+                };
                 let _ = writeln!(
                     svg,
-                    "<text x=\"{x}\" y=\"{y}\" fill=\"{color}\" font-family=\"system-ui, sans-serif\" font-size=\"{font_size}\" font-weight=\"{font_weight}\"{decoration}>{}</text>",
+                    "<text x=\"{x}\" y=\"{y}\" fill=\"{color}\" font-family=\"system-ui, sans-serif\" font-size=\"{font_size}\" font-weight=\"{font_weight}\"{decoration}{slant}>{}</text>",
                     escape_xml(text)
                 );
             }

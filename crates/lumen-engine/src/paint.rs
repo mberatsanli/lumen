@@ -5,7 +5,6 @@
 
 use crate::geometry::{EdgeSizes, Rect};
 use crate::layout::{LayoutBox, LayoutKind};
-use crate::style::TextAlign;
 use lumen_css::Color;
 
 /// A single backend-independent paint command.
@@ -24,13 +23,14 @@ pub enum DisplayCommand {
     },
     DrawText {
         x: f32,
-        /// Baseline position, approximated as top + font size.
+        /// Baseline position.
         y: f32,
         text: String,
         color: Color,
         font_size: f32,
         font_weight: u16,
         underline: bool,
+        italic: bool,
     },
 }
 
@@ -67,7 +67,11 @@ fn canvas_background(root: &LayoutBox) -> Option<Color> {
 fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
     let border_box = layout.border_box();
 
-    if let Some(background) = layout.style.background_color {
+    // Anonymous blocks carry a clone of their container's style for text
+    // defaults; the container already painted its own background/border.
+    let anonymous = layout.box_type == crate::layout::BoxType::AnonymousBlock;
+
+    if !anonymous && let Some(background) = layout.style.background_color {
         commands.push(DisplayCommand::FillRect {
             rect: border_box,
             color: background,
@@ -75,7 +79,9 @@ fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
     }
 
     let widths = layout.dimensions.border;
-    if widths.top > 0.0 || widths.right > 0.0 || widths.bottom > 0.0 || widths.left > 0.0 {
+    if !anonymous
+        && (widths.top > 0.0 || widths.right > 0.0 || widths.bottom > 0.0 || widths.left > 0.0)
+    {
         commands.push(DisplayCommand::StrokeRect {
             rect: border_box,
             widths,
@@ -83,23 +89,21 @@ fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
         });
     }
 
-    if let LayoutKind::Text { lines } = &layout.kind {
+    if let LayoutKind::Inline { lines } = &layout.kind {
         let content = layout.content_box();
-        for (index, line) in lines.iter().enumerate() {
-            let x = match layout.style.text_align {
-                TextAlign::Left => content.x,
-                TextAlign::Center => content.x + (content.width - line.width) / 2.0,
-                TextAlign::Right => content.x + content.width - line.width,
-            };
-            commands.push(DisplayCommand::DrawText {
-                x,
-                y: content.y + index as f32 * layout.style.line_height + layout.style.font_size,
-                text: line.text.clone(),
-                color: layout.style.color,
-                font_size: layout.style.font_size,
-                font_weight: layout.style.font_weight.0,
-                underline: layout.style.underline,
-            });
+        for line in lines {
+            for fragment in &line.fragments {
+                commands.push(DisplayCommand::DrawText {
+                    x: content.x + fragment.x,
+                    y: content.y + line.y + line.baseline,
+                    text: fragment.text.clone(),
+                    color: fragment.style.color,
+                    font_size: fragment.style.font_size,
+                    font_weight: fragment.style.font_weight.0,
+                    underline: fragment.style.underline,
+                    italic: fragment.style.italic,
+                });
+            }
         }
     }
 
@@ -148,11 +152,13 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
                 font_size,
                 font_weight,
                 underline,
+                italic,
             } => {
                 let decoration = if *underline { " underline" } else { "" };
+                let slant = if *italic { " italic" } else { "" };
                 let _ = writeln!(
                     output,
-                    "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color}{decoration} {text:?}"
+                    "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color}{decoration}{slant} {text:?}"
                 );
             }
         }
