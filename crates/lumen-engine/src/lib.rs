@@ -1,4 +1,4 @@
-use lumen_css::{Selector, Stylesheet};
+use lumen_css::{CompoundSelector, CssValue, Selector, Stylesheet};
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -25,20 +25,31 @@ pub struct Edges {
     pub left: f32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ComputedStyle {
-    pub properties: HashMap<String, String>,
+    pub properties: HashMap<String, CssValue>,
 }
 
 impl ComputedStyle {
     #[must_use]
-    pub fn get(&self, name: &str) -> Option<&str> {
-        self.properties.get(name).map(String::as_str)
+    pub fn get(&self, name: &str) -> Option<&CssValue> {
+        self.properties.get(name)
     }
 
     #[must_use]
     pub fn px(&self, name: &str) -> Option<f32> {
-        parse_px(self.get(name)?)
+        self.get(name)?.as_px()
+    }
+
+    #[must_use]
+    pub fn keyword(&self, name: &str) -> Option<&str> {
+        self.get(name)?.as_keyword()
+    }
+
+    /// CSS text of the value, e.g. `#ff0000` or `bold` — for paint output.
+    #[must_use]
+    pub fn css_text(&self, name: &str) -> Option<String> {
+        self.get(name).map(ToString::to_string)
     }
 }
 
@@ -163,16 +174,17 @@ fn compute_node_styles(
     if let Some(parent) = parent_style {
         for inherited in ["color", "font-size", "font-weight"] {
             if let Some(value) = parent.get(inherited) {
-                properties.insert(inherited.to_string(), value.to_string());
+                properties.insert(inherited.to_string(), value.clone());
             }
         }
     }
 
     if let NodeKind::Element(element) = &document.node(node_id).kind {
-        let mut winners: HashMap<String, (u32, usize, String)> = HashMap::new();
+        let mut winners: HashMap<String, (lumen_css::Specificity, usize, CssValue)> =
+            HashMap::new();
         for rule in &stylesheet.rules {
             for selector in &rule.selectors {
-                if selector_matches(element, selector) {
+                if selector_matches(document, node_id, element, selector) {
                     for declaration in &rule.declarations {
                         let candidate = (
                             selector.specificity(),
@@ -193,15 +205,10 @@ fn compute_node_styles(
             properties.insert(name, value);
         }
 
+        // Inline `style=` declarations beat every stylesheet rule.
         if let Some(inline) = element.attributes.get("style") {
-            for raw in inline.split(';') {
-                if let Some((name, value)) = raw.split_once(':') {
-                    let name = name.trim();
-                    let value = value.trim();
-                    if !name.is_empty() && !value.is_empty() {
-                        properties.insert(name.to_ascii_lowercase(), value.to_string());
-                    }
-                }
+            for declaration in lumen_css::parse_declarations(inline) {
+                properties.insert(declaration.name, declaration.value);
             }
         }
     }
@@ -213,12 +220,52 @@ fn compute_node_styles(
     }
 }
 
-fn selector_matches(element: &ElementData, selector: &Selector) -> bool {
-    match selector {
-        Selector::Tag(tag) => element.tag_name == *tag,
-        Selector::Id(id) => element.id() == Some(id.as_str()),
-        Selector::Class(class) => element.has_class(class),
+fn compound_matches(element: &ElementData, compound: &CompoundSelector) -> bool {
+    if let Some(tag) = &compound.tag
+        && element.tag_name != *tag
+    {
+        return false;
     }
+    if let Some(id) = &compound.id
+        && element.id() != Some(id.as_str())
+    {
+        return false;
+    }
+    compound
+        .classes
+        .iter()
+        .all(|class| element.has_class(class))
+}
+
+/// Matches a complex selector: the subject compound must match the element
+/// itself, and remaining compounds must match ancestors in order (descendant
+/// combinator, right to left).
+fn selector_matches(
+    document: &Document,
+    node_id: NodeId,
+    element: &ElementData,
+    selector: &Selector,
+) -> bool {
+    if !compound_matches(element, selector.subject()) {
+        return false;
+    }
+    let mut remaining = selector.compounds[..selector.compounds.len() - 1]
+        .iter()
+        .rev();
+    let Some(mut needed) = remaining.next() else {
+        return true;
+    };
+    for ancestor in document.ancestors(node_id) {
+        if let Some(ancestor_element) = document.element(ancestor)
+            && compound_matches(ancestor_element, needed)
+        {
+            match remaining.next() {
+                Some(next) => needed = next,
+                None => return true,
+            }
+        }
+    }
+    false
 }
 
 #[must_use]
@@ -227,9 +274,7 @@ pub fn layout_document(document: &Document, styles: &StyleMap, viewport: Size) -
         .by_node
         .get(&document.root())
         .cloned()
-        .unwrap_or(ComputedStyle {
-            properties: HashMap::new(),
-        });
+        .unwrap_or_default();
     let mut root = LayoutBox {
         node_id: document.root(),
         kind: LayoutKind::Element("#document".to_string()),
@@ -266,7 +311,7 @@ fn layout_node(
     containing_width: f32,
 ) -> Option<LayoutBox> {
     let style = styles.by_node.get(&node_id)?.clone();
-    if style.get("display") == Some("none") {
+    if style.keyword("display") == Some("none") {
         return None;
     }
 
@@ -363,12 +408,12 @@ fn default_min_height(element: &ElementData) -> f32 {
 }
 
 fn parse_edges(style: &ComputedStyle, prefix: &str) -> Edges {
-    let all = style.px(prefix).unwrap_or(0.0);
+    // Shorthands are already expanded to longhands by the CSS parser.
     Edges {
-        top: style.px(&format!("{prefix}-top")).unwrap_or(all),
-        right: style.px(&format!("{prefix}-right")).unwrap_or(all),
-        bottom: style.px(&format!("{prefix}-bottom")).unwrap_or(all),
-        left: style.px(&format!("{prefix}-left")).unwrap_or(all),
+        top: style.px(&format!("{prefix}-top")).unwrap_or(0.0),
+        right: style.px(&format!("{prefix}-right")).unwrap_or(0.0),
+        bottom: style.px(&format!("{prefix}-bottom")).unwrap_or(0.0),
+        left: style.px(&format!("{prefix}-left")).unwrap_or(0.0),
     }
 }
 
@@ -381,7 +426,7 @@ pub fn build_display_list(layout: &LayoutBox) -> Vec<DisplayCommand> {
 
 fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
     if let Some(background) = layout.style.get("background-color")
-        && background != "transparent"
+        && background.as_keyword() != Some("transparent")
     {
         commands.push(DisplayCommand::FillRect {
             rect: layout.rect,
@@ -394,9 +439,15 @@ fn paint_box(layout: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
             x: layout.rect.x,
             y: layout.rect.y + layout.style.px("font-size").unwrap_or(16.0),
             text: text.clone(),
-            color: layout.style.get("color").unwrap_or("#111111").to_string(),
+            color: layout
+                .style
+                .css_text("color")
+                .unwrap_or_else(|| "#111111".to_string()),
             font_size: layout.style.px("font-size").unwrap_or(16.0),
-            font_weight: layout.style.get("font-weight").unwrap_or("400").to_string(),
+            font_weight: layout
+                .style
+                .css_text("font-weight")
+                .unwrap_or_else(|| "400".to_string()),
         });
     }
 
@@ -472,10 +523,6 @@ fn dump_layout_box(layout: &LayoutBox, depth: usize, output: &mut String) {
     }
 }
 
-fn parse_px(value: &str) -> Option<f32> {
-    value.trim().strip_suffix("px")?.trim().parse().ok()
-}
-
 fn escape_xml(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -499,28 +546,113 @@ p { font-size: 16px; margin-top: 8px; margin-bottom: 8px; }
 mod tests {
     use super::*;
 
+    fn page(html: &str) -> Page {
+        build_page(
+            html,
+            Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        )
+        .unwrap()
+    }
+
+    fn text_color(page: &Page) -> Option<String> {
+        page.display_list.iter().find_map(|command| match command {
+            DisplayCommand::DrawText { color, .. } => Some(color.clone()),
+            _ => None,
+        })
+    }
+
     #[test]
     fn applies_class_rule_and_builds_layout() {
-        let page = build_page(
-            "<style>.card { width: 300px; padding: 20px; background-color: #eee; }</style><div class='card'><p>Hello</p></div>",
-            Size { width: 800.0, height: 600.0 },
-        )
-        .unwrap();
-        assert!(page.display_list.iter().any(
-            |command| matches!(command, DisplayCommand::FillRect { color, .. } if color == "#eee")
-        ));
+        let page = page(
+            "<style>.card { width: 300px; padding: 20px; background-color: #eee; }</style>\
+             <div class='card'><p>Hello</p></div>",
+        );
+        assert!(page.display_list.iter().any(|command| matches!(
+            command,
+            DisplayCommand::FillRect { color, .. } if color == "#eeeeee"
+        )));
         assert!(dump_layout(&page.layout).contains("<div>"));
     }
 
     #[test]
     fn id_selector_beats_class_selector() {
-        let page = build_page(
-            "<style>.x { color: red; } #main { color: blue; }</style><p id='main' class='x'>Text</p>",
-            Size { width: 500.0, height: 300.0 },
-        )
-        .unwrap();
-        assert!(page.display_list.iter().any(
-            |command| matches!(command, DisplayCommand::DrawText { color, .. } if color == "blue")
-        ));
+        let page = page(
+            "<style>.x { color: red; } #main { color: blue; }</style>\
+             <p id='main' class='x'>Text</p>",
+        );
+        assert_eq!(text_color(&page), Some("#0000ff".to_string()));
+    }
+
+    #[test]
+    fn class_selector_beats_tag_selector() {
+        let page =
+            page("<style>.x { color: blue; } p { color: red; }</style><p class='x'>Text</p>");
+        assert_eq!(text_color(&page), Some("#0000ff".to_string()));
+    }
+
+    #[test]
+    fn later_rule_wins_on_equal_specificity() {
+        let page = page("<style>p { color: red; } p { color: blue; }</style><p>Text</p>");
+        assert_eq!(text_color(&page), Some("#0000ff".to_string()));
+    }
+
+    #[test]
+    fn compound_selector_requires_all_parts() {
+        let page = page(
+            "<style>p.note { color: blue; } p.other { color: red; }</style>\
+             <p class='note'>Text</p>",
+        );
+        assert_eq!(text_color(&page), Some("#0000ff".to_string()));
+    }
+
+    #[test]
+    fn descendant_selector_walks_ancestors() {
+        let page = page(
+            "<style>p { color: red; } .card p { color: blue; }</style>\
+             <div class='card'><div><p>Deep</p></div></div>",
+        );
+        assert_eq!(text_color(&page), Some("#0000ff".to_string()));
+    }
+
+    #[test]
+    fn descendant_selector_does_not_match_outside_ancestor() {
+        let page = page(
+            "<style>p { color: blue; } .card p { color: red; }</style>\
+             <div class='other'><p>Text</p></div>",
+        );
+        assert_eq!(text_color(&page), Some("#0000ff".to_string()));
+    }
+
+    #[test]
+    fn inline_style_beats_id_rule() {
+        let page = page(
+            "<style>#main { color: red; }</style>\
+             <p id='main' style='color: blue'>Text</p>",
+        );
+        assert_eq!(text_color(&page), Some("#0000ff".to_string()));
+    }
+
+    #[test]
+    fn margin_shorthand_affects_layout() {
+        let page = page(
+            "<style>body { margin: 0; padding: 0; } div { margin: 10px 20px; height: 30px; }</style>\
+             <body><div></div></body>",
+        );
+        let body = &page.layout.children[0];
+        let div = &body.children[0];
+        assert_eq!(div.rect.x, 20.0);
+        assert_eq!(div.rect.y, 10.0);
+    }
+
+    #[test]
+    fn display_none_removes_subtree() {
+        let page = page(
+            "<style>.hidden { display: none; background-color: red; }</style>\
+             <div class='hidden'><p>Gone</p></div>",
+        );
+        assert!(page.display_list.is_empty());
     }
 }
