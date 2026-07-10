@@ -4,8 +4,13 @@
 //! horizontally, position vertically, lay out children, resolve height.
 //! Block-level children stack vertically; consecutive inline-level
 //! children (text and inline elements) form runs laid into shared line
-//! boxes inside anonymous blocks (see `inline.rs`). Margin collapsing is
-//! intentionally not implemented.
+//! boxes inside anonymous blocks (see `inline.rs`).
+//!
+//! Margin collapsing (simplified): vertical margins of adjacent in-flow
+//! block siblings collapse (max of positives plus min of negatives), and a
+//! parent with no top border/padding collapses its top margin with its
+//! first block child's. Not covered: bottom parent-child collapsing and
+//! empty blocks collapsing through themselves.
 
 use crate::geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
 use crate::image::ImageMap;
@@ -203,6 +208,45 @@ fn is_inline_level(document: &Document, styles: &StyleMap, node_id: NodeId) -> b
     }
 }
 
+/// CSS collapsed-margin value: max of the positives plus min of the
+/// negatives.
+fn collapsed_margin(a: f32, b: f32) -> f32 {
+    a.max(0.0).max(b.max(0.0)) + a.min(0.0).min(b.min(0.0))
+}
+
+/// The resolved top margin of the first in-flow child if it is
+/// block-level; `None` when the first visible child is inline content.
+fn first_block_child_top_margin(
+    document: &Document,
+    styles: &StyleMap,
+    node_id: NodeId,
+    containing_width: f32,
+    viewport: Size,
+) -> Option<f32> {
+    for child in document.children(node_id) {
+        let style = styles.by_node.get(child)?;
+        if style.display == Display::None {
+            continue;
+        }
+        if is_inline_level(document, styles, *child) {
+            // Inline content separates the margins.
+            match &document.node(*child).kind {
+                // Whitespace-only text does not count as content.
+                NodeKind::Text(text) if text.trim().is_empty() => continue,
+                _ => return None,
+            }
+        }
+        return Some(
+            style
+                .margin
+                .top
+                .resolve(containing_width, viewport)
+                .unwrap_or(0.0),
+        );
+    }
+    None
+}
+
 fn has_block_descendant(document: &Document, styles: &StyleMap, node_id: NodeId) -> bool {
     document.descendants(node_id).any(|descendant| {
         styles
@@ -291,6 +335,18 @@ fn layout_element(
         }
     }
 
+    // Parent-child margin collapsing: with no top border/padding, the
+    // parent's top margin collapses with its first block child's, and the
+    // child's own top margin is suppressed inside.
+    let child_top_collapse = if border.top == 0.0 && padding.top == 0.0 {
+        first_block_child_top_margin(document, styles, node_id, content_width, viewport)
+    } else {
+        None
+    };
+    if let Some(child_top) = child_top_collapse {
+        margin.top = collapsed_margin(margin.top, child_top);
+    }
+
     // Phases 2 and 3: position. Block boxes stack vertically at the current
     // cursor; horizontal position comes from the containing block edge.
     let content_x = containing_x + margin.left + border.left + padding.left;
@@ -304,6 +360,11 @@ fn layout_element(
     let mut child_cursor_y = content_y;
     let mut children = Vec::new();
     let mut run: Vec<NodeId> = Vec::new();
+    // Bottom margin of the previous in-flow block sibling, for sibling
+    // margin collapsing; None at the start or after inline content.
+    let mut previous_bottom_margin: Option<f32> = None;
+    // The first block child's top margin already collapsed into the parent.
+    let mut suppress_next_top = child_top_collapse;
 
     let flush_run = |run: &mut Vec<NodeId>, cursor_y: &mut f32, children: &mut Vec<LayoutBox>| {
         if run.is_empty() {
@@ -340,9 +401,34 @@ fn layout_element(
             continue;
         }
         if is_inline_level(document, styles, *child) {
+            // Whitespace-only text between blocks is not content and must
+            // not interrupt margin collapsing.
+            let is_blank_text = matches!(
+                &document.node(*child).kind,
+                NodeKind::Text(text) if text.trim().is_empty()
+            );
             run.push(*child);
+            if !is_blank_text {
+                previous_bottom_margin = None;
+                suppress_next_top = None;
+            }
         } else {
             flush_run(&mut run, &mut child_cursor_y, &mut children);
+            // Sibling margin collapsing: undo the doubled gap so it equals
+            // the collapsed value. The suppressed first top margin (already
+            // collapsed into the parent) is removed entirely.
+            let child_top = styles
+                .by_node
+                .get(child)
+                .and_then(|style| style.margin.top.resolve(content_width, viewport))
+                .unwrap_or(0.0);
+            if let Some(previous) = previous_bottom_margin {
+                let gap = collapsed_margin(previous, child_top);
+                child_cursor_y -= previous + child_top - gap;
+            } else if let Some(collapsed) = suppress_next_top.take() {
+                debug_assert_eq!(collapsed, child_top);
+                child_cursor_y -= child_top;
+            }
             if let Some(layout) = layout_node(
                 document,
                 styles,
@@ -354,6 +440,7 @@ fn layout_element(
                 measurer,
                 images,
             ) {
+                previous_bottom_margin = Some(layout.dimensions.margin.bottom);
                 children.push(layout);
             }
         }
@@ -902,6 +989,67 @@ mod tests {
         let div = &layout.children[0];
         assert_eq!(div.content_box().width, 0.0);
         assert_eq!(div.border_box().width, 40.0); // padding only
+    }
+
+    #[test]
+    fn sibling_margins_collapse_to_the_larger_one() {
+        let layout = layout_of(
+            "<style>
+                .a { height: 10px; margin-bottom: 20px; }
+                .b { height: 10px; margin-top: 12px; }
+             </style><div><div class='a'></div><div class='b'></div></div>",
+        );
+        let container = &layout.children[0];
+        let first = &container.children[0];
+        let second = &container.children[1];
+        // Gap is max(20, 12) = 20, not 32.
+        assert_eq!(second.border_box().y - first.border_box().y, 30.0);
+        assert_eq!(container.border_box().height, 40.0);
+    }
+
+    #[test]
+    fn inline_content_between_blocks_prevents_collapsing() {
+        let layout = layout_of(
+            "<style>
+                .a { height: 10px; margin-bottom: 20px; }
+                .b { height: 10px; margin-top: 12px; }
+             </style><div><div class='a'></div>separator<div class='b'></div></div>",
+        );
+        let container = &layout.children[0];
+        // a (10) + margin 20 + text line (22.4) + margin 12 + b (10)
+        let second = container.children.last().unwrap();
+        assert_eq!(second.border_box().y, 10.0 + 20.0 + 22.4 + 12.0);
+    }
+
+    #[test]
+    fn first_child_top_margin_escapes_an_edgeless_parent() {
+        let layout = layout_of(
+            "<style>
+                .parent { margin-top: 10px; background-color: #eee; }
+                .child { margin-top: 30px; height: 10px; }
+             </style><div class='parent'><div class='child'></div></div>",
+        );
+        let parent = &layout.children[0];
+        let child = &parent.children[0];
+        // Parent moves down by the collapsed max(10, 30) = 30...
+        assert_eq!(parent.border_box().y, 30.0);
+        // ...and the child sits flush with the parent's top.
+        assert_eq!(child.border_box().y, 30.0);
+        assert_eq!(parent.border_box().height, 10.0);
+    }
+
+    #[test]
+    fn padding_blocks_parent_child_collapsing() {
+        let layout = layout_of(
+            "<style>
+                .parent { margin-top: 10px; padding-top: 4px; }
+                .child { margin-top: 30px; height: 10px; }
+             </style><div class='parent'><div class='child'></div></div>",
+        );
+        let parent = &layout.children[0];
+        let child = &parent.children[0];
+        assert_eq!(parent.border_box().y, 10.0);
+        assert_eq!(child.border_box().y, 10.0 + 4.0 + 30.0);
     }
 
     #[test]

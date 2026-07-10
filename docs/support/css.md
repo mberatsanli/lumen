@@ -89,7 +89,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `box-sizing` | ✅ | ✅ | ✅ | ✅ | border-box and content-box |
 | `outline` | ❌ | ✅ | ✅ | ✅ | |
 | `box-shadow` | ❌ | ✅ | ✅ | ✅ | |
-| Margin collapsing | ❌ | ✅ | ✅ | ✅ | deliberate; adjacent margins add up |
+| Margin collapsing | ⚠️ | ✅ | ✅ | ✅ | sibling + parent/first-child top; no bottom parent-child, no empty-block collapse-through |
 
 ## Layout
 

@@ -1,26 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768" viewBox="0 0 1024 768">
 <rect width="100%" height="100%" fill="white"/>
 <rect x="0" y="0" width="1024" height="768" fill="#f5f3ef"/>
-<rect x="0" y="0" width="1024" height="388.8" fill="#f5f3ef"/>
-<rect x="24" y="24" width="976" height="324.8" fill="#ffffff"/>
+<rect x="0" y="0" width="1024" height="364.8" fill="#f5f3ef"/>
+<rect x="24" y="24" width="976" height="300.8" fill="#ffffff"/>
 <rect x="24" y="24" width="976" height="1" fill="#d8d2c6"/>
-<rect x="999" y="24" width="1" height="324.8" fill="#d8d2c6"/>
-<rect x="24" y="347.8" width="976" height="1" fill="#d8d2c6"/>
-<rect x="24" y="24" width="1" height="324.8" fill="#d8d2c6"/>
+<rect x="999" y="24" width="1" height="300.8" fill="#d8d2c6"/>
+<rect x="24" y="323.8" width="976" height="1" fill="#d8d2c6"/>
+<rect x="24" y="24" width="1" height="300.8" fill="#d8d2c6"/>
 <text x="41" y="61" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Outer panel</text>
-<text x="41" y="101" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This panel contains another panel. Borders, paddings and margins all take real space in the box model.</text>
-<rect x="41" y="115.399994" width="942" height="216.4" fill="#faf8f4"/>
-<rect x="41" y="115.399994" width="942" height="1" fill="#d8d2c6"/>
-<rect x="982" y="115.399994" width="1" height="216.4" fill="#d8d2c6"/>
-<rect x="41" y="330.8" width="942" height="1" fill="#d8d2c6"/>
-<rect x="41" y="115.399994" width="1" height="216.4" fill="#d8d2c6"/>
-<text x="58" y="152.4" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Inner panel</text>
-<text x="58" y="192.4" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Nested one level deeper, with its own border and padding.</text>
-<rect x="58" y="206.79999" width="908" height="108" fill="#faf8f4"/>
-<rect x="58" y="206.79999" width="908" height="1" fill="#d8d2c6"/>
-<rect x="965" y="206.79999" width="1" height="108" fill="#d8d2c6"/>
-<rect x="58" y="313.8" width="908" height="1" fill="#d8d2c6"/>
-<rect x="58" y="206.79999" width="1" height="108" fill="#d8d2c6"/>
-<text x="75" y="247.79999" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="16" font-weight="400">And one more level, because layout bugs love depth.</text>
-<text x="823" y="284.19998" fill="#8a8272" font-family="system-ui, sans-serif" font-size="14" font-weight="400">right-aligned note</text>
+<text x="41" y="93" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This panel contains another panel. Borders, paddings and margins all take real space in the box model.</text>
+<rect x="41" y="107.4" width="942" height="200.4" fill="#faf8f4"/>
+<rect x="41" y="107.4" width="942" height="1" fill="#d8d2c6"/>
+<rect x="982" y="107.4" width="1" height="200.4" fill="#d8d2c6"/>
+<rect x="41" y="306.8" width="942" height="1" fill="#d8d2c6"/>
+<rect x="41" y="107.4" width="1" height="200.4" fill="#d8d2c6"/>
+<text x="58" y="144.4" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Inner panel</text>
+<text x="58" y="176.4" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Nested one level deeper, with its own border and padding.</text>
+<rect x="58" y="190.79999" width="908" height="100" fill="#faf8f4"/>
+<rect x="58" y="190.79999" width="908" height="1" fill="#d8d2c6"/>
+<rect x="965" y="190.79999" width="1" height="100" fill="#d8d2c6"/>
+<rect x="58" y="289.8" width="908" height="1" fill="#d8d2c6"/>
+<rect x="58" y="190.79999" width="1" height="100" fill="#d8d2c6"/>
+<text x="75" y="231.79999" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="16" font-weight="400">And one more level, because layout bugs love depth.</text>
+<text x="823" y="260.19998" fill="#8a8272" font-family="system-ui, sans-serif" font-size="14" font-weight="400">right-aligned note</text>
 </svg>

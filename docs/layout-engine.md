@@ -58,8 +58,11 @@ calling it again with the new size (verified by test).
 
 ## Deliberate limitations
 
-- **No margin collapsing** — adjacent vertical margins add up instead of
-  collapsing. Documented deviation; revisit after inline layout.
+- **Margin collapsing is partial** — adjacent in-flow block siblings
+  collapse (max of positives + min of negatives) and a parent with no top
+  border/padding collapses with its first block child's top margin.
+  Bottom parent-child collapsing and empty blocks collapsing through
+  themselves are not implemented.
 - Percent heights are treated as `auto`.
 - Inline element box edges (margin/padding/border/background) are ignored;
   no `vertical-align`.
