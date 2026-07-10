@@ -26,6 +26,8 @@ pub enum Display {
     Inline,
     /// Atomic inline: flows in line boxes, lays out like a block inside.
     InlineBlock,
+    /// Flex container (single-line; see layout docs for the subset).
+    Flex,
     None,
 }
 
@@ -88,6 +90,31 @@ pub enum TextAlign {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FlexDirection {
+    #[default]
+    Row,
+    Column,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum JustifyContent {
+    #[default]
+    Start,
+    Center,
+    End,
+    SpaceBetween,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AlignItems {
+    #[default]
+    Stretch,
+    Start,
+    Center,
+    End,
+}
+
 /// `float: left | right`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Float {
@@ -143,6 +170,12 @@ pub struct ComputedStyle {
     pub box_sizing: BoxSizing,
     pub float: Float,
     pub clear: Clear,
+    pub flex_direction: FlexDirection,
+    pub justify_content: JustifyContent,
+    pub align_items: AlignItems,
+    /// Resolved to pixels.
+    pub gap: f32,
+    pub flex_grow: f32,
 }
 
 pub const DEFAULT_FONT_SIZE: f32 = 16.0;
@@ -171,6 +204,11 @@ impl Default for ComputedStyle {
             box_sizing: BoxSizing::default(),
             float: Float::None,
             clear: Clear::None,
+            flex_direction: FlexDirection::default(),
+            justify_content: JustifyContent::default(),
+            align_items: AlignItems::default(),
+            gap: 0.0,
+            flex_grow: 0.0,
         }
     }
 }
@@ -452,6 +490,7 @@ fn to_computed(
             "block" => Some(Display::Block),
             "inline" => Some(Display::Inline),
             "inline-block" => Some(Display::InlineBlock),
+            "flex" => Some(Display::Flex),
             "none" => Some(Display::None),
             _ => None,
         })
@@ -511,6 +550,32 @@ fn to_computed(
         Some("right") => Clear::Right,
         Some("both") => Clear::Both,
         _ => Clear::None,
+    };
+
+    style.flex_direction = match raw.get("flex-direction").and_then(CssValue::as_keyword) {
+        Some("column") => FlexDirection::Column,
+        _ => FlexDirection::Row,
+    };
+
+    style.justify_content = match raw.get("justify-content").and_then(CssValue::as_keyword) {
+        Some("center") => JustifyContent::Center,
+        Some("flex-end" | "end") => JustifyContent::End,
+        Some("space-between") => JustifyContent::SpaceBetween,
+        _ => JustifyContent::Start,
+    };
+
+    style.align_items = match raw.get("align-items").and_then(CssValue::as_keyword) {
+        Some("flex-start" | "start") => AlignItems::Start,
+        Some("center") => AlignItems::Center,
+        Some("flex-end" | "end") => AlignItems::End,
+        _ => AlignItems::Stretch,
+    };
+
+    style.gap = edge_px(raw, "gap", style.font_size);
+
+    style.flex_grow = match raw.get("flex-grow") {
+        Some(CssValue::Number(value)) => value.max(0.0),
+        _ => 0.0,
     };
 
     style.text_align = raw

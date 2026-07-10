@@ -15,7 +15,10 @@
 use crate::geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
 use crate::image::ImageMap;
 use crate::inline::{FragmentContent, LineBox, layout_inline_run};
-use crate::style::{BoxSizing, Clear, ComputedStyle, Dimension, Display, Float, StyleMap};
+use crate::style::{
+    AlignItems, BoxSizing, Clear, ComputedStyle, Dimension, Display, FlexDirection, Float,
+    JustifyContent, StyleMap,
+};
 use crate::text::TextMeasurer;
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::fmt::Write as _;
@@ -284,7 +287,7 @@ fn has_block_descendant(document: &Document, styles: &StyleMap, node_id: NodeId)
         styles
             .by_node
             .get(&descendant)
-            .is_some_and(|style| style.display == Display::Block)
+            .is_some_and(|style| matches!(style.display, Display::Block | Display::Flex))
     })
 }
 
@@ -369,6 +372,28 @@ fn natural_right(layout: &LayoutBox) -> f32 {
             inner + layout.dimensions.padding.right + layout.dimensions.border.right
         }
     }
+}
+
+/// Lays out an element as an isolated box with an explicit style (used by
+/// flex items to apply grow/stretch overrides).
+#[allow(clippy::too_many_arguments)]
+fn layout_isolated_with_style(
+    document: &Document,
+    styles: &StyleMap,
+    node_id: NodeId,
+    style: ComputedStyle,
+    available: f32,
+    viewport: Size,
+    measurer: &dyn TextMeasurer,
+    images: &ImageMap,
+) -> LayoutBox {
+    let NodeKind::Element(element) = &document.node(node_id).kind else {
+        unreachable!("isolated boxes are always elements");
+    };
+    layout_element(
+        document, styles, node_id, element, style, 0.0, &mut 0.0, available, viewport, measurer,
+        images,
+    )
 }
 
 /// Lays out an element as an isolated box (for inline-blocks and floats):
@@ -522,6 +547,56 @@ fn layout_element(
     // Phase 4: children. Consecutive inline-level children (text, inline
     // elements) form runs laid out into shared line boxes inside an
     // anonymous block; block-level children lay out as blocks.
+    // Flex containers use their own child algorithm.
+    if style.display == Display::Flex {
+        let explicit_height = match style.height {
+            Dimension::Auto | Dimension::Percent(_) => None,
+            explicit => explicit
+                .resolve(containing_width, viewport)
+                .map(|specified| match style.box_sizing {
+                    BoxSizing::ContentBox => specified,
+                    BoxSizing::BorderBox => {
+                        (specified - border.top - border.bottom - padding.top - padding.bottom)
+                            .max(0.0)
+                    }
+                }),
+        };
+        let (children, used_height) = layout_flex_children(
+            document,
+            styles,
+            node_id,
+            &style,
+            content_x,
+            content_y,
+            content_width,
+            explicit_height,
+            viewport,
+            measurer,
+            images,
+        );
+        let content_height = explicit_height.unwrap_or(used_height);
+        let dimensions = Dimensions {
+            content: Rect {
+                x: content_x,
+                y: content_y,
+                width: content_width,
+                height: content_height,
+            },
+            padding,
+            border,
+            margin,
+        };
+        *cursor_y = dimensions.margin_box().y + dimensions.margin_box().height;
+        return LayoutBox {
+            node_id,
+            box_type: BoxType::Block,
+            kind: LayoutKind::Element(element.tag_name.clone()),
+            dimensions,
+            style,
+            children,
+        };
+    }
+
     let mut child_cursor_y = content_y;
     let mut children = Vec::new();
     let mut run: Vec<NodeId> = Vec::new();
@@ -850,6 +925,344 @@ fn layout_image(
         style,
         children: Vec::new(),
     }
+}
+
+/// Single-line flexbox (no wrap, no shrink, no flex-basis; `width`/
+/// `height` act as the base size). Bare text children become anonymous
+/// items via inline layout.
+#[allow(clippy::too_many_arguments)]
+fn layout_flex_children(
+    document: &Document,
+    styles: &StyleMap,
+    node_id: NodeId,
+    style: &ComputedStyle,
+    content_x: f32,
+    content_y: f32,
+    content_width: f32,
+    explicit_height: Option<f32>,
+    viewport: Size,
+    measurer: &dyn TextMeasurer,
+    images: &ImageMap,
+) -> (Vec<LayoutBox>, f32) {
+    let row = style.flex_direction == FlexDirection::Row;
+
+    // Collect items: element children, plus anonymous items for runs of
+    // bare inline content.
+    enum Item {
+        Element(NodeId),
+        Run(Vec<NodeId>),
+    }
+    let mut items: Vec<Item> = Vec::new();
+    let mut run: Vec<NodeId> = Vec::new();
+    for child in document.children(node_id) {
+        let is_element = matches!(&document.node(*child).kind, NodeKind::Element(_));
+        let display = styles.by_node.get(child).map(|s| s.display);
+        if display == Some(Display::None) {
+            continue;
+        }
+        if is_element {
+            if !run.is_empty() {
+                items.push(Item::Run(std::mem::take(&mut run)));
+            }
+            items.push(Item::Element(*child));
+        } else if matches!(&document.node(*child).kind, NodeKind::Text(text) if !text.trim().is_empty())
+        {
+            run.push(*child);
+        }
+    }
+    if !run.is_empty() {
+        items.push(Item::Run(run));
+    }
+    if items.is_empty() {
+        return (Vec::new(), 0.0);
+    }
+
+    // Lay out an anonymous text run as a box, wrapped at `width`.
+    let lay_run = |nodes: &[NodeId], width: f32| -> LayoutBox {
+        let bounds = move |_line_top: f32| (0.0, width);
+        let mut atomic = |atomic_node: NodeId, available: f32| {
+            layout_atomic_box(
+                document,
+                styles,
+                atomic_node,
+                available,
+                viewport,
+                measurer,
+                images,
+            )
+        };
+        let (lines, height) = layout_inline_run(
+            document,
+            styles,
+            nodes,
+            style,
+            (0.0, 0.0),
+            &bounds,
+            measurer,
+            &mut atomic,
+        );
+        let natural = lines
+            .iter()
+            .flat_map(|line| line.fragments.iter())
+            .map(|fragment| fragment.x + fragment.width)
+            .fold(0.0, f32::max);
+        LayoutBox {
+            node_id,
+            box_type: BoxType::AnonymousBlock,
+            kind: LayoutKind::Inline { lines },
+            dimensions: Dimensions {
+                content: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: if row { natural } else { width },
+                    height,
+                },
+                ..Dimensions::default()
+            },
+            style: style.clone(),
+            children: Vec::new(),
+        }
+    };
+
+    // Base layout per item: rows shrink auto widths, columns fill.
+    let lay_element = |child: NodeId, main_override: Option<f32>| -> LayoutBox {
+        let mut item_style = styles.by_node.get(&child).cloned().unwrap_or_default();
+        if let Some(target) = main_override {
+            // Grow targets are content-box main sizes.
+            item_style.box_sizing = BoxSizing::ContentBox;
+            if row {
+                item_style.width = Dimension::Px(target.max(0.0));
+            } else {
+                item_style.height = Dimension::Px(target.max(0.0));
+            }
+        }
+        if row && main_override.is_none() && matches!(item_style.width, Dimension::Auto) {
+            layout_atomic_box(
+                document,
+                styles,
+                child,
+                content_width,
+                viewport,
+                measurer,
+                images,
+            )
+        } else {
+            layout_isolated_with_style(
+                document,
+                styles,
+                child,
+                item_style,
+                content_width,
+                viewport,
+                measurer,
+                images,
+            )
+        }
+    };
+
+    let mut boxes: Vec<(LayoutBox, f32)> = items
+        .iter()
+        .map(|item| {
+            let laid = match item {
+                Item::Element(child) => lay_element(*child, None),
+                Item::Run(nodes) => lay_run(nodes, content_width),
+            };
+            let grow = match item {
+                Item::Element(child) => styles.by_node.get(child).map_or(0.0, |s| s.flex_grow),
+                Item::Run(_) => 0.0,
+            };
+            (laid, grow)
+        })
+        .collect();
+
+    let main_size = |laid: &LayoutBox| {
+        let margin_box = laid.margin_box();
+        if row {
+            margin_box.width
+        } else {
+            margin_box.height
+        }
+    };
+    let container_main = if row {
+        content_width
+    } else {
+        explicit_height.unwrap_or(f32::INFINITY)
+    };
+    let count = boxes.len() as f32;
+    let total_gap = style.gap * (count - 1.0).max(0.0);
+
+    // flex-grow: distribute positive free space, then re-lay grown items.
+    let used: f32 = boxes.iter().map(|(laid, _)| main_size(laid)).sum::<f32>() + total_gap;
+    let total_grow: f32 = boxes.iter().map(|(_, grow)| grow).sum();
+    if container_main.is_finite() && container_main > used && total_grow > 0.0 {
+        let free = container_main - used;
+        for (index, item) in items.iter().enumerate() {
+            let (laid, grow) = &boxes[index];
+            if *grow <= 0.0 {
+                continue;
+            }
+            let extra = free * grow / total_grow;
+            let dimensions = &laid.dimensions;
+            let edges_main = if row {
+                dimensions.margin.left
+                    + dimensions.margin.right
+                    + dimensions.border.left
+                    + dimensions.border.right
+                    + dimensions.padding.left
+                    + dimensions.padding.right
+            } else {
+                dimensions.margin.top
+                    + dimensions.margin.bottom
+                    + dimensions.border.top
+                    + dimensions.border.bottom
+                    + dimensions.padding.top
+                    + dimensions.padding.bottom
+            };
+            let target = main_size(laid) + extra - edges_main;
+            let grow_value = *grow;
+            let relaid = match item {
+                Item::Element(child) => lay_element(*child, Some(target)),
+                Item::Run(nodes) => lay_run(nodes, target.max(0.0)),
+            };
+            boxes[index] = (relaid, grow_value);
+        }
+    }
+
+    // Cross size of the line.
+    let cross_of = |laid: &LayoutBox| {
+        let margin_box = laid.margin_box();
+        if row {
+            margin_box.height
+        } else {
+            margin_box.width
+        }
+    };
+    let line_cross = if row {
+        explicit_height.unwrap_or_else(|| {
+            boxes
+                .iter()
+                .map(|(laid, _)| cross_of(laid))
+                .fold(0.0, f32::max)
+        })
+    } else {
+        content_width
+    };
+
+    // align-items: stretch re-lays auto-cross items to fill the line.
+    if style.align_items == AlignItems::Stretch {
+        for (index, item) in items.iter().enumerate() {
+            let Item::Element(child) = item else { continue };
+            let mut item_style = styles.by_node.get(child).cloned().unwrap_or_default();
+            let auto_cross = if row {
+                matches!(item_style.height, Dimension::Auto)
+            } else {
+                matches!(item_style.width, Dimension::Auto)
+            };
+            if !auto_cross {
+                continue;
+            }
+            let dimensions = &boxes[index].0.dimensions;
+            let (margins, pb) = if row {
+                (
+                    dimensions.margin.top + dimensions.margin.bottom,
+                    dimensions.border.top
+                        + dimensions.border.bottom
+                        + dimensions.padding.top
+                        + dimensions.padding.bottom,
+                )
+            } else {
+                (
+                    dimensions.margin.left + dimensions.margin.right,
+                    dimensions.border.left
+                        + dimensions.border.right
+                        + dimensions.padding.left
+                        + dimensions.padding.right,
+                )
+            };
+            let target = (line_cross - margins - pb).max(0.0);
+            if row {
+                item_style.height = Dimension::Px(target);
+            } else {
+                item_style.width = Dimension::Px(target);
+            }
+            item_style.box_sizing = BoxSizing::ContentBox;
+            // Preserve any grow-adjusted main size.
+            if row {
+                item_style.width = Dimension::Px(boxes[index].0.content_box().width);
+            } else {
+                item_style.height = Dimension::Px(boxes[index].0.content_box().height);
+            }
+            let grow_value = boxes[index].1;
+            boxes[index] = (
+                layout_isolated_with_style(
+                    document,
+                    styles,
+                    *child,
+                    item_style,
+                    content_width,
+                    viewport,
+                    measurer,
+                    images,
+                ),
+                grow_value,
+            );
+        }
+    }
+
+    // Main-axis positions from justify-content.
+    let used: f32 = boxes.iter().map(|(laid, _)| main_size(laid)).sum::<f32>() + total_gap;
+    let free = if container_main.is_finite() {
+        (container_main - used).max(0.0)
+    } else {
+        0.0
+    };
+    let (mut main_cursor, between_extra) = match style.justify_content {
+        JustifyContent::Start => (0.0, 0.0),
+        JustifyContent::Center => (free / 2.0, 0.0),
+        JustifyContent::End => (free, 0.0),
+        JustifyContent::SpaceBetween => {
+            if count > 1.0 {
+                (0.0, free / (count - 1.0))
+            } else {
+                (free / 2.0, 0.0)
+            }
+        }
+    };
+
+    let mut children = Vec::new();
+    let mut used_cross: f32 = 0.0;
+    for (laid, _) in boxes {
+        let margin_box = laid.margin_box();
+        let cross = cross_of(&laid);
+        used_cross = used_cross.max(cross);
+        let cross_offset = match style.align_items {
+            AlignItems::Stretch | AlignItems::Start => 0.0,
+            AlignItems::Center => (line_cross - cross) / 2.0,
+            AlignItems::End => line_cross - cross,
+        };
+        let (dx, dy) = if row {
+            (
+                content_x + main_cursor - margin_box.x,
+                content_y + cross_offset - margin_box.y,
+            )
+        } else {
+            (
+                content_x + cross_offset - margin_box.x,
+                content_y + main_cursor - margin_box.y,
+            )
+        };
+        let mut laid = laid;
+        laid.translate(dx, dy);
+        main_cursor += main_size(&laid) + style.gap + between_extra;
+        children.push(laid);
+    }
+
+    let used_height = if row {
+        line_cross
+    } else {
+        (main_cursor - style.gap - between_extra).max(0.0)
+    };
+    (children, used_height)
 }
 
 /// Percentages resolve against the containing block width; `auto` margins
@@ -1422,6 +1835,116 @@ mod tests {
         );
         let cleared = &layout.children[0].children[1];
         assert_eq!(cleared.border_box().y, 40.0);
+    }
+
+    #[test]
+    fn flex_row_places_items_side_by_side_with_gap() {
+        let layout = layout_of(
+            "<style>
+                .row { display: flex; gap: 10px; }
+                .item { width: 100px; height: 20px; }
+             </style>\
+             <div class='row'><div class='item'></div><div class='item'></div>\
+             <div class='item'></div></div>",
+        );
+        let row = &layout.children[0];
+        let xs: Vec<f32> = row
+            .children
+            .iter()
+            .map(|child| child.border_box().x)
+            .collect();
+        assert_eq!(xs, vec![0.0, 110.0, 220.0]);
+        assert_eq!(row.border_box().height, 20.0);
+    }
+
+    #[test]
+    fn flex_grow_distributes_free_space() {
+        let layout = layout_of(
+            "<style>
+                .row { display: flex; }
+                .a { width: 100px; height: 10px; }
+                .b { flex-grow: 1; height: 10px; }
+                .c { flex-grow: 3; height: 10px; }
+             </style>\
+             <div class='row'><div class='a'></div><div class='b'></div>\
+             <div class='c'></div></div>",
+        );
+        let row = &layout.children[0];
+        // Free space 700 split 1:3 → 175 and 525.
+        assert_eq!(row.children[1].border_box().width, 175.0);
+        assert_eq!(row.children[2].border_box().width, 525.0);
+        assert_eq!(row.children[2].border_box().x, 275.0);
+    }
+
+    #[test]
+    fn justify_content_positions_the_line() {
+        for (justify, expected_x) in [
+            ("center", 300.0),
+            ("flex-end", 600.0),
+            ("space-between", 0.0),
+        ] {
+            let layout = layout_of(&format!(
+                "<style>
+                    .row {{ display: flex; justify-content: {justify}; }}
+                    .item {{ width: 100px; height: 10px; }}
+                 </style>\
+                 <div class='row'><div class='item'></div><div class='item'></div></div>"
+            ));
+            let row = &layout.children[0];
+            assert_eq!(row.children[0].border_box().x, expected_x, "{justify}");
+            if justify == "space-between" {
+                assert_eq!(row.children[1].border_box().x, 700.0);
+            }
+        }
+    }
+
+    #[test]
+    fn align_items_positions_and_stretches_the_cross_axis() {
+        let layout = layout_of(
+            "<style>
+                .row { display: flex; height: 100px; align-items: center; }
+                .item { width: 50px; height: 40px; }
+             </style><div class='row'><div class='item'></div></div>",
+        );
+        assert_eq!(layout.children[0].children[0].border_box().y, 30.0);
+
+        let stretch = layout_of(
+            "<style>
+                .row { display: flex; height: 100px; }
+                .item { width: 50px; }
+             </style><div class='row'><div class='item'></div></div>",
+        );
+        assert_eq!(stretch.children[0].children[0].border_box().height, 100.0);
+    }
+
+    #[test]
+    fn flex_column_stacks_with_gap_and_grow() {
+        let layout = layout_of(
+            "<style>
+                .col { display: flex; flex-direction: column; height: 200px; gap: 10px; }
+                .a { height: 50px; }
+                .b { flex-grow: 1; }
+             </style><div class='col'><div class='a'></div><div class='b'></div></div>",
+        );
+        let col = &layout.children[0];
+        assert_eq!(col.children[0].border_box().y, 0.0);
+        assert_eq!(col.children[1].border_box().y, 60.0);
+        // 200 - 50 - 10 gap = 140 for the growing item.
+        assert_eq!(col.children[1].border_box().height, 140.0);
+        // Column items stretch to the full width by default.
+        assert_eq!(col.children[1].border_box().width, 800.0);
+    }
+
+    #[test]
+    fn flex_text_children_become_anonymous_items() {
+        let layout = layout_of(
+            "<style>.row { display: flex; gap: 8px; }</style>\
+             <div class='row'>label<div style='width: 40px; height: 10px'></div></div>",
+        );
+        let row = &layout.children[0];
+        assert_eq!(row.children.len(), 2);
+        // "label" = 5 chars * 8px wide anonymous item, then the div after the gap.
+        assert_eq!(row.children[1].border_box().x, 48.0);
     }
 
     #[test]

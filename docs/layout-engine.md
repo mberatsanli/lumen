@@ -63,6 +63,15 @@ they overlap it vertically, and stretches the container's auto height;
 block siblings ignore floats except via `clear`, and text in nested
 blocks does not wrap around outer floats.
 
+Flex containers (`display: flex`) implement a single-line subset:
+`flex-direction: row | column`, `justify-content` (start/center/end/
+space-between), `align-items` (start/center/end/stretch), `gap` and
+`flex-grow`. Base sizes come from `width`/`height` (auto = shrink-to-fit
+on rows, fill on columns); positive free space is distributed by grow
+weights and grown/stretched items are laid out again at their target
+size. No wrapping, shrinking, `flex-basis`, `order` or `align-self`.
+Bare text children become anonymous flex items.
+
 `layout_document` is a pure function; relayout on viewport resize is simply
 calling it again with the new size (verified by test).
 

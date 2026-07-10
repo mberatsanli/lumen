@@ -99,7 +99,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `display: inline` | ✅ | ✅ | ✅ | ✅ | shared line boxes; inline box edges (margin/padding/border/bg) ignored |
 | `display: none` | ✅ | ✅ | ✅ | ✅ | |
 | `display: inline-block` | ✅ | ✅ | ✅ | ✅ | atomic inline; auto width = crude shrink-to-fit (auto-width block children inflate to available) |
-| Flexbox | ❌ | ✅ | ✅ | ✅ | |
+| Flexbox | ⚠️ | ✅ | ✅ | ✅ | single line: direction row/column, justify-content (start/center/end/space-between), align-items (start/center/end/stretch), gap, flex-grow; no wrap/shrink/basis/order/align-self |
 | Grid | ❌ | ✅ | ✅ | ✅ | |
 | Table layout | ❌ | ✅ | ✅ | ✅ | tables flow as plain blocks |
 | `display: list-item` | ❌ | ✅ | ✅ | ✅ | no markers |
@@ -110,7 +110,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `direction: rtl` / writing modes | ❌ | ✅ | ✅ | ✅ | |
 | Multi-column | ❌ | ✅ | ✅ | ✅ | |
 | `aspect-ratio` | ❌ | ✅ | ✅ | ✅ | |
-| `gap` | ❌ | ✅ | ✅ | ✅ | |
+| `gap` | ✅ | ✅ | ✅ | ✅ | flex containers |
 
 ## Backgrounds
 
