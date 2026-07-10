@@ -183,7 +183,7 @@ fn layout_element(
     containing_width: f32,
     measurer: &dyn TextMeasurer,
 ) -> LayoutBox {
-    let margin = resolve_edges(&style.margin, containing_width);
+    let mut margin = resolve_edges(&style.margin, containing_width);
     let border = style.border_width;
     let padding = resolve_edges(&style.padding, containing_width);
 
@@ -199,6 +199,32 @@ fn layout_element(
             - padding.right)
             .max(0.0)
     });
+
+    // With an explicit width, auto margins absorb the leftover space:
+    // both auto centers the box, one auto pushes it to the other side.
+    if !matches!(style.width, Dimension::Auto) {
+        let leftover = (containing_width
+            - content_width
+            - border.left
+            - border.right
+            - padding.left
+            - padding.right
+            - margin.left
+            - margin.right)
+            .max(0.0);
+        match (
+            matches!(style.margin.left, Dimension::Auto),
+            matches!(style.margin.right, Dimension::Auto),
+        ) {
+            (true, true) => {
+                margin.left = leftover / 2.0;
+                margin.right = leftover / 2.0;
+            }
+            (true, false) => margin.left = leftover,
+            (false, true) => margin.right = leftover,
+            (false, false) => {}
+        }
+    }
 
     // Phases 2 and 3: position. Block boxes stack vertically at the current
     // cursor; horizontal position comes from the containing block edge.
@@ -450,6 +476,38 @@ mod tests {
              <div class='parent'><div class='child'></div></div>",
         );
         assert_eq!(fixed.children[0].border_box().height, 25.0);
+    }
+
+    #[test]
+    fn auto_margins_center_a_fixed_width_box() {
+        let layout = layout_of(
+            "<style>div { width: 100px; height: 10px; margin: 0 auto; }</style><div></div>",
+        );
+        let div = &layout.children[0];
+        // (800 - 100) / 2 on each side.
+        assert_eq!(div.border_box().x, 350.0);
+        assert_eq!(div.dimensions.margin.left, 350.0);
+        assert_eq!(div.dimensions.margin.right, 350.0);
+    }
+
+    #[test]
+    fn single_auto_margin_takes_all_leftover() {
+        let layout = layout_of(
+            "<style>div { width: 100px; height: 10px; margin-left: auto; }</style><div></div>",
+        );
+        let div = &layout.children[0];
+        assert_eq!(div.border_box().x, 700.0);
+    }
+
+    #[test]
+    fn em_lengths_resolve_against_font_size() {
+        let layout = layout_of(
+            "<style>div { font-size: 20px; margin-left: 2em; padding-top: 1.5em; height: 10px; }\
+             </style><div></div>",
+        );
+        let div = &layout.children[0];
+        assert_eq!(div.border_box().x, 40.0);
+        assert_eq!(div.dimensions.padding.top, 30.0);
     }
 
     #[test]

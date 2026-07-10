@@ -3,11 +3,11 @@
 use std::fmt;
 
 /// Length units understood by the engine.
-///
-/// `%` is parsed but layout only resolves `px` for now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unit {
     Px,
+    /// Relative to the element's font size (parent's, for `font-size`).
+    Em,
     Percent,
 }
 
@@ -127,6 +127,13 @@ impl CssValue {
                 .ok()
                 .map(|v| Self::Length(v, Unit::Px));
         }
+        if let Some(number) = source.strip_suffix("em") {
+            return number
+                .trim()
+                .parse()
+                .ok()
+                .map(|v| Self::Length(v, Unit::Em));
+        }
         if let Some(number) = source.strip_suffix('%') {
             return number
                 .trim()
@@ -186,6 +193,7 @@ impl fmt::Display for CssValue {
         match self {
             Self::Keyword(keyword) => write!(formatter, "{keyword}"),
             Self::Length(value, Unit::Px) => write!(formatter, "{value}px"),
+            Self::Length(value, Unit::Em) => write!(formatter, "{value}em"),
             Self::Length(value, Unit::Percent) => write!(formatter, "{value}%"),
             Self::Color(color) => write!(formatter, "{color}"),
             Self::Number(value) => write!(formatter, "{value}"),
@@ -266,6 +274,10 @@ mod tests {
         assert_eq!(
             CssValue::parse_component("50%"),
             Some(CssValue::Length(50.0, Unit::Percent))
+        );
+        assert_eq!(
+            CssValue::parse_component("1.5em"),
+            Some(CssValue::Length(1.5, Unit::Em))
         );
         assert_eq!(
             CssValue::parse_component("0"),

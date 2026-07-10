@@ -47,10 +47,13 @@ impl Dimension {
         }
     }
 
-    fn from_value(value: &CssValue) -> Option<Self> {
+    /// Converts a declared value; `em` resolves against `font_size` here,
+    /// so layout only ever sees px, percent or auto.
+    fn from_value(value: &CssValue, font_size: f32) -> Option<Self> {
         match value {
             CssValue::Auto => Some(Self::Auto),
             CssValue::Length(pixels, lumen_css::Unit::Px) => Some(Self::Px(*pixels)),
+            CssValue::Length(factor, lumen_css::Unit::Em) => Some(Self::Px(factor * font_size)),
             CssValue::Length(percent, lumen_css::Unit::Percent) => Some(Self::Percent(*percent)),
             _ => None,
         }
@@ -207,7 +210,18 @@ fn compute_node(
         }
     }
 
-    output.insert(node_id, to_computed(&raw, element));
+    let parent_font_size = parent_raw
+        .get("font-size")
+        .and_then(CssValue::as_px)
+        .unwrap_or(DEFAULT_FONT_SIZE);
+    let computed = to_computed(&raw, element, parent_font_size);
+    // Children inherit the *resolved* font size, so `em` chains and
+    // percentages resolve against real pixels, not unresolved declarations.
+    raw.insert(
+        "font-size".to_string(),
+        CssValue::Length(computed.font_size, lumen_css::Unit::Px),
+    );
+    output.insert(node_id, computed);
     for child in document.children(node_id) {
         compute_node(document, *child, author, &raw, output);
     }
@@ -293,16 +307,26 @@ pub(crate) fn selector_matches(
 }
 
 /// Converts raw declared values into a typed [`ComputedStyle`].
-fn to_computed(raw: &HashMap<String, CssValue>, element: Option<&ElementData>) -> ComputedStyle {
+/// `parent_font_size` anchors relative font sizes (`em`, `%`).
+fn to_computed(
+    raw: &HashMap<String, CssValue>,
+    element: Option<&ElementData>,
+    parent_font_size: f32,
+) -> ComputedStyle {
     let mut style = ComputedStyle::default();
 
-    style.font_size = raw
-        .get("font-size")
-        .and_then(CssValue::as_px)
-        .unwrap_or(DEFAULT_FONT_SIZE);
+    style.font_size = match raw.get("font-size") {
+        Some(CssValue::Length(pixels, lumen_css::Unit::Px)) => *pixels,
+        Some(CssValue::Length(factor, lumen_css::Unit::Em)) => factor * parent_font_size,
+        Some(CssValue::Length(percent, lumen_css::Unit::Percent)) => {
+            percent / 100.0 * parent_font_size
+        }
+        _ => parent_font_size,
+    };
 
     style.line_height = match raw.get("line-height") {
         Some(CssValue::Number(factor)) => factor * style.font_size,
+        Some(CssValue::Length(factor, lumen_css::Unit::Em)) => factor * style.font_size,
         Some(value) => value
             .as_px()
             .unwrap_or(style.font_size * DEFAULT_LINE_HEIGHT_FACTOR),
@@ -333,16 +357,16 @@ fn to_computed(raw: &HashMap<String, CssValue>, element: Option<&ElementData>) -
             })
         });
 
-    style.width = dimension(raw, "width");
-    style.height = dimension(raw, "height");
-    style.margin = edge_dimensions(raw, "margin", Dimension::Px(0.0));
-    style.padding = edge_dimensions(raw, "padding", Dimension::Px(0.0));
+    style.width = dimension(raw, "width", style.font_size);
+    style.height = dimension(raw, "height", style.font_size);
+    style.margin = edge_dimensions(raw, "margin", Dimension::Px(0.0), style.font_size);
+    style.padding = edge_dimensions(raw, "padding", Dimension::Px(0.0), style.font_size);
 
     style.border_width = EdgeSizes {
-        top: edge_px(raw, "border-top-width"),
-        right: edge_px(raw, "border-right-width"),
-        bottom: edge_px(raw, "border-bottom-width"),
-        left: edge_px(raw, "border-left-width"),
+        top: edge_px(raw, "border-top-width", style.font_size),
+        right: edge_px(raw, "border-right-width", style.font_size),
+        bottom: edge_px(raw, "border-bottom-width", style.font_size),
+        left: edge_px(raw, "border-left-width", style.font_size),
     };
     // Initial border color is the element's own color (like `currentColor`).
     style.border_color = raw
@@ -371,9 +395,9 @@ fn to_computed(raw: &HashMap<String, CssValue>, element: Option<&ElementData>) -
     style
 }
 
-fn dimension(raw: &HashMap<String, CssValue>, name: &str) -> Dimension {
+fn dimension(raw: &HashMap<String, CssValue>, name: &str, font_size: f32) -> Dimension {
     raw.get(name)
-        .and_then(Dimension::from_value)
+        .and_then(|value| Dimension::from_value(value, font_size))
         .unwrap_or(Dimension::Auto)
 }
 
@@ -381,10 +405,11 @@ fn edge_dimensions(
     raw: &HashMap<String, CssValue>,
     prefix: &str,
     default: Dimension,
+    font_size: f32,
 ) -> EdgeSizes<Dimension> {
     let side = |name: &str| {
         raw.get(&format!("{prefix}-{name}"))
-            .and_then(Dimension::from_value)
+            .and_then(|value| Dimension::from_value(value, font_size))
             .unwrap_or(default)
     };
     EdgeSizes {
@@ -395,8 +420,12 @@ fn edge_dimensions(
     }
 }
 
-fn edge_px(raw: &HashMap<String, CssValue>, name: &str) -> f32 {
-    raw.get(name).and_then(CssValue::as_px).unwrap_or(0.0)
+fn edge_px(raw: &HashMap<String, CssValue>, name: &str, font_size: f32) -> f32 {
+    match raw.get(name) {
+        Some(CssValue::Length(factor, lumen_css::Unit::Em)) => factor * font_size,
+        Some(value) => value.as_px().unwrap_or(0.0),
+        None => 0.0,
+    }
 }
 
 /// One line per element with its key computed values — for debugging and
@@ -566,6 +595,25 @@ mod tests {
             style_of(&document, &styles, "p").font_weight,
             FontWeight(700)
         );
+    }
+
+    #[test]
+    fn em_font_size_resolves_against_parent_chain() {
+        let (document, styles) = styles_for(
+            "<style>div { font-size: 20px; } section { font-size: 1.5em; } p { font-size: 150%; }\
+             </style><div><section><p>t</p></section></div>",
+        );
+        assert_eq!(style_of(&document, &styles, "section").font_size, 30.0);
+        // 150% of the section's resolved 30px.
+        assert_eq!(style_of(&document, &styles, "p").font_size, 45.0);
+    }
+
+    #[test]
+    fn auto_margin_survives_to_computed_style() {
+        let (document, styles) = styles_for("<style>div { margin: 0 auto; }</style><div>t</div>");
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.margin.left, Dimension::Auto);
+        assert_eq!(div.margin.top, Dimension::Px(0.0));
     }
 
     #[test]
