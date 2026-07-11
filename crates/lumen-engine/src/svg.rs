@@ -16,8 +16,49 @@ pub fn render_svg(page: &Page) -> String {
     svg.push_str("<rect width=\"100%\" height=\"100%\" fill=\"white\"/>\n");
 
     let mut clip_id = 0usize;
+    let mut gradient_id = 0usize;
     for command in &page.display_list {
         match command {
+            DisplayCommand::FillGradient {
+                rect,
+                radius,
+                angle_degrees,
+                stops,
+            } => {
+                // CSS angle (0 = up) to a unit direction, mapped onto the
+                // object bounding box (approximation for non-square boxes).
+                let radians = angle_degrees.to_radians();
+                let (dx, dy) = (radians.sin() / 2.0, -radians.cos() / 2.0);
+                let _ = write!(
+                    svg,
+                    "<linearGradient id=\"gradient{gradient_id}\" x1=\"{:.4}\" y1=\"{:.4}\" x2=\"{:.4}\" y2=\"{:.4}\">",
+                    0.5 - dx,
+                    0.5 - dy,
+                    0.5 + dx,
+                    0.5 + dy,
+                );
+                for (color, position) in stops {
+                    let _ = write!(
+                        svg,
+                        "<stop offset=\"{position:.4}\" stop-color=\"{color}\"/>"
+                    );
+                }
+                svg.push_str("</linearGradient>\n");
+                if radius.is_zero() {
+                    let _ = writeln!(
+                        svg,
+                        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"url(#gradient{gradient_id})\"/>",
+                        rect.x, rect.y, rect.width, rect.height,
+                    );
+                } else {
+                    let _ = writeln!(
+                        svg,
+                        "<path d=\"{}\" fill=\"url(#gradient{gradient_id})\"/>",
+                        rounded_rect_path(rect, radius)
+                    );
+                }
+                gradient_id += 1;
+            }
             DisplayCommand::PushClip { rect } => {
                 let _ = writeln!(
                     svg,
@@ -308,6 +349,22 @@ mod tests {
             "expected dashed lines: {svg}"
         );
         assert!(svg.contains("stroke=\"#112233\""));
+    }
+
+    #[test]
+    fn gradients_emit_linear_gradient_defs() {
+        let page = crate::build_page(
+            "<style>div { background-image: linear-gradient(to right, #ff0000, #0000ff); \
+                          height: 20px; }</style><div></div>",
+            crate::Size {
+                width: 100.0,
+                height: 100.0,
+            },
+        );
+        let svg = render_svg(&page);
+        assert!(svg.contains("<linearGradient id=\"gradient0\""), "{svg}");
+        assert!(svg.contains("stop-color=\"#ff0000\""));
+        assert!(svg.contains("fill=\"url(#gradient0)\""));
     }
 
     #[test]

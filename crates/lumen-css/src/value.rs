@@ -347,6 +347,10 @@ pub enum CssValue {
     Keyword(String),
     /// A quoted string (`content: "..."`).
     String(String),
+    /// `url(...)` with the URL unquoted.
+    Url(String),
+    /// An unparsed functional value: (lowercase name, raw arguments).
+    Function(String, String),
     Length(f32, Unit),
     Color(Color),
     Number(f32),
@@ -366,6 +370,37 @@ impl CssValue {
         }
         if source.eq_ignore_ascii_case("auto") {
             return Some(Self::Auto);
+        }
+        // url(...) and functional values (linear-gradient(...), ...).
+        if let Some(inner) = source
+            .strip_prefix("url(")
+            .and_then(|rest| rest.strip_suffix(')'))
+        {
+            let inner = inner.trim();
+            let inner = inner
+                .strip_prefix('"')
+                .and_then(|rest| rest.strip_suffix('"'))
+                .or_else(|| {
+                    inner
+                        .strip_prefix('\'')
+                        .and_then(|rest| rest.strip_suffix('\''))
+                })
+                .unwrap_or(inner);
+            return Some(Self::Url(inner.to_string()));
+        }
+        if let Some(open) = source.find('(')
+            && source.ends_with(')')
+            && source[..open]
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-')
+            && !source[..open].is_empty()
+        {
+            let name = source[..open].to_ascii_lowercase();
+            // Colors and shape functions parsed elsewhere keep their path.
+            if !matches!(name.as_str(), "rgb" | "rgba" | "hsl" | "hsla") {
+                let arguments = source[open + 1..source.len() - 1].to_string();
+                return Some(Self::Function(name, arguments));
+            }
         }
         // Quoted strings (kept whole by split_components).
         if let Some(inner) = source
@@ -479,6 +514,8 @@ impl fmt::Display for CssValue {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::String(value) => write!(formatter, "\"{value}\""),
+            Self::Url(value) => write!(formatter, "url({value})"),
+            Self::Function(name, arguments) => write!(formatter, "{name}({arguments})"),
             Self::Keyword(keyword) => write!(formatter, "{keyword}"),
             Self::Length(value, Unit::Px) => write!(formatter, "{value}px"),
             Self::Length(value, Unit::Em) => write!(formatter, "{value}em"),
@@ -660,7 +697,17 @@ mod tests {
             CssValue::parse_component("transparent"),
             Some(CssValue::Keyword("transparent".to_string()))
         );
-        assert_eq!(CssValue::parse_component("url(x)"), None);
+        assert_eq!(
+            CssValue::parse_component("url(x)"),
+            Some(CssValue::Url("x".to_string()))
+        );
+        assert_eq!(
+            CssValue::parse_component("linear-gradient(to right, #000, #fff)"),
+            Some(CssValue::Function(
+                "linear-gradient".to_string(),
+                "to right, #000, #fff".to_string()
+            ))
+        );
     }
 
     #[test]

@@ -183,6 +183,7 @@ pub struct ComputedStyle {
     pub display: Display,
     pub color: Color,
     pub background_color: Option<Color>,
+    pub background_image: Option<BackgroundImage>,
     pub width: Dimension,
     pub height: Dimension,
     /// Size constraints; `Auto` means unconstrained.
@@ -240,6 +241,124 @@ pub struct ComputedStyle {
     pub selection_color: Option<Color>,
 }
 
+/// A background image layer (single layer only).
+#[derive(Debug, Clone, PartialEq)]
+pub enum BackgroundImage {
+    /// Fetched by navigation code, painted stretched over the border box.
+    Url(String),
+    LinearGradient(LinearGradient),
+}
+
+/// `linear-gradient()`: an angle (CSS convention, 0deg = to top) and
+/// normalized color stops (position 0..=1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinearGradient {
+    pub angle_degrees: f32,
+    pub stops: Vec<(Color, f32)>,
+}
+
+/// Parses `linear-gradient(...)` arguments; `None` when unsupported.
+fn parse_linear_gradient(arguments: &str) -> Option<LinearGradient> {
+    let parts: Vec<&str> = split_top_level_commas(arguments);
+    if parts.is_empty() {
+        return None;
+    }
+    let mut index = 0;
+    let first = parts[0].trim();
+    let angle_degrees = if let Some(direction) = first.strip_prefix("to ") {
+        index = 1;
+        match direction
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .as_str()
+        {
+            "top" => 0.0,
+            "right" => 90.0,
+            "bottom" => 180.0,
+            "left" => 270.0,
+            "top right" | "right top" => 45.0,
+            "bottom right" | "right bottom" => 135.0,
+            "bottom left" | "left bottom" => 225.0,
+            "top left" | "left top" => 315.0,
+            _ => return None,
+        }
+    } else if let Some(number) = first.strip_suffix("deg") {
+        index = 1;
+        number.trim().parse().ok()?
+    } else {
+        180.0 // Default: to bottom.
+    };
+    let mut stops: Vec<(Color, Option<f32>)> = Vec::new();
+    for part in &parts[index..] {
+        let mut pieces = part.split_whitespace();
+        let color = Color::parse(pieces.next()?)?;
+        let position = match pieces.next() {
+            Some(position) => Some(position.strip_suffix('%')?.parse::<f32>().ok()? / 100.0),
+            None => None,
+        };
+        stops.push((color, position));
+    }
+    if stops.len() < 2 {
+        return None;
+    }
+    // Normalize: first defaults to 0, last to 1, unpositioned middles
+    // spread evenly between their positioned neighbors.
+    let count = stops.len();
+    if stops[0].1.is_none() {
+        stops[0].1 = Some(0.0);
+    }
+    if stops[count - 1].1.is_none() {
+        stops[count - 1].1 = Some(1.0);
+    }
+    let mut resolved: Vec<(Color, f32)> = Vec::with_capacity(count);
+    let mut position_so_far = 0.0f32;
+    for (offset, (color, position)) in stops.iter().enumerate() {
+        let position = match position {
+            Some(position) => position.max(position_so_far),
+            None => {
+                // Find the next positioned stop and interpolate.
+                let (steps_to_next, next_position) = stops[offset + 1..]
+                    .iter()
+                    .enumerate()
+                    .find_map(|(ahead, (_, position))| {
+                        position.map(|position| (ahead + 1, position))
+                    })
+                    .unwrap_or((1, 1.0));
+                position_so_far
+                    + (next_position.max(position_so_far) - position_so_far)
+                        / (steps_to_next + 1) as f32
+            }
+        };
+        position_so_far = position;
+        resolved.push((*color, position));
+    }
+    Some(LinearGradient {
+        angle_degrees,
+        stops: resolved,
+    })
+}
+
+/// Splits at commas outside parentheses (rgb() stays whole).
+fn split_top_level_commas(source: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+    for (index, character) in source.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(&source[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&source[start..]);
+    parts
+}
+
 /// `overflow` subset: anything that is not `visible` clips children to
 /// the padding box at paint time (no inner scrolling).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -269,6 +388,7 @@ impl Default for ComputedStyle {
             display: Display::Inline,
             color: DEFAULT_COLOR,
             background_color: None,
+            background_image: None,
             width: Dimension::Auto,
             height: Dimension::Auto,
             min_width: Dimension::Auto,
@@ -921,6 +1041,14 @@ fn to_computed(
         Some("italic" | "oblique")
     );
 
+    style.background_image = match raw.get("background-image") {
+        Some(CssValue::Url(url)) => Some(BackgroundImage::Url(url.clone())),
+        Some(CssValue::Function(name, arguments)) if name == "linear-gradient" => {
+            parse_linear_gradient(arguments).map(BackgroundImage::LinearGradient)
+        }
+        _ => None,
+    };
+
     style.monospace = matches!(
         raw.get("font-family").and_then(CssValue::as_keyword),
         Some("monospace")
@@ -1425,6 +1553,41 @@ mod tests {
         assert_eq!(styles.by_node[&items[2]].color.to_string(), "#123456");
         assert_eq!(styles.by_node[&items[0]].font_weight.0, 700);
         assert_ne!(styles.by_node[&items[1]].font_weight.0, 700);
+    }
+
+    #[test]
+    fn linear_gradient_parses_directions_and_stops() {
+        let (document, styles) = styles_for(
+            "<style>div { background-image: linear-gradient(to right, #ff0000, #0000ff); }\
+                    p { background: linear-gradient(45deg, #000000 20%, #ffffff 80%); }</style>\
+             <div>x</div><p>y</p>",
+        );
+        let Some(BackgroundImage::LinearGradient(gradient)) =
+            &style_of(&document, &styles, "div").background_image
+        else {
+            panic!("expected a gradient");
+        };
+        assert_eq!(gradient.angle_degrees, 90.0);
+        assert_eq!(gradient.stops[0], (Color::rgb(0xff, 0, 0), 0.0));
+        assert_eq!(gradient.stops[1], (Color::rgb(0, 0, 0xff), 1.0));
+        let Some(BackgroundImage::LinearGradient(gradient)) =
+            &style_of(&document, &styles, "p").background_image
+        else {
+            panic!("expected a gradient from the shorthand");
+        };
+        assert_eq!(gradient.angle_degrees, 45.0);
+        assert_eq!(gradient.stops[0].1, 0.2);
+        assert_eq!(gradient.stops[1].1, 0.8);
+    }
+
+    #[test]
+    fn background_image_url_survives_to_computed_style() {
+        let (document, styles) =
+            styles_for("<style>div { background-image: url('bg.png'); }</style><div>x</div>");
+        assert_eq!(
+            style_of(&document, &styles, "div").background_image,
+            Some(BackgroundImage::Url("bg.png".to_string()))
+        );
     }
 
     #[test]

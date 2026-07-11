@@ -136,8 +136,8 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
 /// component (multi-value forms of other properties are unsupported).
 fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Vec<Declaration>) {
     if name == "background" {
-        // Only the color part of the shorthand is supported: pick the first
-        // color (or `transparent`/`none` keyword) and ignore the rest.
+        // Supported parts of the shorthand: the first color (or
+        // `transparent`/`none`) and the first image (url()/gradient).
         let color = components.iter().find_map(|component| match component {
             CssValue::Color(_) => Some(component.clone()),
             CssValue::Keyword(keyword) if keyword == "transparent" || keyword == "none" => {
@@ -150,6 +150,16 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
                 important: false,
                 name: "background-color".to_string(),
                 value,
+            });
+        }
+        let image = components
+            .iter()
+            .find(|component| matches!(component, CssValue::Url(_) | CssValue::Function(..)));
+        if let Some(value) = image {
+            output.push(Declaration {
+                important: false,
+                name: "background-image".to_string(),
+                value: value.clone(),
             });
         }
         return;
@@ -572,7 +582,7 @@ mod tests {
     #[test]
     fn skips_malformed_declarations_and_extra_semicolons() {
         let declarations =
-            parse_declarations(";; color: red; oops; width: ; height: 10px; x: url(a);");
+            parse_declarations(";; color: red; oops; width: ; height: 10px; x: !!;");
         assert_eq!(declarations.len(), 2);
         assert_eq!(declarations[0].name, "color");
         assert_eq!(declarations[1].name, "height");
@@ -601,7 +611,7 @@ mod tests {
     }
 
     #[test]
-    fn background_shorthand_keeps_only_the_color() {
+    fn background_shorthand_keeps_color_and_image() {
         let declarations = parse_declarations("background: #fdfcff left top no-repeat");
         assert_eq!(declarations.len(), 1);
         assert_eq!(declarations[0].name, "background-color");
@@ -611,7 +621,10 @@ mod tests {
         );
         let none = parse_declarations("background: none");
         assert_eq!(none[0].value, CssValue::Keyword("transparent".to_string()));
-        assert!(parse_declarations("background: url(x.png)").is_empty());
+        let image = parse_declarations("background: url(x.png)");
+        assert_eq!(image.len(), 1);
+        assert_eq!(image[0].name, "background-image");
+        assert_eq!(image[0].value, CssValue::Url("x.png".to_string()));
     }
 
     #[test]

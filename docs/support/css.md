@@ -120,10 +120,10 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
 | `background-color` | ✅ | ✅ | ✅ | ✅ | |
-| `background` shorthand | ⚠️ | ✅ | ✅ | ✅ | color component only |
+| `background` shorthand | ⚠️ | ✅ | ✅ | ✅ | color + image components only |
 | Body/root background → canvas | ✅ | ✅ | ✅ | ✅ | |
-| `background-image: url()` | ❌ | ✅ | ✅ | ✅ | |
-| `linear-gradient()` | ❌ | ✅ | ✅ | ✅ | |
+| `background-image: url()` | ⚠️ | ✅ | ✅ | ✅ | stretched over the border box (no tiling/position/size); shares the 32-image page cap |
+| `linear-gradient()` | ⚠️ | ✅ | ✅ | ✅ | angles + to-side/corner, %-positioned stops; no repeating, no interpolation hints |
 | `radial-gradient()` / `conic-gradient()` | ❌ | ✅ | ✅ | ✅ | |
 | position/size/repeat/attachment/clip | ❌ | ✅ | ✅ | ✅ | |
 | Multiple backgrounds | ❌ | ✅ | ✅ | ✅ | |

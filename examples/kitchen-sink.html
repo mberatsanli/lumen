@@ -147,6 +147,12 @@
     .sel-title + p { font-style: italic; }
     a[href^="https"] { color: #7a3d9e; }
 
+    /* --- gradients ------------------------------------------------------ */
+    .grad-a { background: linear-gradient(to right, #2266aa, #66ccff); height: 40px;
+              border-radius: 8px; }
+    .grad-b { background-image: linear-gradient(135deg, #b3261e, #f5c518 60%, #1a6b3c);
+              height: 40px; color: #ffffff; padding: 8px; }
+
     /* --- generated content ---------------------------------------------- */
     .tagged::before { content: "[NEW] "; color: #b3261e; font-weight: 700; }
     .tagged::after { content: " ↩"; color: #7a3d9e; }
@@ -261,6 +267,13 @@
     </div>
     <p>Secure links go purple: <a href="https://example.com">https link</a>
        vs <a href="http://example.com">http link</a>.</p>
+  </div>
+
+  <div class="section">
+    <h2>Gradients</h2>
+    <div class="grad-a"></div>
+    <p class="muted">↑ linear-gradient(to right, ...) with border-radius.</p>
+    <div class="grad-b"><p>135deg, three stops with positions.</p></div>
   </div>
 
   <div class="section">

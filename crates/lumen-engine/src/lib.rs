@@ -29,8 +29,8 @@ pub use selection::{
     selected_text,
 };
 pub use style::{
-    ComputedStyle, Dimension, Display, FontWeight, StyleMap, TextAlign, compute_styles,
-    compute_styles_hovered,
+    BackgroundImage, ComputedStyle, Dimension, Display, FontWeight, LinearGradient, StyleMap,
+    TextAlign, compute_styles, compute_styles_hovered,
 };
 pub use svg::render_svg;
 pub use text::{HeuristicMeasurer, TextMeasurer, TextMetrics, TextStyle};

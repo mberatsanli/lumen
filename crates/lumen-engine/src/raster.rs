@@ -176,6 +176,20 @@ pub fn rasterize_over(
                 framebuffer.clip = clips.last().copied();
                 continue;
             }
+            DisplayCommand::FillGradient {
+                rect,
+                radius,
+                angle_degrees,
+                stops,
+            } => {
+                fill_gradient(
+                    framebuffer,
+                    &shift(rect),
+                    &scale_radius(radius, scale),
+                    *angle_degrees,
+                    stops,
+                );
+            }
             DisplayCommand::FillRect {
                 rect,
                 color,
@@ -554,6 +568,90 @@ fn fill_edge(
     }
 }
 
+/// Rasterizes a linear gradient: each pixel projects onto the gradient
+/// axis (CSS angle, 0 = to top) and interpolates between the two
+/// surrounding stops. Corner radii clip via coverage.
+fn fill_gradient(
+    framebuffer: &mut Framebuffer,
+    rect: &Rect,
+    radius: &Corners<f32>,
+    angle_degrees: f32,
+    stops: &[(Color, f32)],
+) {
+    if stops.is_empty() || rect.width <= 0.0 || rect.height <= 0.0 {
+        return;
+    }
+    let radians = angle_degrees.to_radians();
+    let (dx, dy) = (radians.sin(), -radians.cos());
+    // Length of the gradient line across the box for this angle.
+    let line_length = (rect.width * dx).abs() + (rect.height * dy).abs();
+    let (center_x, center_y) = (rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+    let rounded = !radius.is_zero();
+
+    let x0 = rect.x.max(0.0) as u32;
+    let y0 = rect.y.max(0.0) as u32;
+    let x1 = ((rect.x + rect.width).ceil().max(0.0) as u32).min(framebuffer.width);
+    let y1 = ((rect.y + rect.height).ceil().max(0.0) as u32).min(framebuffer.height);
+    for pixel_y in y0..y1 {
+        for pixel_x in x0..x1 {
+            if !framebuffer.admits(pixel_x, pixel_y) {
+                continue;
+            }
+            let (px, py) = (pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
+            let coverage = if rounded {
+                rounded_coverage(rect, radius, px, py)
+            } else if px < rect.x
+                || px >= rect.x + rect.width
+                || py < rect.y
+                || py >= rect.y + rect.height
+            {
+                0.0
+            } else {
+                1.0
+            };
+            if coverage <= 0.0 {
+                continue;
+            }
+            let progress = if line_length <= 0.0 {
+                0.0
+            } else {
+                (((px - center_x) * dx + (py - center_y) * dy) / line_length + 0.5).clamp(0.0, 1.0)
+            };
+            let color = gradient_color_at(stops, progress);
+            let alpha = (f32::from(color.a) * coverage) as u8;
+            if alpha == 0 {
+                continue;
+            }
+            let position = (pixel_y * framebuffer.width + pixel_x) as usize;
+            framebuffer.pixels[position] = blend(framebuffer.pixels[position], pack(color), alpha);
+        }
+    }
+}
+
+/// Interpolates the stop list at `progress` (0..=1).
+fn gradient_color_at(stops: &[(Color, f32)], progress: f32) -> Color {
+    let mut previous = &stops[0];
+    if progress <= previous.1 {
+        return previous.0;
+    }
+    for stop in &stops[1..] {
+        if progress <= stop.1 {
+            let span = (stop.1 - previous.1).max(f32::EPSILON);
+            let t = (progress - previous.1) / span;
+            let lerp =
+                |a: u8, b: u8| -> u8 { (f32::from(a) + (f32::from(b) - f32::from(a)) * t) as u8 };
+            return Color {
+                r: lerp(previous.0.r, stop.0.r),
+                g: lerp(previous.0.g, stop.0.g),
+                b: lerp(previous.0.b, stop.0.b),
+                a: lerp(previous.0.a, stop.0.a),
+            };
+        }
+        previous = stop;
+    }
+    stops[stops.len() - 1].0
+}
+
 fn scale_radius(radius: &Corners<f32>, scale: f32) -> Corners<f32> {
     Corners {
         top_left: radius.top_left * scale,
@@ -771,6 +869,28 @@ mod tests {
         assert_eq!(framebuffer.pixel(0, 0), 0x00ff_0000);
         assert_eq!(framebuffer.pixel(9, 9), 0x00ff_0000);
         assert_eq!(framebuffer.pixel(5, 5), 0x00ff_ffff);
+    }
+
+    #[test]
+    fn gradients_interpolate_across_the_rect() {
+        let commands = vec![DisplayCommand::FillGradient {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 4.0,
+            },
+            radius: Corners::uniform(0.0),
+            angle_degrees: 90.0, // to right
+            stops: vec![(Color::rgb(0, 0, 0), 0.0), (Color::rgb(255, 255, 255), 1.0)],
+        }];
+        let framebuffer = rasterize(&commands, 10, 4, 0.0);
+        let left = framebuffer.pixel(0, 2) & 0xff;
+        let middle = framebuffer.pixel(5, 2) & 0xff;
+        let right = framebuffer.pixel(9, 2) & 0xff;
+        assert!(left < middle && middle < right, "{left} {middle} {right}");
+        assert!(left < 40, "{left}");
+        assert!(right > 215, "{right}");
     }
 
     #[test]

@@ -233,10 +233,21 @@ impl<L: ResourceLoader> Session<L> {
         // Capped so image-heavy pages cannot stall navigation for minutes.
         const MAX_IMAGES_PER_PAGE: usize = 32;
         let mut images = ImageMap::new();
-        for (node, src) in collect_image_sources(&document)
-            .into_iter()
-            .take(MAX_IMAGES_PER_PAGE)
-        {
+        // CSS background images need computed styles to discover; this
+        // extra style pass runs at load only.
+        let mut sources = collect_image_sources(&document);
+        let styles = lumen_engine::compute_styles(&document, &self.author);
+        let mut backgrounds: Vec<(NodeId, String)> = styles
+            .by_node
+            .iter()
+            .filter_map(|(node, style)| match &style.background_image {
+                Some(lumen_engine::BackgroundImage::Url(src)) => Some((*node, src.clone())),
+                _ => None,
+            })
+            .collect();
+        backgrounds.sort_unstable();
+        sources.extend(backgrounds);
+        for (node, src) in sources.into_iter().take(MAX_IMAGES_PER_PAGE) {
             let Ok(url) = resolve(&base, &src) else {
                 continue;
             };

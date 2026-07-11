@@ -6,7 +6,7 @@
 use crate::geometry::{Corners, EdgeSizes, Rect};
 use crate::image::{ImageMap, RasterImage};
 use crate::layout::{BoxType, LayoutBox, LayoutKind};
-use crate::style::{BorderStyle, Overflow};
+use crate::style::{BackgroundImage, BorderStyle, Overflow};
 use lumen_css::Color;
 use std::sync::Arc;
 
@@ -57,6 +57,14 @@ pub enum DisplayCommand {
         rect: Rect,
     },
     PopClip,
+    /// A linear gradient over `rect`. `angle_degrees` follows the CSS
+    /// convention (0 = to top, 90 = to right); stops are normalized 0..=1.
+    FillGradient {
+        rect: Rect,
+        radius: Corners<f32>,
+        angle_degrees: f32,
+        stops: Vec<(Color, f32)>,
+    },
 }
 
 /// Flattens the layout tree into an ordered list of paint commands.
@@ -122,6 +130,36 @@ fn paint_box(
             color: fade(background),
             radius,
         });
+    }
+
+    // The background image layer paints over the color. Gradients render
+    // directly; url() images stretch over the border box when their bytes
+    // were fetched (keyed by this node in the image map).
+    if !anonymous {
+        match &layout.style.background_image {
+            Some(BackgroundImage::LinearGradient(gradient)) => {
+                commands.push(DisplayCommand::FillGradient {
+                    rect: border_box,
+                    radius,
+                    angle_degrees: gradient.angle_degrees,
+                    stops: gradient
+                        .stops
+                        .iter()
+                        .map(|(color, position)| (fade(*color), *position))
+                        .collect(),
+                });
+            }
+            Some(BackgroundImage::Url(_)) if layout.box_type != BoxType::Replaced => {
+                if let Some(image) = images.get(&layout.node_id) {
+                    commands.push(DisplayCommand::DrawImage {
+                        rect: border_box,
+                        image: image.clone(),
+                        alpha: (opacity * 255.0) as u8,
+                    });
+                }
+            }
+            _ => {}
+        }
     }
 
     let widths = layout.dimensions.border;
@@ -288,6 +326,26 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
             DisplayCommand::PopClip => {
                 let _ = writeln!(output, "PopClip");
             }
+            DisplayCommand::FillGradient {
+                rect,
+                angle_degrees,
+                stops,
+                ..
+            } => {
+                let stop_list: Vec<String> = stops
+                    .iter()
+                    .map(|(color, position)| format!("{color}@{position}"))
+                    .collect();
+                let _ = writeln!(
+                    output,
+                    "FillGradient x={} y={} w={} h={} angle={angle_degrees} stops={}",
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    stop_list.join(",")
+                );
+            }
         }
     }
     output
@@ -351,6 +409,7 @@ mod tests {
                 DisplayCommand::DrawImage { .. } => "image",
                 DisplayCommand::PushClip { .. } => "push-clip",
                 DisplayCommand::PopClip => "pop-clip",
+                DisplayCommand::FillGradient { .. } => "gradient",
             })
             .collect();
         assert_eq!(kinds, vec!["fill", "stroke", "text"]);
