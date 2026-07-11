@@ -27,7 +27,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `:nth-child()` family | ⚠️ | ✅ | ✅ | ✅ | nth-child/nth-last-child with an+b/odd/even; no `of S`, no nth-of-type |
 | `:not()`, `:is()`, `:where()` | ⚠️ | ✅ | ✅ | ✅ | `:not()` with one compound argument; no `:is()`/`:where()` |
 | `:has()` | ❌ | ✅ | ✅ | ✅ | |
-| `::before` / `::after` + `content` | ❌ | ✅ | ✅ | ✅ | |
+| `::before` / `::after` + `content` | ⚠️ | ✅ | ✅ | ✅ | string content only (no counters/attr()/url()); flows as unselectable inline text; both colon forms |
 | `::selection` | ⚠️ | ✅ | ✅ | ✅ | background-color works; color recorded but selected text keeps its color |
 | `::first-line/-letter` | ❌ | ✅ | ✅ | ✅ | |
 

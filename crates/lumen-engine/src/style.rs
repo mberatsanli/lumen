@@ -316,6 +316,19 @@ impl Default for ComputedStyle {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleMap {
     pub by_node: HashMap<NodeId, ComputedStyle>,
+    /// `::before`/`::after` generated content, ready to materialize as
+    /// text nodes (see `apply_generated_content`).
+    pub pseudo_texts: Vec<PseudoText>,
+}
+
+/// One piece of CSS-generated content.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PseudoText {
+    pub element: NodeId,
+    /// `::before` inserts leading, `::after` trailing.
+    pub leading: bool,
+    pub text: String,
+    pub style: ComputedStyle,
 }
 
 /// Properties whose declared values propagate to children.
@@ -397,6 +410,7 @@ pub fn compute_styles_hovered(
         hover_chain.extend(document.ancestors(node));
     }
     let mut by_node = HashMap::new();
+    let mut pseudo_texts = Vec::new();
     let inherited = HashMap::new();
     compute_node(
         document,
@@ -406,10 +420,15 @@ pub fn compute_styles_hovered(
         DEFAULT_FONT_SIZE,
         &hover_chain,
         &mut by_node,
+        &mut pseudo_texts,
     );
-    StyleMap { by_node }
+    StyleMap {
+        by_node,
+        pseudo_texts,
+    }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compute_node(
     document: &Document,
     node_id: NodeId,
@@ -418,6 +437,7 @@ fn compute_node(
     root_font_size: f32,
     hover_chain: &HashSet<NodeId>,
     output: &mut HashMap<NodeId, ComputedStyle>,
+    pseudo_texts: &mut Vec<PseudoText>,
 ) {
     let mut raw = RawStyle::new();
     for property in INHERITED_PROPERTIES {
@@ -438,7 +458,7 @@ fn compute_node(
         let mut important: HashSet<String> = HashSet::new();
         for sheet in [user_agent_stylesheet(), author] {
             for (name, (is_important, _, _, value)) in
-                winning_declarations(document, node_id, element, sheet, hover_chain)
+                winning_declarations(document, node_id, element, sheet, hover_chain, None)
             {
                 if is_important || !important.contains(&name) {
                     if is_important {
@@ -502,6 +522,57 @@ fn compute_node(
         Cow::Borrowed("font-size"),
         CssValue::Length(computed.font_size, lumen_css::Unit::Px),
     );
+
+    // `::before`/`::after`: a pseudo style inherits from the element like
+    // a child and needs a string `content` to generate anything.
+    if let Some(element) = element {
+        for (kind, leading) in [("before", true), ("after", false)] {
+            let mut pseudo_raw = RawStyle::new();
+            for property in INHERITED_PROPERTIES {
+                if let Some(value) = raw.get(property) {
+                    pseudo_raw.insert(Cow::Borrowed(property), value.clone());
+                }
+            }
+            pseudo_raw.insert(
+                Cow::Borrowed("font-size"),
+                CssValue::Length(computed.font_size, lumen_css::Unit::Px),
+            );
+            let mut any = false;
+            for sheet in [user_agent_stylesheet(), author] {
+                for (name, (_, _, _, value)) in
+                    winning_declarations(document, node_id, element, sheet, hover_chain, Some(kind))
+                {
+                    pseudo_raw.insert(Cow::Owned(name), value);
+                    any = true;
+                }
+            }
+            if !any {
+                continue;
+            }
+            let Some(CssValue::String(text)) = pseudo_raw.get("content") else {
+                continue;
+            };
+            if matches!(pseudo_raw.get("display"), Some(CssValue::Keyword(keyword)) if keyword == "none")
+            {
+                continue;
+            }
+            let text = text.clone();
+            for value in pseudo_raw.values_mut() {
+                if let CssValue::Length(size, lumen_css::Unit::Rem) = value {
+                    *value = CssValue::Length(*size * root_font_size, lumen_css::Unit::Px);
+                }
+            }
+            let mut style = to_computed(&pseudo_raw, None, computed.font_size);
+            // Generated content is not selectable (as in browsers).
+            style.selectable = false;
+            pseudo_texts.push(PseudoText {
+                element: node_id,
+                leading,
+                text,
+                style,
+            });
+        }
+    }
     // The html element's resolved font size anchors `rem` for the tree.
     let root_font_size = match element {
         Some(element) if element.tag_name == "html" => computed.font_size,
@@ -517,6 +588,7 @@ fn compute_node(
             root_font_size,
             hover_chain,
             output,
+            pseudo_texts,
         );
     }
 }
@@ -529,6 +601,7 @@ fn winning_declarations(
     element: &ElementData,
     sheet: &Stylesheet,
     hover_chain: &HashSet<NodeId>,
+    pseudo: Option<&str>,
 ) -> HashMap<String, (bool, Specificity, usize, CssValue)> {
     let mut winners: HashMap<String, (bool, Specificity, usize, CssValue)> = HashMap::new();
     for rule in &sheet.rules {
@@ -539,14 +612,20 @@ fn winning_declarations(
                 // property names.
                 let pseudo_element = selector.subject().pseudo_element.as_deref();
                 for declaration in &rule.declarations {
-                    let name = match pseudo_element {
-                        None => declaration.name.clone(),
-                        Some("selection") => match declaration.name.as_str() {
+                    let name = match (pseudo, pseudo_element) {
+                        // Element pass: plain rules apply; `::selection`
+                        // rules route under internal property names.
+                        (None, None) => declaration.name.clone(),
+                        (None, Some("selection")) => match declaration.name.as_str() {
                             "background-color" => "::selection-background".to_string(),
                             "color" => "::selection-color".to_string(),
                             _ => continue,
                         },
-                        Some(_) => continue,
+                        // Pseudo pass: only rules for that pseudo-element.
+                        (Some(wanted), Some(actual)) if wanted == actual => {
+                            declaration.name.clone()
+                        }
+                        _ => continue,
                     };
                     let candidate = (
                         declaration.important,

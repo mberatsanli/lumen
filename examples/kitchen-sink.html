@@ -147,6 +147,12 @@
     .sel-title + p { font-style: italic; }
     a[href^="https"] { color: #7a3d9e; }
 
+    /* --- generated content ---------------------------------------------- */
+    .tagged::before { content: "[NEW] "; color: #b3261e; font-weight: 700; }
+    .tagged::after { content: " ↩"; color: #7a3d9e; }
+    .quoted::before { content: "“"; font-size: 1.4rem; }
+    .quoted::after { content: "”"; font-size: 1.4rem; }
+
     /* --- overflow ------------------------------------------------------ */
     .clipped { overflow: hidden; height: 60px; background-color: #f0ead9;
                padding: 8px; border: 1px solid #cbbf9e; }
@@ -255,6 +261,12 @@
     </div>
     <p>Secure links go purple: <a href="https://example.com">https link</a>
        vs <a href="http://example.com">http link</a>.</p>
+  </div>
+
+  <div class="section">
+    <h2>Generated content</h2>
+    <p class="tagged">This paragraph is decorated by ::before and ::after.</p>
+    <p class="quoted">Quotes around this come from generated content, sized in rem.</p>
   </div>
 
   <div class="section">

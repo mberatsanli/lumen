@@ -345,6 +345,8 @@ impl fmt::Display for Color {
 pub enum CssValue {
     /// An identifier the engine interprets later (`block`, `bold`, `transparent`, ...).
     Keyword(String),
+    /// A quoted string (`content: "..."`).
+    String(String),
     Length(f32, Unit),
     Color(Color),
     Number(f32),
@@ -364,6 +366,18 @@ impl CssValue {
         }
         if source.eq_ignore_ascii_case("auto") {
             return Some(Self::Auto);
+        }
+        // Quoted strings (kept whole by split_components).
+        if let Some(inner) = source
+            .strip_prefix('"')
+            .and_then(|rest| rest.strip_suffix('"'))
+            .or_else(|| {
+                source
+                    .strip_prefix('\'')
+                    .and_then(|rest| rest.strip_suffix('\''))
+            })
+        {
+            return Some(Self::String(inner.to_string()));
         }
         if source.starts_with('#')
             || source.starts_with("rgb(")
@@ -464,6 +478,7 @@ impl CssValue {
 impl fmt::Display for CssValue {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::String(value) => write!(formatter, "\"{value}\""),
             Self::Keyword(keyword) => write!(formatter, "{keyword}"),
             Self::Length(value, Unit::Px) => write!(formatter, "{value}px"),
             Self::Length(value, Unit::Em) => write!(formatter, "{value}em"),
@@ -484,8 +499,20 @@ pub fn split_components(source: &str) -> Vec<String> {
     let mut components = Vec::new();
     let mut current = String::new();
     let mut depth = 0usize;
+    let mut quote: Option<char> = None;
     for character in source.chars() {
+        if let Some(open) = quote {
+            current.push(character);
+            if character == open {
+                quote = None;
+            }
+            continue;
+        }
         match character {
+            '"' | '\'' => {
+                quote = Some(character);
+                current.push(character);
+            }
             '(' => {
                 depth += 1;
                 current.push(character);
@@ -511,6 +538,20 @@ pub fn split_components(source: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quoted_strings_survive_splitting_and_parse() {
+        let components = split_components("\"hello world\" 4px");
+        assert_eq!(components, vec!["\"hello world\"", "4px"]);
+        assert_eq!(
+            CssValue::parse_component("\"hello world\""),
+            Some(CssValue::String("hello world".to_string()))
+        );
+        assert_eq!(
+            CssValue::parse_component("'x'"),
+            Some(CssValue::String("x".to_string()))
+        );
+    }
 
     #[test]
     fn parses_hex_colors() {

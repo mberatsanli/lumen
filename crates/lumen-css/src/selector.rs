@@ -235,7 +235,7 @@ fn tokenize_complex(source: &str) -> Option<Vec<ComplexToken>> {
     Some(tokens)
 }
 
-const SUPPORTED_PSEUDO_ELEMENTS: [&str; 1] = ["selection"];
+const SUPPORTED_PSEUDO_ELEMENTS: [&str; 3] = ["selection", "before", "after"];
 
 /// Parses one compound selector with a character scanner.
 fn parse_compound(source: &str) -> Option<CompoundSelector> {
@@ -294,6 +294,14 @@ fn parse_compound(source: &str) -> Option<CompoundSelector> {
             ':' => {
                 position += 1;
                 let name = read_identifier(&mut position)?;
+                // Legacy single-colon pseudo-elements (`:before`).
+                if matches!(name.as_str(), "before" | "after") {
+                    if position != chars.len() {
+                        return None;
+                    }
+                    compound.pseudo_element = Some(name);
+                    continue;
+                }
                 let arguments = if position < chars.len() && chars[position] == '(' {
                     let close = find_balanced(&chars, position, '(', ')')?;
                     let inner: String = chars[position + 1..close].iter().collect();
@@ -629,6 +637,15 @@ mod tests {
     }
 
     #[test]
+    fn before_and_after_parse_in_both_colon_forms() {
+        for source in ["p::before", "p:before", "p::after", "p:after"] {
+            let selector = parse_selector(source).unwrap();
+            let pseudo = selector.compounds[0].pseudo_element.as_deref().unwrap();
+            assert!(matches!(pseudo, "before" | "after"), "{source}");
+        }
+    }
+
+    #[test]
     fn rejects_unsupported_selectors() {
         assert!(parse_selector("").is_none());
         // Bare pseudo-classes are valid selectors now.
@@ -637,7 +654,6 @@ mod tests {
         assert!(parse_selector(".").is_none());
         assert!(parse_selector("#").is_none());
         assert!(parse_selector("div..x").is_none());
-        assert!(parse_selector("p::before").is_none());
         // Bare ::selection is the universal selector's selection.
         assert!(parse_selector("::selection").is_some());
         assert!(parse_selector("p >").is_none()); // Trailing combinator.

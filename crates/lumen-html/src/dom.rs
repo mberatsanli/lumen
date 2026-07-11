@@ -116,6 +116,9 @@ pub struct Node {
 pub struct Document {
     nodes: Vec<Node>,
     root: NodeId,
+    /// CSS-generated (`::before`/`::after`) text nodes by
+    /// (parent element, leading?) — lets regeneration update in place.
+    generated: std::collections::BTreeMap<(NodeId, bool), NodeId>,
 }
 
 impl Document {
@@ -129,7 +132,32 @@ impl Document {
                 children: Vec::new(),
             }],
             root: 0,
+            generated: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// Inserts (or updates in place) a CSS-generated text node as the
+    /// first (`leading`) or last child of `parent`. Returns its id.
+    pub fn upsert_generated_text(&mut self, parent: NodeId, leading: bool, text: &str) -> NodeId {
+        if let Some(existing) = self.generated.get(&(parent, leading)).copied() {
+            if let NodeKind::Text(current) = &mut self.nodes[existing].kind {
+                *current = text.to_string();
+            }
+            return existing;
+        }
+        let id = self.nodes.len();
+        self.nodes.push(Node {
+            kind: NodeKind::Text(text.to_string()),
+            parent: Some(parent),
+            children: Vec::new(),
+        });
+        if leading {
+            self.nodes[parent].children.insert(0, id);
+        } else {
+            self.nodes[parent].children.push(id);
+        }
+        self.generated.insert((parent, leading), id);
+        id
     }
 
     #[must_use]

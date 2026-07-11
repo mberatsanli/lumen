@@ -103,7 +103,9 @@ pub fn page_from_document(
     measurer: &dyn TextMeasurer,
     hovered: Option<lumen_html::NodeId>,
 ) -> Page {
-    let styles = compute_styles_hovered(&document, &stylesheet, hovered);
+    let mut document = document;
+    let mut styles = compute_styles_hovered(&document, &stylesheet, hovered);
+    apply_generated_content(&mut document, &mut styles);
     let layout = layout_document(&document, &styles, viewport, measurer, &images);
     let display_list = build_display_list(&layout, &images);
 
@@ -115,6 +117,16 @@ pub fn page_from_document(
         display_list,
         viewport,
         images,
+    }
+}
+
+/// Materializes `::before`/`::after` content: each pseudo text becomes a
+/// generated text node (inserted or updated in place) whose computed
+/// style is registered in the style map.
+fn apply_generated_content(document: &mut Document, styles: &mut StyleMap) {
+    for pseudo in std::mem::take(&mut styles.pseudo_texts) {
+        let node = document.upsert_generated_text(pseudo.element, pseudo.leading, &pseudo.text);
+        styles.by_node.insert(node, pseudo.style);
     }
 }
 
@@ -173,6 +185,39 @@ pub fn extract_embedded_css(document: &Document) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn before_and_after_generate_inline_text() {
+        let page = crate::build_page(
+            "<style>.badge::before { content: \"[pre] \"; color: #ff0000; }\
+                    .badge::after { content: \" [post]\"; }</style>\
+             <p class='badge'>middle</p>",
+            crate::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        let texts: Vec<(String, String)> = page
+            .display_list
+            .iter()
+            .filter_map(|command| match command {
+                crate::DisplayCommand::DrawText { text, color, .. } => {
+                    Some((text.clone(), color.to_string()))
+                }
+                _ => None,
+            })
+            .collect();
+        let joined: String = texts
+            .iter()
+            .map(|(text, _)| text.as_str())
+            .collect::<Vec<_>>()
+            .join("|");
+        assert!(joined.contains("[pre]"), "display list text: {joined}");
+        assert!(joined.contains("[post]"), "display list text: {joined}");
+        // ::before comes first and carries its own color.
+        assert!(texts[0].0.contains("[pre]"));
+        assert_eq!(texts[0].1, "#ff0000");
+    }
+
     use super::*;
     use lumen_css::Color;
 
