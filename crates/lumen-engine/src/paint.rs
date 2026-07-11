@@ -341,6 +341,28 @@ fn paint_box(
             for fragment in &line.fragments {
                 match &fragment.content {
                     crate::inline::FragmentContent::Text { text, style } if style.visible => {
+                        // Text shadows: offset copies in the shadow color,
+                        // blur approximated by thinning the alpha.
+                        for shadow in style.text_shadows.iter().rev() {
+                            let softness = 1.0 / (1.0 + shadow.blur / 3.0);
+                            commands.push(DisplayCommand::DrawText {
+                                x: content.x + fragment.x + shadow.offset_x,
+                                y: content.y
+                                    + line.y
+                                    + line.baseline
+                                    + fragment.dy
+                                    + shadow.offset_y,
+                                text: text.clone(),
+                                color: fade(shadow.color.with_alpha_factor(softness)),
+                                font_size: style.font_size,
+                                font_weight: style.font_weight.0,
+                                underline: false,
+                                italic: style.italic,
+                                monospace: style.monospace,
+                                line_through: false,
+                                letter_spacing: style.letter_spacing,
+                            });
+                        }
                         commands.push(DisplayCommand::DrawText {
                             x: content.x + fragment.x,
                             y: content.y + line.y + line.baseline + fragment.dy,
@@ -809,6 +831,26 @@ mod tests {
             .count();
         // 4 columns x 2 rows.
         assert_eq!(images, 8);
+    }
+
+    #[test]
+    fn text_shadows_paint_offset_copies_first() {
+        let list = commands(
+            "<style>p { text-shadow: 2px 3px 4px #ff0000; color: #111111; }</style>\
+             <p>shadowed</p>",
+        );
+        let texts: Vec<(f32, f32, String)> = list
+            .iter()
+            .filter_map(|command| match command {
+                DisplayCommand::DrawText { x, y, color, .. } => Some((*x, *y, color.to_string())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts.len(), 2);
+        // Shadow first, offset by (2, 3), reddish and translucent.
+        assert_eq!(texts[0].0, texts[1].0 + 2.0);
+        assert_eq!(texts[0].1, texts[1].1 + 3.0);
+        assert!(texts[0].2.starts_with("rgba(255"));
     }
 
     #[test]

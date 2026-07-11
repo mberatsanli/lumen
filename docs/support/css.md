@@ -149,7 +149,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `white-space` / `pre` | ⚠️ | ✅ | ✅ | ✅ | normal, nowrap, pre (pre-wrap/pre-line treated as pre) |
 | `word-break` / `overflow-wrap` | ⚠️ | ✅ | ✅ | ✅ | break-all/break-word/anywhere split over-wide words at any character |
 | `text-overflow: ellipsis` | ⚠️ | ✅ | ✅ | ✅ | truncates the overflowing line with …; pair with nowrap + overflow |
-| `text-shadow` | ❌ | ✅ | ✅ | ✅ | |
+| `text-shadow` | ⚠️ | ✅ | ✅ | ✅ | comma lists; blur approximated by alpha thinning (no glyph blur) |
 | Web fonts `@font-face` | ❌ | ✅ | ✅ | ✅ | |
 
 ## Visual effects & motion

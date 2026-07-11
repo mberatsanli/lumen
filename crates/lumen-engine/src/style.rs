@@ -250,6 +250,8 @@ pub struct ComputedStyle {
     /// Approximated as inherited so text inside `<sup>`/aligned spans
     /// picks it up (deviation, like text-decoration).
     pub vertical_align: VerticalAlign,
+    /// Inherited, like all text properties.
+    pub text_shadows: Vec<TextShadow>,
     pub box_sizing: BoxSizing,
     pub float: Float,
     pub clear: Clear,
@@ -327,6 +329,15 @@ pub struct BoxShadow {
     pub color: Color,
     /// Shades inward from the box edge instead of dropping behind it.
     pub inset: bool,
+}
+
+/// One text shadow of a possibly comma-separated list.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextShadow {
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub blur: f32,
+    pub color: Color,
 }
 
 /// `background-size` subset.
@@ -527,6 +538,7 @@ impl Default for ComputedStyle {
             break_words: false,
             line_through: false,
             vertical_align: VerticalAlign::Baseline,
+            text_shadows: Vec::new(),
             box_sizing: BoxSizing::default(),
             float: Float::None,
             clear: Clear::None,
@@ -689,8 +701,9 @@ pub struct PseudoText {
 /// painting*; treating it as inherited approximates that.)
 /// (`user-select` and `::selection` styling are treated as inherited —
 /// an approximation that matches how they behave in practice.)
-const INHERITED_PROPERTIES: [&str; 21] = [
+const INHERITED_PROPERTIES: [&str; 22] = [
     "color",
+    "text-shadow",
     "visibility",
     "vertical-align",
     "word-break",
@@ -1783,6 +1796,38 @@ fn to_computed(
                         spread: lengths.get(3).copied().unwrap_or(0.0),
                         color: color.unwrap_or(Color::rgba(0, 0, 0, 100)),
                         inset,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // text-shadow: comma-separated "x y [blur] color".
+    style.text_shadows = raw
+        .get("text-shadow")
+        .map(|value| {
+            let text = value.to_string();
+            text.split(',')
+                .filter_map(|shadow| {
+                    let mut lengths: Vec<f32> = Vec::new();
+                    let mut color = None;
+                    for piece in shadow.split_whitespace() {
+                        match CssValue::parse_component(piece)? {
+                            CssValue::Length(px, lumen_css::Unit::Px) => lengths.push(px),
+                            CssValue::Length(em, lumen_css::Unit::Em) => {
+                                lengths.push(em * style.font_size);
+                            }
+                            CssValue::Number(number) => lengths.push(number),
+                            CssValue::Color(parsed) => color = Some(parsed),
+                            CssValue::Keyword(keyword) => color = Color::parse(&keyword),
+                            _ => return None,
+                        }
+                    }
+                    (lengths.len() >= 2).then(|| TextShadow {
+                        offset_x: lengths[0],
+                        offset_y: lengths[1],
+                        blur: lengths.get(2).copied().unwrap_or(0.0).max(0.0),
+                        color: color.unwrap_or(Color::rgba(0, 0, 0, 128)),
                     })
                 })
                 .collect()

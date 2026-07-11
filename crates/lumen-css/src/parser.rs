@@ -343,7 +343,7 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
         }
         // aspect-ratio and box-shadow keep their raw text ("16 / 9" and
         // shadow commas would not survive component parsing).
-        if name == "aspect-ratio" || name == "box-shadow" {
+        if name == "aspect-ratio" || name == "box-shadow" || name == "text-shadow" {
             declarations.push(Declaration {
                 name,
                 value: CssValue::Keyword(value.trim().to_string()),
