@@ -148,6 +148,14 @@
     .sel-title + p { font-style: italic; }
     a[href^="https"] { color: #7a3d9e; }
 
+    /* --- media queries ---------------------------------------------------- */
+    .mq { padding: 8px; background-color: #dfe7f2; }
+    .mq::after { content: " (wide viewport)"; }
+    @media (max-width: 700px) {
+      .mq { background-color: #f2dfdf; }
+      .mq::after { content: " (narrow viewport — resize me!)"; }
+    }
+
     /* --- variables & calc ------------------------------------------------ */
     .vars { background-color: var(--brand); color: #ffffff;
             padding: var(--gap) calc(var(--gap) * 2); }
@@ -274,6 +282,11 @@
     </div>
     <p>Secure links go purple: <a href="https://example.com">https link</a>
        vs <a href="http://example.com">http link</a>.</p>
+  </div>
+
+  <div class="section">
+    <h2>Media queries</h2>
+    <p class="mq">This box changes color and text below 700px.</p>
   </div>
 
   <div class="section">

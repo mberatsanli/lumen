@@ -44,7 +44,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `inherit`/`initial`/`unset`/`revert` | ⚠️ | ✅ | ✅ | ✅ | revert behaves as initial |
 | Custom properties `--x` / `var()` | ⚠️ | ✅ | ✅ | ✅ | inherit + fallbacks; substituted before shorthand expansion; no invalid-at-computed-value handling |
 | `calc()`, `min()`, `max()`, `clamp()` | ⚠️ | ✅ | ✅ | ✅ | calc() with px/em/rem/%/numbers, + - * /, parens; px+% mixing unsupported (dropped); no min/max/clamp |
-| `@media` | ❌ | ✅ | ✅ | ✅ | blocks skipped safely, never applied |
+| `@media` | ⚠️ | ✅ | ✅ | ✅ | screen/all + min-/max-width (and-combined, nesting intersects); restyles on resize; other queries skipped safely |
 | `@import`, `@font-face`, `@supports`, `@layer` | ❌ | ✅ | ✅ | ✅ | skipped safely |
 
 ## Units

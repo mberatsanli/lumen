@@ -104,7 +104,10 @@ pub fn page_from_document(
     hovered: Option<lumen_html::NodeId>,
 ) -> Page {
     let mut document = document;
-    let mut styles = compute_styles_hovered(&document, &stylesheet, hovered);
+    // Media queries resolve against the viewport width here, so resizes
+    // (which rebuild the page) restyle automatically.
+    let effective = stylesheet.for_width(viewport.width);
+    let mut styles = compute_styles_hovered(&document, &effective, hovered);
     apply_generated_content(&mut document, &mut styles);
     let layout = layout_document(&document, &styles, viewport, measurer, &images);
     let display_list = build_display_list(&layout, &images);

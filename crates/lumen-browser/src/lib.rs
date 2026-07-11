@@ -571,6 +571,38 @@ mod tests {
     }
 
     #[test]
+    fn media_queries_restyle_on_viewport_change() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>div { height: 10px; background-color: #111111; }\
+                 @media (max-width: 600px) { div { background-color: #222222; } }</style>\
+                 <div></div>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let fill_colors = |session: &Session<FakeLoader>| -> Vec<String> {
+            session
+                .page()
+                .unwrap()
+                .display_list
+                .iter()
+                .filter_map(|command| match command {
+                    lumen_engine::DisplayCommand::FillRect { color, .. } => Some(color.to_string()),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert!(fill_colors(&session).contains(&"#111111".to_string()));
+        session.set_viewport(Size {
+            width: 500.0,
+            height: 600.0,
+        });
+        assert!(fill_colors(&session).contains(&"#222222".to_string()));
+    }
+
+    #[test]
     fn title_comes_from_the_title_element() {
         let mut session = Session::new(
             FakeLoader::new(&[(

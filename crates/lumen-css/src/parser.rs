@@ -21,11 +21,84 @@ pub struct Rule {
     pub declarations: Vec<Declaration>,
     /// Position of the rule in the stylesheet, for cascade tie-breaking.
     pub source_order: usize,
+    /// The enclosing `@media` condition, when any.
+    pub media: Option<MediaQuery>,
+}
+
+/// A supported media query: width bounds in px, `and`-combined.
+/// Unsupported queries never reach here — their blocks are skipped.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MediaQuery {
+    pub min_width: Option<f32>,
+    pub max_width: Option<f32>,
+}
+
+impl MediaQuery {
+    #[must_use]
+    pub fn matches(&self, viewport_width: f32) -> bool {
+        self.min_width.is_none_or(|min| viewport_width >= min)
+            && self.max_width.is_none_or(|max| viewport_width <= max)
+    }
+}
+
+/// Parses a media condition subset: optional `only`, `screen`/`all` type,
+/// `and`-joined `(min-width: Npx)` / `(max-width: Npx)` (em/rem allowed,
+/// 1em = 16px). `None` = unsupported, skip the block.
+fn parse_media_condition(source: &str) -> Option<MediaQuery> {
+    let mut query = MediaQuery {
+        min_width: None,
+        max_width: None,
+    };
+    for part in source.to_ascii_lowercase().split(" and ") {
+        let part = part.trim().trim_start_matches("only ").trim();
+        if part.is_empty() || part == "screen" || part == "all" {
+            continue;
+        }
+        let feature = part.strip_prefix('(')?.strip_suffix(')')?;
+        let (name, value) = feature.split_once(':')?;
+        let value = value.trim();
+        let pixels = if let Some(number) = value.strip_suffix("px") {
+            number.trim().parse::<f32>().ok()?
+        } else if let Some(number) = value
+            .strip_suffix("rem")
+            .or_else(|| value.strip_suffix("em"))
+        {
+            number.trim().parse::<f32>().ok()? * 16.0
+        } else {
+            return None;
+        };
+        match name.trim() {
+            "min-width" => query.min_width = Some(pixels),
+            "max-width" => query.max_width = Some(pixels),
+            _ => return None,
+        }
+    }
+    Some(query)
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Stylesheet {
     pub rules: Vec<Rule>,
+}
+
+impl Stylesheet {
+    /// The rules that apply at a viewport width: everything outside
+    /// `@media`, plus matching media blocks.
+    #[must_use]
+    pub fn for_width(&self, viewport_width: f32) -> Stylesheet {
+        Stylesheet {
+            rules: self
+                .rules
+                .iter()
+                .filter(|rule| {
+                    rule.media
+                        .as_ref()
+                        .is_none_or(|media| media.matches(viewport_width))
+                })
+                .cloned()
+                .collect(),
+        }
+    }
 }
 
 /// Parses a stylesheet.
@@ -39,17 +112,55 @@ pub struct Stylesheet {
 pub fn parse_stylesheet(source: &str) -> Stylesheet {
     let source = strip_comments(source);
     let mut rules = Vec::new();
-    let mut rest = source.as_str();
     let mut source_order = 0;
+    parse_rule_list(&source, None, &mut rules, &mut source_order);
+    Stylesheet { rules }
+}
 
+/// Parses a run of rules, attaching `media` to each. `@media` blocks with
+/// a supported condition recurse (nested conditions intersect); all other
+/// at-rules are skipped with balanced braces.
+fn parse_rule_list(
+    source: &str,
+    media: Option<MediaQuery>,
+    rules: &mut Vec<Rule>,
+    source_order: &mut usize,
+) {
+    let mut rest = source;
     loop {
         rest = rest.trim_start();
         if rest.is_empty() {
             break;
         }
-        // At-rules (`@media`, `@import`, ...) are unsupported: skip the
-        // whole construct with balanced braces so nested rules inside the
-        // block cannot desynchronize the parser.
+        if let Some(after_keyword) = rest.strip_prefix("@media") {
+            if let Some(open) = after_keyword.find('{') {
+                let condition = after_keyword[..open].trim();
+                let block_start = &after_keyword[open..];
+                let block_end = balanced_block_len(block_start);
+                if let Some(query) = parse_media_condition(condition) {
+                    let combined = Some(MediaQuery {
+                        min_width: merge_bound(
+                            media.and_then(|outer| outer.min_width),
+                            query.min_width,
+                            f32::max,
+                        ),
+                        max_width: merge_bound(
+                            media.and_then(|outer| outer.max_width),
+                            query.max_width,
+                            f32::min,
+                        ),
+                    });
+                    let inner = &block_start[1..block_end.saturating_sub(1)];
+                    parse_rule_list(inner, combined, rules, source_order);
+                }
+                rest = &after_keyword[open + block_end..];
+                continue;
+            }
+            break;
+        }
+        // Other at-rules (`@import`, `@font-face`, ...) are unsupported:
+        // skip the whole construct with balanced braces so nested rules
+        // inside the block cannot desynchronize the parser.
         if rest.starts_with('@') {
             rest = skip_at_rule(rest);
             continue;
@@ -79,12 +190,38 @@ pub fn parse_stylesheet(source: &str) -> Stylesheet {
         rules.push(Rule {
             selectors,
             declarations: parse_declarations(declaration_source),
-            source_order,
+            source_order: *source_order,
+            media,
         });
-        source_order += 1;
+        *source_order += 1;
     }
+}
 
-    Stylesheet { rules }
+/// Combines an inherited bound with a nested one.
+fn merge_bound(outer: Option<f32>, inner: Option<f32>, pick: fn(f32, f32) -> f32) -> Option<f32> {
+    match (outer, inner) {
+        (Some(a), Some(b)) => Some(pick(a, b)),
+        (bound, None) | (None, bound) => bound,
+    }
+}
+
+/// Length of the balanced `{...}` block starting at `source[0] == '{'`
+/// (including both braces); runs to end of input on recovery.
+fn balanced_block_len(source: &str) -> usize {
+    let mut depth = 0usize;
+    for (index, character) in source.char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return index + 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    source.len()
 }
 
 /// Parses a `;`-separated declaration list (also used for inline `style=`
@@ -606,6 +743,45 @@ mod tests {
     }
 
     #[test]
+    fn media_rules_carry_conditions_and_filter_by_width() {
+        let sheet = parse_stylesheet(
+            "p { color: red; }
+             @media screen and (max-width: 700px) {
+                 div { margin: 0; }
+             }
+             @media (min-width: 400px) and (max-width: 900px) {
+                 b { color: blue; }
+             }
+             @media print { i { color: green; } }
+             h1 { color: blue; }",
+        );
+        // print block is skipped entirely; the rest parse.
+        assert_eq!(sheet.rules.len(), 4);
+        let media = sheet.rules[1].media.unwrap();
+        assert_eq!(media.max_width, Some(700.0));
+        assert!(media.matches(500.0));
+        assert!(!media.matches(800.0));
+
+        let narrow = sheet.for_width(300.0);
+        assert_eq!(narrow.rules.len(), 3); // p, div, h1
+        let middle = sheet.for_width(600.0);
+        assert_eq!(middle.rules.len(), 4);
+        let wide = sheet.for_width(1200.0);
+        assert_eq!(wide.rules.len(), 2); // p, h1
+    }
+
+    #[test]
+    fn nested_media_conditions_intersect() {
+        let sheet = parse_stylesheet(
+            "@media (min-width: 400px) { @media (max-width: 800px) { p { color: red; } } }",
+        );
+        assert_eq!(sheet.rules.len(), 1);
+        let media = sheet.rules[0].media.unwrap();
+        assert_eq!(media.min_width, Some(400.0));
+        assert_eq!(media.max_width, Some(800.0));
+    }
+
+    #[test]
     fn drops_rule_with_invalid_selector() {
         let sheet =
             parse_stylesheet("p ! a { color: red; } h1 { color: blue; } a:focus { color: red; }");
@@ -646,11 +822,11 @@ mod tests {
 
     #[test]
     fn media_block_is_skipped_without_desync() {
-        // Regression: the parser used to close the @media block at the
-        // first `}`, swallowing every rule that followed.
+        // Regression: the parser used to close unsupported at-blocks at
+        // the first `}`, swallowing every rule that followed.
         let sheet = parse_stylesheet(
             "p { color: red; }
-             @media (max-width: 700px) {
+             @supports (display: grid) {
                  div { margin: 0; }
                  body { background-color: white; }
              }
