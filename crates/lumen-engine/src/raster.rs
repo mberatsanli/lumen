@@ -69,6 +69,15 @@ const fn pack(color: Color) -> u32 {
     ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
 }
 
+/// Fills a rect respecting the color's alpha channel.
+fn paint_rect(framebuffer: &mut Framebuffer, rect: Rect, color: Color) {
+    if color.a == 255 {
+        framebuffer.fill(rect, pack(color));
+    } else if color.a > 0 {
+        framebuffer.blend_fill(rect, color, color.a);
+    }
+}
+
 /// Rasterizes paint commands into a fresh white framebuffer using the
 /// built-in bitmap font for text.
 ///
@@ -127,14 +136,9 @@ pub fn rasterize_over(
             } => {
                 let rect = shift(rect);
                 if radius.is_zero() {
-                    framebuffer.fill(rect, pack(*color));
+                    paint_rect(framebuffer, rect, *color);
                 } else {
-                    fill_rounded(
-                        framebuffer,
-                        &rect,
-                        &scale_radius(radius, scale),
-                        pack(*color),
-                    );
+                    fill_rounded(framebuffer, &rect, &scale_radius(radius, scale), *color);
                 }
             }
             DisplayCommand::StrokeRect {
@@ -154,7 +158,7 @@ pub fn rasterize_over(
                         &rect,
                         &scale_radius(radius, scale),
                         width,
-                        pack(colors.top),
+                        colors.top,
                     );
                     continue;
                 }
@@ -208,11 +212,11 @@ pub fn rasterize_over(
                     ),
                 ];
                 for (strip, color, style, horizontal) in strips {
-                    fill_edge(framebuffer, &strip, pack(color), style, horizontal);
+                    fill_edge(framebuffer, &strip, color, style, horizontal);
                 }
             }
-            DisplayCommand::DrawImage { rect, image } => {
-                blit_image(framebuffer, &shift(rect), image);
+            DisplayCommand::DrawImage { rect, image, alpha } => {
+                blit_image(framebuffer, &shift(rect), image, *alpha);
             }
             DisplayCommand::DrawText {
                 x,
@@ -226,6 +230,7 @@ pub fn rasterize_over(
             } => {
                 let (x, y, font_size) = (x * scale, (y - scroll_y) * scale, font_size * scale);
                 let packed = pack(*color);
+                let text_alpha = color.a;
                 let shear = if *italic { 0.21 } else { 0.0 };
                 let text_width = match font {
                     Some(font) => draw_text_scalable(
@@ -235,6 +240,7 @@ pub fn rasterize_over(
                         y,
                         text,
                         packed,
+                        text_alpha,
                         font_size,
                         *font_weight,
                         shear,
@@ -245,20 +251,22 @@ pub fn rasterize_over(
                         y,
                         text,
                         packed,
+                        text_alpha,
                         font_size,
                         *font_weight,
                         shear,
                     ),
                 };
                 if *underline {
-                    framebuffer.fill(
+                    paint_rect(
+                        framebuffer,
                         Rect {
                             x,
                             y: y + (2.0 * scale).max(1.0),
                             width: text_width,
                             height: scale.max(1.0),
                         },
-                        packed,
+                        *color,
                     );
                 }
             }
@@ -277,6 +285,7 @@ fn draw_text(
     y: f32,
     text: &str,
     color: u32,
+    alpha: u8,
     font_size: f32,
     font_weight: u16,
     shear: f32,
@@ -304,6 +313,7 @@ fn draw_text(
             advance,
             cell_height,
             color,
+            alpha,
         );
         if bold {
             draw_glyph(
@@ -314,6 +324,7 @@ fn draw_text(
                 advance,
                 cell_height,
                 color,
+                alpha,
             );
         }
     }
@@ -321,6 +332,7 @@ fn draw_text(
 }
 
 /// Nearest-neighbor scales one 8×8 glyph into a cell.
+#[allow(clippy::too_many_arguments)]
 fn draw_glyph(
     framebuffer: &mut Framebuffer,
     glyph: &[u8; 8],
@@ -329,6 +341,7 @@ fn draw_glyph(
     cell_width: f32,
     cell_height: f32,
     color: u32,
+    alpha: u8,
 ) {
     let x0 = cell_x.max(0.0) as u32;
     let y0 = cell_y.max(0.0) as u32;
@@ -340,7 +353,8 @@ fn draw_glyph(
         for pixel_x in x0..x1 {
             let source_column = (((pixel_x as f32 - cell_x) / cell_width) * 8.0) as usize;
             if row_bits & (1 << source_column.min(7)) != 0 {
-                framebuffer.pixels[(pixel_y * framebuffer.width + pixel_x) as usize] = color;
+                let position = (pixel_y * framebuffer.width + pixel_x) as usize;
+                framebuffer.pixels[position] = blend(framebuffer.pixels[position], color, alpha);
             }
         }
     }
@@ -358,6 +372,7 @@ fn draw_text_scalable(
     y: f32,
     text: &str,
     color: u32,
+    alpha: u8,
     font_size: f32,
     font_weight: u16,
     shear: f32,
@@ -375,6 +390,7 @@ fn draw_text_scalable(
             glyph_x,
             glyph_y,
             color,
+            alpha,
             y,
             shear,
         );
@@ -386,6 +402,7 @@ fn draw_text_scalable(
                 glyph_x + 1.0,
                 glyph_y,
                 color,
+                alpha,
                 y,
                 shear,
             );
@@ -403,6 +420,7 @@ fn blend_glyph(
     origin_x: f32,
     origin_y: f32,
     color: u32,
+    alpha_multiplier: u8,
     baseline_y: f32,
     shear: f32,
 ) {
@@ -410,7 +428,8 @@ fn blend_glyph(
         return;
     }
     for (index, alpha) in coverage.iter().enumerate() {
-        if *alpha == 0 {
+        let alpha = (u32::from(*alpha) * u32::from(alpha_multiplier) / 255) as u8;
+        if alpha == 0 {
             continue;
         }
         let row_y = origin_y + (index / glyph_width) as f32;
@@ -426,7 +445,7 @@ fn blend_glyph(
             continue;
         }
         let position = (pixel_y * framebuffer.width + pixel_x) as usize;
-        framebuffer.pixels[position] = blend(framebuffer.pixels[position], color, *alpha);
+        framebuffer.pixels[position] = blend(framebuffer.pixels[position], color, alpha);
     }
 }
 
@@ -434,7 +453,7 @@ fn blend_glyph(
 fn fill_edge(
     framebuffer: &mut Framebuffer,
     strip: &Rect,
-    color: u32,
+    color: Color,
     style: crate::style::BorderStyle,
     horizontal: bool,
 ) {
@@ -444,11 +463,16 @@ fn fill_edge(
     } else {
         strip.width
     };
+    // A zero-thickness edge has a zero dash pattern; segmenting it would
+    // never advance.
+    if thickness <= 0.0 {
+        return;
+    }
     let (dash, gap) = match style {
         BorderStyle::Dashed => (3.0 * thickness, 2.0 * thickness),
         BorderStyle::Dotted => (thickness, thickness),
         _ => {
-            framebuffer.fill(*strip, color);
+            paint_rect(framebuffer, *strip, color);
             return;
         }
     };
@@ -473,7 +497,7 @@ fn fill_edge(
                 ..*strip
             }
         };
-        framebuffer.fill(rect, color);
+        paint_rect(framebuffer, rect, color);
         offset += dash + gap;
     }
 }
@@ -534,7 +558,9 @@ fn rounded_coverage(rect: &Rect, radius: &Corners<f32>, x: f32, y: f32) -> f32 {
 }
 
 /// Fills a rounded rectangle with antialiased corners.
-fn fill_rounded(framebuffer: &mut Framebuffer, rect: &Rect, radius: &Corners<f32>, color: u32) {
+fn fill_rounded(framebuffer: &mut Framebuffer, rect: &Rect, radius: &Corners<f32>, color: Color) {
+    let packed = pack(color);
+    let color_alpha = f32::from(color.a) / 255.0;
     let radius = radius.clamped_to(rect.width, rect.height);
     let x0 = (rect.x.max(0.0) as u32).min(framebuffer.width);
     let y0 = (rect.y.max(0.0) as u32).min(framebuffer.height);
@@ -550,8 +576,8 @@ fn fill_rounded(framebuffer: &mut Framebuffer, rect: &Rect, radius: &Corners<f32
             let position = (pixel_y * framebuffer.width + pixel_x) as usize;
             framebuffer.pixels[position] = blend(
                 framebuffer.pixels[position],
-                color,
-                (coverage * 255.0) as u8,
+                packed,
+                (coverage * color_alpha * 255.0) as u8,
             );
         }
     }
@@ -563,8 +589,10 @@ fn fill_rounded_ring(
     rect: &Rect,
     radius: &Corners<f32>,
     width: f32,
-    color: u32,
+    color: Color,
 ) {
+    let packed = pack(color);
+    let color_alpha = f32::from(color.a) / 255.0;
     let radius = radius.clamped_to(rect.width, rect.height);
     let inner = Rect {
         x: rect.x + width,
@@ -593,15 +621,20 @@ fn fill_rounded_ring(
             let position = (pixel_y * framebuffer.width + pixel_x) as usize;
             framebuffer.pixels[position] = blend(
                 framebuffer.pixels[position],
-                color,
-                (coverage * 255.0) as u8,
+                packed,
+                (coverage * color_alpha * 255.0) as u8,
             );
         }
     }
 }
 
 /// Nearest-neighbor blit of an RGBA image into `rect`, alpha-blended.
-fn blit_image(framebuffer: &mut Framebuffer, rect: &Rect, image: &crate::image::RasterImage) {
+fn blit_image(
+    framebuffer: &mut Framebuffer,
+    rect: &Rect,
+    image: &crate::image::RasterImage,
+    alpha_multiplier: u8,
+) {
     if rect.width <= 0.0 || rect.height <= 0.0 || image.width == 0 || image.height == 0 {
         return;
     }
@@ -621,7 +654,8 @@ fn blit_image(framebuffer: &mut Framebuffer, rect: &Rect, image: &crate::image::
             };
             let color = ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
             let position = (pixel_y * framebuffer.width + pixel_x) as usize;
-            framebuffer.pixels[position] = blend(framebuffer.pixels[position], color, a);
+            let combined = (u32::from(a) * u32::from(alpha_multiplier) / 255) as u8;
+            framebuffer.pixels[position] = blend(framebuffer.pixels[position], color, combined);
         }
     }
 }

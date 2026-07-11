@@ -76,6 +76,26 @@
     /* --- display --------------------------------------------------------- */
     .ghost { display: none; background-color: red; }
 
+    /* --- positioning --------------------------------------------------- */
+    .pos-wrap { position: relative; height: 90px; background-color: #eef1ee;
+                padding: 8px; }
+    .badge { position: absolute; top: -6px; right: -6px; background-color: crimson;
+             color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+    .nudge { position: relative; top: 6px; left: 24px; background-color: #dce6f0;
+             padding: 4px; }
+    .stack { position: absolute; width: 90px; height: 40px; padding: 4px; }
+    .z1 { top: 20px; left: 8px; background-color: #f0c9c0; z-index: 1; }
+    .z3 { top: 32px; left: 48px; background-color: #c8d8c0; z-index: 3; }
+    .z2 { top: 44px; left: 88px; background-color: #c0cbe0; z-index: 2; }
+
+    /* --- alpha & opacity ----------------------------------------------- */
+    .glass { background-color: rgba(34, 102, 170, 0.35); padding: 8px; }
+    .hexa { background-color: #f5c51866; padding: 8px; }
+    .hslbox { background-color: hsl(150, 45%, 80%); padding: 8px; }
+    .ghost-box { opacity: 0.4; background-color: tomato; padding: 8px;
+                 border: 2px solid darkred; }
+    .named { color: rebeccapurple; }
+
     /* --- inline-block & float ----------------------------------------- */
     .chip { display: inline-block; padding: 4px 10px;
             background-color: #e2e8f0; border-width: 1px; border-color: #b6c2d2; }
@@ -178,6 +198,26 @@
     <h2>Inheritance</h2>
     <div><p>Color, 18px font-size and centering inherited two levels down.
     <span>Spans inherit too.</span></p></div>
+  </div>
+
+  <div class="section">
+    <h2>Positioning</h2>
+    <div class="pos-wrap">
+      <span class="badge">absolute</span>
+      <p class="nudge">position: relative nudged 6px down, 24px right.</p>
+      <div class="stack z1"><p>z 1</p></div>
+      <div class="stack z3"><p>z 3 — on top</p></div>
+      <div class="stack z2"><p>z 2</p></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Alpha &amp; opacity</h2>
+    <div class="glass"><p>rgba(34,102,170,0.35) — the section shows through.</p></div>
+    <div class="hexa"><p>#f5c51866 — 8-digit hex alpha.</p></div>
+    <div class="hslbox"><p>hsl(150, 45%, 80%) — mint via HSL.</p></div>
+    <div class="ghost-box"><p>opacity: 0.4 fades box, border and this text together.</p></div>
+    <p class="named">rebeccapurple, dodgerblue &amp; friends — the full named table.</p>
   </div>
 
   <div class="section">

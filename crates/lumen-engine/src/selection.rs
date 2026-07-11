@@ -46,7 +46,7 @@ fn collect(layout: &LayoutBox, runs: &mut Vec<TextRun>) {
                             width: fragment.width,
                             height: line.height,
                         },
-                        style: style.clone(),
+                        style: style.as_ref().clone(),
                     }),
                     FragmentContent::Box(laid) => collect(laid, runs),
                 }

@@ -64,14 +64,15 @@ Chrome/Firefox/Safari columns are current stable releases.
 
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
-| Named colors | ⚠️ | ✅ | ✅ | ✅ | 11 names vs ~148 |
+| Named colors | ✅ | ✅ | ✅ | ✅ | full CSS table (148) |
 | `#rgb` / `#rrggbb` | ✅ | ✅ | ✅ | ✅ | |
-| `#rgba` / `#rrggbbaa` | ❌ | ✅ | ✅ | ✅ | no alpha anywhere in the engine |
+| `#rgba` / `#rrggbbaa` | ✅ | ✅ | ✅ | ✅ | |
 | `rgb(r, g, b)` | ✅ | ✅ | ✅ | ✅ | |
-| `rgba()` / slash alpha | ❌ | ✅ | ✅ | ✅ | |
-| `hsl()` / `hwb()` / `lab()` / `oklch()` | ❌ | ✅ | ✅ | ✅ | |
+| `rgba()` | ✅ | ✅ | ✅ | ✅ | comma syntax; no slash/space syntax |
+| `hsl()` / `hsla()` | ✅ | ✅ | ✅ | ✅ | comma syntax |
+| `hwb()` / `lab()` / `oklch()` | ❌ | ✅ | ✅ | ✅ | |
 | `transparent` | ✅ | ✅ | ✅ | ✅ | |
-| `currentColor` | ⚠️ | ✅ | ✅ | ✅ | border-color defaults to it; keyword itself doesn't parse |
+| `currentColor` | ✅ | ✅ | ✅ | ✅ | keyword + border-color default |
 
 ## Box model
 
@@ -105,7 +106,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Grid | ❌ | ✅ | ✅ | ✅ | |
 | Table layout | ❌ | ✅ | ✅ | ✅ | tables flow as plain blocks |
 | `display: list-item` | ❌ | ✅ | ✅ | ✅ | no markers |
-| `position` + offsets + `z-index` | ❌ | ✅ | ✅ | ✅ | |
+| `position` + offsets + `z-index` | ⚠️ | ✅ | ✅ | ✅ | relative/absolute/fixed; containing block = parent content box (not nearest positioned ancestor); absolute `bottom` unsupported; fixed scrolls with the page; z-index = simple sort, no stacking contexts |
 | `float` / `clear` | ⚠️ | ✅ | ✅ | ✅ | simplified: floats narrow inline lines in the same container only; block siblings ignore floats except clear |
 | `overflow` | ❌ | ✅ | ✅ | ✅ | boxes never clip/scroll |
 | `vertical-align` | ❌ | ✅ | ✅ | ✅ | |
@@ -153,7 +154,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
-| `opacity` | ❌ | ✅ | ✅ | ✅ | |
+| `opacity` | ⚠️ | ✅ | ✅ | ✅ | per-command alpha multiply (approximation of group compositing; overlapping children double-blend) |
 | `visibility: hidden` | ❌ | ✅ | ✅ | ✅ | |
 | `transform` | ❌ | ✅ | ✅ | ✅ | |
 | `filter` / `backdrop-filter` | ❌ | ✅ | ✅ | ✅ | |

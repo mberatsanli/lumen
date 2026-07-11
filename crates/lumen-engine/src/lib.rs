@@ -3,6 +3,8 @@
 //! [`build_page`] runs the full pipeline over an HTML string; the
 //! intermediate results are all inspectable on the returned [`Page`].
 
+mod flex;
+mod float;
 pub mod font;
 pub mod geometry;
 pub mod image;

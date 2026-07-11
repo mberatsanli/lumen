@@ -43,8 +43,13 @@ pub enum DisplayCommand {
         underline: bool,
         italic: bool,
     },
-    /// A decoded image scaled into `rect`.
-    DrawImage { rect: Rect, image: Arc<RasterImage> },
+    /// A decoded image scaled into `rect`, with an extra alpha multiplier
+    /// (255 = opaque) from `opacity`.
+    DrawImage {
+        rect: Rect,
+        image: Arc<RasterImage>,
+        alpha: u8,
+    },
 }
 
 /// Flattens the layout tree into an ordered list of paint commands.
@@ -60,7 +65,7 @@ pub fn build_display_list(layout: &LayoutBox, images: &ImageMap) -> Vec<DisplayC
             radius: Corners::uniform(0.0),
         });
     }
-    paint_box(layout, images, &mut commands);
+    paint_box(layout, images, 1.0, &mut commands);
     commands
 }
 
@@ -78,12 +83,26 @@ fn canvas_background(root: &LayoutBox) -> Option<Color> {
     })
 }
 
-fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCommand>) {
-    let border_box = layout.border_box();
-
+fn paint_box(
+    layout: &LayoutBox,
+    images: &ImageMap,
+    parent_opacity: f32,
+    commands: &mut Vec<DisplayCommand>,
+) {
     // Anonymous blocks carry a clone of their container's style for text
-    // defaults; the container already painted its own background/border.
+    // defaults; the container already painted its own background/border
+    // and applied its own opacity.
     let anonymous = layout.box_type == BoxType::AnonymousBlock;
+    let opacity = if anonymous {
+        parent_opacity
+    } else {
+        parent_opacity * layout.style.opacity
+    };
+    if opacity <= 0.0 {
+        return;
+    }
+    let fade = |color: lumen_css::Color| color.with_alpha_factor(opacity);
+    let border_box = layout.border_box();
 
     let radius = layout
         .style
@@ -93,7 +112,7 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
     if !anonymous && let Some(background) = layout.style.background_color {
         commands.push(DisplayCommand::FillRect {
             rect: border_box,
-            color: background,
+            color: fade(background),
             radius,
         });
     }
@@ -102,10 +121,16 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
     if !anonymous
         && (widths.top > 0.0 || widths.right > 0.0 || widths.bottom > 0.0 || widths.left > 0.0)
     {
+        let colors = layout.style.border_color;
         commands.push(DisplayCommand::StrokeRect {
             rect: border_box,
             widths,
-            colors: layout.style.border_color,
+            colors: EdgeSizes {
+                top: fade(colors.top),
+                right: fade(colors.right),
+                bottom: fade(colors.bottom),
+                left: fade(colors.left),
+            },
             styles: layout.style.border_style,
             radius,
         });
@@ -116,6 +141,7 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
             Some(image) => commands.push(DisplayCommand::DrawImage {
                 rect: layout.content_box(),
                 image: image.clone(),
+                alpha: (opacity * 255.0) as u8,
             }),
             // Broken image: a thin gray placeholder frame.
             None => commands.push(DisplayCommand::StrokeRect {
@@ -138,7 +164,7 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
                             x: content.x + fragment.x,
                             y: content.y + line.y + line.baseline,
                             text: text.clone(),
-                            color: style.color,
+                            color: fade(style.color),
                             font_size: style.font_size,
                             font_weight: style.font_weight.0,
                             underline: style.underline,
@@ -146,15 +172,15 @@ fn paint_box(layout: &LayoutBox, images: &ImageMap, commands: &mut Vec<DisplayCo
                         });
                     }
                     crate::inline::FragmentContent::Box(laid) => {
-                        paint_box(laid, images, commands);
+                        paint_box(laid, images, opacity, commands);
                     }
                 }
             }
         }
     }
 
-    for child in &layout.children {
-        paint_box(child, images, commands);
+    for child in layout.children_in_paint_order() {
+        paint_box(child, images, opacity, commands);
     }
 }
 
@@ -222,10 +248,10 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
                     "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color}{decoration}{slant} {text:?}"
                 );
             }
-            DisplayCommand::DrawImage { rect, image } => {
+            DisplayCommand::DrawImage { rect, image, alpha } => {
                 let _ = writeln!(
                     output,
-                    "DrawImage x={} y={} w={} h={} intrinsic={}x{} {}",
+                    "DrawImage x={} y={} w={} h={} intrinsic={}x{} {} alpha={alpha}",
                     rect.x, rect.y, rect.width, rect.height, image.width, image.height, image.mime
                 );
             }
@@ -319,6 +345,25 @@ mod tests {
         assert_eq!(rect.width, 104.0);
         assert_eq!(rect.height, 14.0);
         assert_eq!(widths.top, 2.0);
+    }
+
+    #[test]
+    fn opacity_fades_the_subtree() {
+        let list = commands(
+            "<style>.half { opacity: 0.5; background-color: #ff0000; height: 10px; }</style>\
+             <div class='half'>hi</div>",
+        );
+        let Some(DisplayCommand::FillRect { color, .. }) = list.iter().find(
+            |command| matches!(command, DisplayCommand::FillRect { color, .. } if color.r == 255),
+        ) else {
+            panic!("no faded fill in {list:?}");
+        };
+        assert_eq!(color.a, 127);
+        let text_alpha = list.iter().find_map(|command| match command {
+            DisplayCommand::DrawText { color, .. } => Some(color.a),
+            _ => None,
+        });
+        assert_eq!(text_alpha, Some(127));
     }
 
     #[test]

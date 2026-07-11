@@ -128,6 +128,16 @@ pub enum BorderStyle {
     None,
 }
 
+/// CSS positioning scheme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Position {
+    #[default]
+    Static,
+    Relative,
+    Absolute,
+    Fixed,
+}
+
 /// `float: left | right`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Float {
@@ -186,12 +196,19 @@ pub struct ComputedStyle {
     pub box_sizing: BoxSizing,
     pub float: Float,
     pub clear: Clear,
+    pub position: Position,
+    /// `top`/`right`/`bottom`/`left` offsets for positioned boxes.
+    pub offsets: EdgeSizes<Dimension>,
+    pub z_index: Option<i32>,
     pub flex_direction: FlexDirection,
     pub justify_content: JustifyContent,
     pub align_items: AlignItems,
     /// Resolved to pixels.
     pub gap: f32,
     pub flex_grow: f32,
+    /// Element opacity 0..=1, multiplied into every paint command of the
+    /// subtree (an approximation of real group compositing).
+    pub opacity: f32,
     /// `user-select: none` makes the element's text unselectable.
     pub selectable: bool,
     /// `::selection` overrides: highlight background and (recorded, not
@@ -228,11 +245,15 @@ impl Default for ComputedStyle {
             box_sizing: BoxSizing::default(),
             float: Float::None,
             clear: Clear::None,
+            position: Position::Static,
+            offsets: EdgeSizes::uniform(Dimension::Auto),
+            z_index: None,
             flex_direction: FlexDirection::default(),
             justify_content: JustifyContent::default(),
             align_items: AlignItems::default(),
             gap: 0.0,
             flex_grow: 0.0,
+            opacity: 1.0,
             selectable: true,
             selection_background: None,
             selection_color: None,
@@ -530,6 +551,7 @@ fn to_computed(
 
     style.background_color = match raw.get("background-color") {
         Some(CssValue::Color(color)) => Some(*color),
+        Some(CssValue::Keyword(keyword)) if keyword == "currentcolor" => Some(style.color),
         _ => None, // includes `transparent` and absence
     };
 
@@ -593,7 +615,8 @@ fn to_computed(
         bottom_left: edge_px(raw, "border-bottom-left-radius", style.font_size),
     };
 
-    // Missing border colors fall back to the element color (currentColor).
+    // Missing border colors (and the explicit `currentcolor` keyword)
+    // fall back to the element color.
     let color_of = |side: &str| {
         raw.get(&format!("border-{side}-color"))
             .and_then(CssValue::as_color)
@@ -623,6 +646,12 @@ fn to_computed(
         Some("italic" | "oblique")
     );
 
+    style.opacity = match raw.get("opacity") {
+        Some(CssValue::Number(value)) => value.clamp(0.0, 1.0),
+        Some(CssValue::Length(value, lumen_css::Unit::Percent)) => (value / 100.0).clamp(0.0, 1.0),
+        _ => 1.0,
+    };
+
     style.selectable = !matches!(
         raw.get("user-select").and_then(CssValue::as_keyword),
         Some("none")
@@ -648,6 +677,28 @@ fn to_computed(
         Some("right") => Clear::Right,
         Some("both") => Clear::Both,
         _ => Clear::None,
+    };
+
+    style.position = match raw.get("position").and_then(CssValue::as_keyword) {
+        Some("relative") => Position::Relative,
+        Some("absolute") => Position::Absolute,
+        Some("fixed") => Position::Fixed,
+        _ => Position::Static,
+    };
+    let offset = |name: &str| {
+        raw.get(name)
+            .and_then(|value| Dimension::from_value(value, style.font_size))
+            .unwrap_or(Dimension::Auto)
+    };
+    style.offsets = EdgeSizes {
+        top: offset("top"),
+        right: offset("right"),
+        bottom: offset("bottom"),
+        left: offset("left"),
+    };
+    style.z_index = match raw.get("z-index") {
+        Some(CssValue::Number(value)) => Some(*value as i32),
+        _ => None,
     };
 
     style.flex_direction = match raw.get("flex-direction").and_then(CssValue::as_keyword) {
@@ -957,6 +1008,51 @@ mod tests {
             style_of(&document, &styles, "h3").font_weight,
             FontWeight(700)
         );
+    }
+
+    #[test]
+    fn position_offsets_and_z_index_parse() {
+        let (document, styles) = styles_for(
+            "<style>div { position: absolute; top: 10px; left: 2em; z-index: 5; }</style>\
+             <div>x</div>",
+        );
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.position, Position::Absolute);
+        assert_eq!(div.offsets.top, Dimension::Px(10.0));
+        assert_eq!(div.offsets.left, Dimension::Px(32.0));
+        assert_eq!(div.offsets.bottom, Dimension::Auto);
+        assert_eq!(div.z_index, Some(5));
+    }
+
+    #[test]
+    fn opacity_clamps_and_defaults() {
+        let (document, styles) = styles_for(
+            "<style>.a { opacity: 0.5; } .b { opacity: 3; } .c { opacity: 40%; }</style>\
+             <div class='a'>x</div><div class='b'>y</div><div class='c'>z</div>",
+        );
+        let of = |class: &str| {
+            let id = document
+                .descendants(document.root())
+                .find(|id| {
+                    document
+                        .element(*id)
+                        .is_some_and(|element| element.has_class(class))
+                })
+                .unwrap();
+            styles.by_node[&id].opacity
+        };
+        assert_eq!(of("a"), 0.5);
+        assert_eq!(of("b"), 1.0);
+        assert_eq!(of("c"), 0.4);
+    }
+
+    #[test]
+    fn current_color_keyword_uses_the_element_color() {
+        let (document, styles) = styles_for(
+            "<style>div { color: #123456; background-color: currentcolor; }</style><div>x</div>",
+        );
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.background_color, Some(Color::rgb(0x12, 0x34, 0x56)));
     }
 
     #[test]

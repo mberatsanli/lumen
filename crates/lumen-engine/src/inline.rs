@@ -16,7 +16,10 @@ use lumen_html::{Document, NodeId, NodeKind};
 #[derive(Debug, Clone, PartialEq)]
 pub enum FragmentContent {
     /// A run of same-styled text.
-    Text { text: String, style: ComputedStyle },
+    Text {
+        text: String,
+        style: Box<ComputedStyle>,
+    },
     /// An atomic inline (inline-block or similar): a fully laid-out box.
     Box(Box<LayoutBox>),
 }
@@ -47,7 +50,7 @@ impl Fragment {
     #[must_use]
     pub fn style(&self) -> Option<&ComputedStyle> {
         match &self.content {
-            FragmentContent::Text { style, .. } => Some(style),
+            FragmentContent::Text { style, .. } => Some(style.as_ref()),
             FragmentContent::Box(_) => None,
         }
     }
@@ -319,7 +322,7 @@ impl LineBuilder<'_> {
                 width: word_width,
                 content: FragmentContent::Text {
                     text: word.to_string(),
-                    style,
+                    style: Box::new(style),
                 },
             });
         }

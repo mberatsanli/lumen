@@ -547,7 +547,7 @@ mod tests {
         let page = session.page().unwrap();
         assert_eq!(page.images.len(), 1);
         let image_command = page.display_list.iter().find_map(|command| match command {
-            lumen_engine::DisplayCommand::DrawImage { rect, image } => {
+            lumen_engine::DisplayCommand::DrawImage { rect, image, .. } => {
                 Some((rect.width, rect.height, image.width))
             }
             _ => None,

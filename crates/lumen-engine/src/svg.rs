@@ -36,10 +36,15 @@ pub fn render_svg(page: &Page) -> String {
                     );
                 }
             }
-            DisplayCommand::DrawImage { rect, image } => {
+            DisplayCommand::DrawImage { rect, image, alpha } => {
+                let opacity = if *alpha == 255 {
+                    String::new()
+                } else {
+                    format!(" opacity=\"{:.3}\"", f32::from(*alpha) / 255.0)
+                };
                 let _ = writeln!(
                     svg,
-                    "<image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" preserveAspectRatio=\"none\" href=\"data:{};base64,{}\"/>",
+                    "<image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" preserveAspectRatio=\"none\"{opacity} href=\"data:{};base64,{}\"/>",
                     rect.x,
                     rect.y,
                     rect.width,

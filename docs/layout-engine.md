@@ -72,6 +72,17 @@ weights and grown/stretched items are laid out again at their target
 size. No wrapping, shrinking, `flex-basis`, `order` or `align-self`.
 Bare text children become anonymous flex items.
 
+Positioning (simplified): `relative` translates the finished box without
+affecting flow; `absolute`/`fixed` leave the flow, size shrink-to-fit for
+auto widths, and resolve `top/left/right` against a containing block
+simplified to the parent's content box (`fixed` uses the viewport, where
+`bottom` also works; absolute `bottom` is unsupported). `z-index` sorts
+sibling paint and hit-test order (stable; no real stacking contexts).
+Fixed boxes scroll with the page — the paint pipeline has no layers yet.
+
+The flex algorithm lives in `flex.rs` and float tracking in `float.rs`;
+`layout.rs` owns the block/inline flow.
+
 `layout_document` is a pure function; relayout on viewport resize is simply
 calling it again with the new size (verified by test).
 
