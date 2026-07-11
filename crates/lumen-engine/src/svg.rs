@@ -277,6 +277,7 @@ pub fn render_svg(page: &Page) -> String {
                 monospace,
                 line_through,
                 letter_spacing,
+                ..
             } => {
                 let decoration = match (underline, line_through) {
                     (true, true) => " text-decoration=\"underline line-through\"",

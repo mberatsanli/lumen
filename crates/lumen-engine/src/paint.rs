@@ -47,6 +47,10 @@ pub enum DisplayCommand {
         line_through: bool,
         /// Extra advance per character, px.
         letter_spacing: f32,
+        /// Resolved decoration line color (defaults to the text color).
+        decoration_color: Color,
+        /// Solid/dashed/dotted decoration lines.
+        decoration_style: BorderStyle,
     },
     /// A decoded image scaled into `rect`, with an extra alpha multiplier
     /// (255 = opaque) from `opacity`.
@@ -361,6 +365,8 @@ fn paint_box(
                                 monospace: style.monospace,
                                 line_through: false,
                                 letter_spacing: style.letter_spacing,
+                                decoration_color: fade(shadow.color),
+                                decoration_style: BorderStyle::Solid,
                             });
                         }
                         commands.push(DisplayCommand::DrawText {
@@ -375,6 +381,10 @@ fn paint_box(
                             monospace: style.monospace,
                             line_through: style.line_through,
                             letter_spacing: style.letter_spacing,
+                            decoration_color: fade(
+                                style.text_decoration_color.unwrap_or(style.color),
+                            ),
+                            decoration_style: style.text_decoration_style,
                         });
                     }
                     crate::inline::FragmentContent::Box(laid) => {

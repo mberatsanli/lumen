@@ -243,7 +243,7 @@ pub(crate) fn layout_inline_run(
         match item {
             InlineItem::HardBreak => {
                 builder.start_line_if_needed();
-                builder.flush_line(true);
+                builder.flush_line(true, false);
             }
             InlineItem::Word {
                 node_id,
@@ -256,7 +256,7 @@ pub(crate) fn layout_inline_run(
             } => builder.place_atomic(node_id, space_before, layout_atomic),
         }
     }
-    builder.flush_line(false);
+    builder.flush_line(false, false);
     let total = builder.cursor_y;
     (builder.lines, total)
 }
@@ -322,7 +322,7 @@ impl LineBuilder<'_> {
             let mut space = space_width;
             while !rest.is_empty() {
                 if !self.current.is_empty() && self.pen_x + space >= self.line_width {
-                    self.flush_line(false);
+                    self.flush_line(false, true);
                     self.start_line_if_needed();
                     space = 0.0;
                 }
@@ -350,7 +350,7 @@ impl LineBuilder<'_> {
                 space = 0.0;
                 rest = &rest[end..];
                 if !rest.is_empty() {
-                    self.flush_line(false);
+                    self.flush_line(false, true);
                     self.start_line_if_needed();
                 }
             }
@@ -360,7 +360,7 @@ impl LineBuilder<'_> {
             && !self.current.is_empty()
             && self.pen_x + space_width + word_width > self.line_width
         {
-            self.flush_line(false);
+            self.flush_line(false, true);
             self.start_line_if_needed();
             self.append_text(node_id, word, word_width, 0.0, style);
         } else {
@@ -390,7 +390,7 @@ impl LineBuilder<'_> {
         };
         let mut space_width = space_width;
         if !self.current.is_empty() && self.pen_x + space_width + width > self.line_width {
-            self.flush_line(false);
+            self.flush_line(false, true);
             self.start_line_if_needed();
             space_width = 0.0;
         }
@@ -412,7 +412,9 @@ impl LineBuilder<'_> {
         space_width: f32,
         style: ComputedStyle,
     ) {
-        if let Some(last) = self.current.last_mut()
+        // Justified text keeps per-word fragments so gaps can stretch.
+        if self.container.text_align != TextAlign::Justify
+            && let Some(last) = self.current.last_mut()
             && last.node_id == node_id
             && matches!(last.content, FragmentContent::Text { .. })
         {
@@ -440,7 +442,10 @@ impl LineBuilder<'_> {
 
     /// Ends the current line. `forced` lines (from `<br>`) are emitted even
     /// when empty, producing a blank line.
-    fn flush_line(&mut self, forced: bool) {
+    /// Ends the current line. `forced` lines (from `<br>`) are emitted
+    /// even when empty; `fill` marks a wrapped (non-final) line eligible
+    /// for justification.
+    fn flush_line(&mut self, forced: bool, fill: bool) {
         if self.current.is_empty() && !forced {
             return;
         }
@@ -522,9 +527,18 @@ impl LineBuilder<'_> {
         height = height.max(baseline);
 
         let leftover = (self.line_width - self.pen_x).max(0.0);
+        // Justify: wrapped lines stretch, spreading the leftover across
+        // the gaps between fragments; final/forced lines stay left.
+        if self.container.text_align == TextAlign::Justify && fill && fragments.len() > 1 {
+            let per_gap = leftover / (fragments.len() - 1) as f32;
+            for (index, fragment) in fragments.iter_mut().enumerate() {
+                fragment.x += per_gap * index as f32;
+            }
+            self.pen_x = self.line_width;
+        }
         let shift = self.line_indent
             + match self.container.text_align {
-                TextAlign::Left => 0.0,
+                TextAlign::Left | TextAlign::Justify => 0.0,
                 TextAlign::Center => leftover / 2.0,
                 TextAlign::Right => leftover,
             };

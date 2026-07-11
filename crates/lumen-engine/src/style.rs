@@ -104,6 +104,8 @@ pub enum TextAlign {
     Left,
     Center,
     Right,
+    /// Wrapped lines stretch to the full width.
+    Justify,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -252,6 +254,10 @@ pub struct ComputedStyle {
     pub vertical_align: VerticalAlign,
     /// Inherited, like all text properties.
     pub text_shadows: Vec<TextShadow>,
+    /// `None` = currentColor.
+    pub text_decoration_color: Option<Color>,
+    /// Solid/dashed/dotted (double and wavy approximate as solid).
+    pub text_decoration_style: BorderStyle,
     pub box_sizing: BoxSizing,
     pub float: Float,
     pub clear: Clear,
@@ -539,6 +545,8 @@ impl Default for ComputedStyle {
             line_through: false,
             vertical_align: VerticalAlign::Baseline,
             text_shadows: Vec::new(),
+            text_decoration_color: None,
+            text_decoration_style: BorderStyle::Solid,
             box_sizing: BoxSizing::default(),
             float: Float::None,
             clear: Clear::None,
@@ -701,9 +709,11 @@ pub struct PseudoText {
 /// painting*; treating it as inherited approximates that.)
 /// (`user-select` and `::selection` styling are treated as inherited —
 /// an approximation that matches how they behave in practice.)
-const INHERITED_PROPERTIES: [&str; 22] = [
+const INHERITED_PROPERTIES: [&str; 24] = [
     "color",
     "text-shadow",
+    "text-decoration-color",
+    "text-decoration-style",
     "visibility",
     "vertical-align",
     "word-break",
@@ -1653,14 +1663,42 @@ fn to_computed(
         _ => FontWeight::default(),
     };
 
-    style.underline = matches!(
-        raw.get("text-decoration").and_then(CssValue::as_keyword),
-        Some("underline")
-    );
-    style.line_through = matches!(
-        raw.get("text-decoration").and_then(CssValue::as_keyword),
-        Some("line-through")
-    );
+    // text-decoration: joined multi-value (lines, style, color mix).
+    if let Some(text) = raw.get("text-decoration").map(ToString::to_string) {
+        for piece in text.split_whitespace() {
+            match piece {
+                "underline" => style.underline = true,
+                "line-through" => style.line_through = true,
+                "overline" => {}
+                "none" => {
+                    style.underline = false;
+                    style.line_through = false;
+                }
+                "solid" | "double" | "wavy" => {
+                    style.text_decoration_style = BorderStyle::Solid;
+                }
+                "dashed" => style.text_decoration_style = BorderStyle::Dashed,
+                "dotted" => style.text_decoration_style = BorderStyle::Dotted,
+                other => {
+                    if let Some(color) = Color::parse(other) {
+                        style.text_decoration_color = Some(color);
+                    }
+                }
+            }
+        }
+    }
+    if let Some(CssValue::Color(color)) = raw.get("text-decoration-color") {
+        style.text_decoration_color = Some(*color);
+    }
+    match raw
+        .get("text-decoration-style")
+        .and_then(CssValue::as_keyword)
+    {
+        Some("dashed") => style.text_decoration_style = BorderStyle::Dashed,
+        Some("dotted") => style.text_decoration_style = BorderStyle::Dotted,
+        Some(_) => style.text_decoration_style = BorderStyle::Solid,
+        None => {}
+    }
 
     style.italic = matches!(
         raw.get("font-style").and_then(CssValue::as_keyword),
@@ -2022,6 +2060,7 @@ fn to_computed(
         .and_then(CssValue::as_keyword)
         .and_then(|keyword| match keyword {
             "left" => Some(TextAlign::Left),
+            "justify" => Some(TextAlign::Justify),
             "center" => Some(TextAlign::Center),
             "right" => Some(TextAlign::Right),
             _ => None,
@@ -2660,6 +2699,23 @@ mod tests {
         assert_eq!(inner.text_indent, 24.0);
         assert_eq!(inner.white_space, WhiteSpace::Nowrap);
         assert!(style_of(&document, &styles, "s").line_through);
+    }
+
+    #[test]
+    fn decoration_shorthand_carries_style_and_color() {
+        let (document, styles) = styles_for(
+            "<style>p { text-decoration: underline dotted #ff0000; }\
+                    s { text-decoration-color: #00ff00; text-decoration-style: dashed; \
+                        text-decoration: line-through; }</style><p>u</p><p><s>s</s></p>",
+        );
+        let p = style_of(&document, &styles, "p");
+        assert!(p.underline);
+        assert_eq!(p.text_decoration_style, BorderStyle::Dotted);
+        assert_eq!(p.text_decoration_color, Some(Color::rgb(0xff, 0, 0)));
+        let strike = style_of(&document, &styles, "s");
+        assert!(strike.line_through);
+        assert_eq!(strike.text_decoration_style, BorderStyle::Dashed);
+        assert_eq!(strike.text_decoration_color, Some(Color::rgb(0, 0xff, 0)));
     }
 
     #[test]

@@ -138,8 +138,8 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `font-weight` | ✅ | ✅ | ✅ | ✅ | numeric+keywords; drawn as double-strike ≥600 |
 | `line-height` | ✅ | ✅ | ✅ | ✅ | number, px, em |
 | `text-align: left/center/right` | ✅ | ✅ | ✅ | ✅ | |
-| `text-align: justify` | ❌ | ✅ | ✅ | ✅ | |
-| `text-decoration` | ⚠️ | ✅ | ✅ | ✅ | underline, line-through, none; no color/style/wavy; propagation ≈ inheritance |
+| `text-align: justify` | ⚠️ | ✅ | ✅ | ✅ | wrapped lines stretch between word fragments; final/forced lines stay left |
+| `text-decoration` | ⚠️ | ✅ | ✅ | ✅ | underline/line-through/none + decoration color and solid/dashed/dotted styles (raster; SVG keeps text color); wavy/double → solid; propagation ≈ inheritance |
 | `font-family` | ⚠️ | ✅ | ✅ | ✅ | collapsed to generic: monospace vs everything else (one face each) |
 | `font-style: italic` | ✅ | ✅ | ✅ | ✅ | synthetic shear (no real italic face) |
 | `font` shorthand | ⚠️ | ✅ | ✅ | ✅ | style/weight/size/line-height/family; small-caps and system fonts ignored |

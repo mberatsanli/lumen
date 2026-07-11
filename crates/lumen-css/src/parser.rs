@@ -580,7 +580,7 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
                 }
             }
         }
-        "background-position" | "background-size" => {
+        "text-decoration" | "background-position" | "background-size" => {
             let text = components
                 .iter()
                 .map(ToString::to_string)

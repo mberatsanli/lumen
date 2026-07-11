@@ -595,6 +595,8 @@ impl App {
                 monospace: false,
                 line_through: false,
                 letter_spacing: 0.0,
+                decoration_color: Color::rgb(0, 0, 0),
+                decoration_style: lumen_engine::BorderStyle::Solid,
             },
             DisplayCommand::DrawText {
                 x: 36.0,
@@ -612,6 +614,8 @@ impl App {
                 monospace: false,
                 line_through: false,
                 letter_spacing: 0.0,
+                decoration_color: Color::rgb(0, 0, 0),
+                decoration_style: lumen_engine::BorderStyle::Solid,
             },
             DisplayCommand::FillRect {
                 rect: bar(60.0, 6.0, (width - 68.0).max(40.0), BAR_HEIGHT - 12.0),
@@ -635,6 +639,8 @@ impl App {
                 monospace: false,
                 line_through: false,
                 letter_spacing: 0.0,
+                decoration_color: Color::rgb(0, 0, 0),
+                decoration_style: lumen_engine::BorderStyle::Solid,
             }),
             (None, SessionState::Ready(session)) => commands.push(DisplayCommand::DrawText {
                 x: 68.0,
@@ -648,6 +654,8 @@ impl App {
                 monospace: false,
                 line_through: false,
                 letter_spacing: 0.0,
+                decoration_color: Color::rgb(0, 0, 0),
+                decoration_style: lumen_engine::BorderStyle::Solid,
             }),
         }
         if let Some(query) = &self.find_input {
@@ -670,6 +678,8 @@ impl App {
                 monospace: false,
                 line_through: false,
                 letter_spacing: 0.0,
+                decoration_color: Color::rgb(0, 0, 0),
+                decoration_style: lumen_engine::BorderStyle::Solid,
             });
             let label_width = self.chrome_text_width("Find: ", 13.0);
             let query_width = self.draw_input(
@@ -699,6 +709,8 @@ impl App {
                 monospace: false,
                 line_through: false,
                 letter_spacing: 0.0,
+                decoration_color: Color::rgb(0, 0, 0),
+                decoration_style: lumen_engine::BorderStyle::Solid,
             });
         }
         commands
@@ -760,6 +772,8 @@ impl App {
             monospace: false,
             line_through: false,
             letter_spacing: 0.0,
+            decoration_color: Color::rgb(0, 0, 0),
+            decoration_style: lumen_engine::BorderStyle::Solid,
         });
         let caret_x = x + self.chrome_text_width(&input.slice(0, input.caret), font_size);
         commands.push(DisplayCommand::FillRect {
@@ -1157,6 +1171,8 @@ impl App {
                 monospace: true,
                 line_through: false,
                 letter_spacing: 0.0,
+                decoration_color: Color::rgb(0, 0, 0),
+                decoration_style: lumen_engine::BorderStyle::Solid,
             });
         }
         commands

@@ -2082,6 +2082,33 @@ mod tests {
     }
 
     #[test]
+    fn justify_stretches_wrapped_lines_only() {
+        let layout = layout_of(
+            "<style>div { width: 200px; text-align: justify; }</style>\
+             <div>aaaa bbbb cccc dddd eeee ffff gggg hhhh last</div>",
+        );
+        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+            panic!("expected inline content");
+        };
+        assert!(lines.len() >= 2);
+        // A wrapped line ends flush with the right edge.
+        let first = &lines[0];
+        let last_fragment = first.fragments.last().unwrap();
+        assert!(
+            (last_fragment.x + last_fragment.width - 200.0).abs() < 0.5,
+            "wrapped line should fill the width"
+        );
+        // The final line stays left-aligned (does not fill).
+        let final_line = lines.last().unwrap();
+        let end = final_line
+            .fragments
+            .last()
+            .map(|fragment| fragment.x + fragment.width)
+            .unwrap();
+        assert!(end < 199.0, "final line must not stretch: {end}");
+    }
+
+    #[test]
     fn vertical_align_shifts_atomic_inlines_and_text() {
         let layout = layout_of(
             "<style>.line { line-height: 60px; }\

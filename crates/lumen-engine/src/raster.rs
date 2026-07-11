@@ -351,6 +351,8 @@ fn rasterize_clipped(
                 monospace,
                 line_through,
                 letter_spacing,
+                decoration_color,
+                decoration_style,
             } => {
                 let (x, y, font_size) = (x * scale, (y - scroll_y) * scale, font_size * scale);
                 let letter_spacing = letter_spacing * scale;
@@ -386,27 +388,31 @@ fn rasterize_clipped(
                     ),
                 };
                 if *underline {
-                    paint_rect(
+                    fill_edge(
                         framebuffer,
-                        Rect {
+                        &Rect {
                             x,
                             y: y + (2.0 * scale).max(1.0),
                             width: text_width,
                             height: scale.max(1.0),
                         },
-                        *color,
+                        *decoration_color,
+                        *decoration_style,
+                        true,
                     );
                 }
                 if *line_through {
-                    paint_rect(
+                    fill_edge(
                         framebuffer,
-                        Rect {
+                        &Rect {
                             x,
                             y: y - font_size * 0.3,
                             width: text_width,
                             height: scale.max(1.0),
                         },
-                        *color,
+                        *decoration_color,
+                        *decoration_style,
+                        true,
                     );
                 }
             }
@@ -1268,6 +1274,8 @@ mod tests {
             monospace: false,
             line_through: false,
             letter_spacing: 0.0,
+            decoration_color: Color::rgb(0, 0, 0),
+            decoration_style: crate::style::BorderStyle::Solid,
         }];
         let framebuffer = rasterize(&commands, 20, 20, 0.0);
         let painted = framebuffer
