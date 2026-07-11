@@ -513,6 +513,9 @@ struct App {
     /// Chars scrolled off the left edge of the edited single-line input
     /// (the display window keeps the caret visible).
     input_window: usize,
+    /// Whether the current mouse press is drag-selecting inside the
+    /// edited text control (suppresses page text selection).
+    input_drag: bool,
     /// Open select dropdown: (select node, options, page-coords rect of
     /// the list, index under the pointer).
     select_popup: Option<SelectPopup>,
@@ -576,6 +579,7 @@ impl App {
             find_input: None,
             page_input: None,
             input_window: 0,
+            input_drag: false,
             select_popup: None,
             color_popup: None,
             range_drag: None,
@@ -1378,6 +1382,7 @@ impl App {
     /// Ends in-page editing, restoring the full (head-clipped) value text
     /// when the display was windowed.
     fn close_page_input(&mut self) {
+        self.input_drag = false;
         if let Some((control, input)) = self.page_input.take() {
             if self.input_window != 0 {
                 let value = input.text;
@@ -2658,6 +2663,18 @@ impl ApplicationHandler<NavDone> for App {
                 if let Some(control) = self.range_drag {
                     // Dragging a slider: the thumb tracks the pointer.
                     self.drag_range_to_cursor(control);
+                } else if self.input_drag && self.press.is_some() {
+                    // Drag-selecting inside the edited control: the caret
+                    // extends the selection from the press anchor.
+                    if let Some((control, _)) = &self.page_input {
+                        let control = *control;
+                        if let Some(index) = self.caret_index_in_control(control) {
+                            if let Some((_, input)) = &mut self.page_input {
+                                input.move_to(index, true);
+                            }
+                            self.sync_input_display(control, false);
+                        }
+                    }
                 } else if self.press.is_some() {
                     // Dragging: extend the selection from the anchor.
                     if let (Some(anchor), Some(focus)) =
@@ -2718,6 +2735,23 @@ impl ApplicationHandler<NavDone> for App {
                     self.range_drag = Some(control);
                     self.drag_range_to_cursor(control);
                 }
+                // A press inside the edited single-line control anchors a
+                // caret drag-select (page text selection stays off).
+                if let Some((control, _)) = &self.page_input {
+                    let control = *control;
+                    let over = hit.and_then(|node| self.form_control_at(node)) == Some(control)
+                        && self
+                            .session()
+                            .is_some_and(|session| session.is_text_input(control));
+                    if over && let Some(index) = self.caret_index_in_control(control) {
+                        if let Some((_, input)) = &mut self.page_input {
+                            input.move_to(index, false);
+                        }
+                        self.input_drag = true;
+                        self.select_anchor = None;
+                        self.request_redraw();
+                    }
+                }
             }
             WindowEvent::MouseInput {
                 state: ElementState::Released,
@@ -2726,6 +2760,7 @@ impl ApplicationHandler<NavDone> for App {
             } => {
                 let press = self.press.take();
                 self.range_drag = None;
+                self.input_drag = false;
                 self.select_anchor = None;
                 if let SessionState::Ready(session) = &mut self.state
                     && session.set_active(None)
