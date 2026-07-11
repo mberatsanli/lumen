@@ -1157,6 +1157,19 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             input[type=hidden] { display: none; }
             select { width: auto; }
             textarea { width: 300px; height: 64px; }
+            select[multiple] { display: inline-block; width: 200px; max-height: 108px;
+                overflow: auto; padding: 4px; --lumen-mark: none; }
+            select[multiple] option { display: block; padding: 2px 8px; margin: 1px 0;
+                border-radius: 3px; min-height: 1.1em; }
+            select[multiple] option:checked { background-color: #2266aa; color: #ffffff; }
+            optgroup { display: none; }
+            select[multiple] optgroup { display: block; padding: 2px 4px;
+                font-weight: 700; font-size: 0.85em; color: #6b675e; }
+            select[multiple] optgroup option { font-weight: 400; font-size: 13px;
+                color: #232019; }
+            input[type=color] { width: 44px; height: 26px; padding: 2px; min-height: 0;
+                border-color: #8a8a8a; }
+            input[type=number] { width: 80px; }
         ";
         lumen_css::parse_stylesheet(source)
     })
@@ -2359,6 +2372,13 @@ fn to_computed(
                 fraction: fraction.clamp(0.0, 1.0),
                 thumb: element.tag_name == "input",
             }));
+        }
+        // Color inputs show their value as the swatch background.
+        if element.tag_name == "input"
+            && element.attributes.get("type") == Some("color")
+            && let Some(color) = element.attributes.get("value").and_then(Color::parse)
+        {
+            style.background_color = Some(color);
         }
     }
 

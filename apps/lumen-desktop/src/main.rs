@@ -282,6 +282,41 @@ struct SelectPopup {
     selected: usize,
 }
 
+/// An open color-input palette drawn by the shell.
+struct ColorPopup {
+    node: usize,
+    /// Page coordinates of the palette card.
+    rect: Rect,
+    hovered: Option<usize>,
+}
+
+/// The preset swatches a color input offers.
+const COLOR_SWATCHES: [&str; 24] = [
+    "#000000", "#444444", "#888888", "#cccccc", "#ffffff", "#7a1712", "#b3261e", "#e8590c",
+    "#f2b705", "#f7e26b", "#2e7d32", "#1a936f", "#7fc8a9", "#1c5288", "#2266aa", "#6aa5d8",
+    "#5e35b1", "#9b6bd3", "#d63384", "#f2a6c8", "#8d6e63", "#b9a08c", "#55524c", "#8a8272",
+];
+const SWATCH_SIZE: f32 = 22.0;
+const SWATCH_GAP: f32 = 6.0;
+const SWATCH_COLUMNS: usize = 6;
+
+/// Where swatch `index` sits inside a palette card.
+fn swatch_rect(card: Rect, index: usize) -> Rect {
+    let column = index % SWATCH_COLUMNS;
+    let row = index / SWATCH_COLUMNS;
+    Rect {
+        x: card.x + 8.0 + (SWATCH_SIZE + SWATCH_GAP) * column as f32,
+        y: card.y + 8.0 + (SWATCH_SIZE + SWATCH_GAP) * row as f32,
+        width: SWATCH_SIZE,
+        height: SWATCH_SIZE,
+    }
+}
+
+/// Whether a point falls inside a rect.
+fn rect_contains(rect: Rect, x: f32, y: f32) -> bool {
+    x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
+}
+
 /// What an editing key did to a [`TextInput`].
 enum EditOutcome {
     /// Text changed.
@@ -478,6 +513,10 @@ struct App {
     /// Open select dropdown: (select node, options, page-coords rect of
     /// the list, index under the pointer).
     select_popup: Option<SelectPopup>,
+    /// Open color-input palette.
+    color_popup: Option<ColorPopup>,
+    /// Range input being dragged, while the button is held.
+    range_drag: Option<usize>,
     find_matches: Vec<Selection>,
     find_index: usize,
     /// Damage tracking: bumped whenever the page raster could change.
@@ -534,6 +573,8 @@ impl App {
             find_input: None,
             page_input: None,
             select_popup: None,
+            color_popup: None,
+            range_drag: None,
             find_matches: Vec::new(),
             find_index: 0,
             page_generation: 0,
@@ -621,6 +662,9 @@ impl App {
         let target = nav.label();
         self.selection = None;
         self.select_anchor = None;
+        self.select_popup = None;
+        self.color_popup = None;
+        self.range_drag = None;
         let SessionState::Ready(mut session) =
             std::mem::replace(&mut self.state, SessionState::Loading { target })
         else {
@@ -1035,6 +1079,20 @@ impl App {
             self.chrome_click(x);
             return;
         }
+        // An open color palette captures the click: a swatch picks it,
+        // anywhere else just closes the card.
+        if let Some(popup) = self.color_popup.take() {
+            if let Some((x, y)) = self.page_cursor()
+                && let Some(index) =
+                    (0..COLOR_SWATCHES.len()).find(|index| rect_contains(swatch_rect(popup.rect, *index), x, y))
+                && let SessionState::Ready(session) = &mut self.state
+            {
+                session.set_color_value(popup.node, COLOR_SWATCHES[index]);
+            }
+            self.invalidate_page();
+            self.request_redraw();
+            return;
+        }
         // An open select dropdown captures the click.
         if let Some(popup) = self.select_popup.take() {
             if let Some((x, y)) = self.page_cursor()
@@ -1096,7 +1154,26 @@ impl App {
                 .unwrap_or_default();
             match tag.as_str() {
                 "select" => {
-                    self.open_select_popup(control);
+                    let multiple = self
+                        .session()
+                        .is_some_and(|session| session.is_multiple_select(control));
+                    if multiple {
+                        // List box: a plain click selects the row under the
+                        // cursor, Cmd/Ctrl+click toggles it.
+                        if let Some(node) = node
+                            && let Some(option) = self.option_at(control, node)
+                        {
+                            let toggle = self.modifiers.state().super_key()
+                                || self.modifiers.state().control_key();
+                            if let SessionState::Ready(session) = &mut self.state {
+                                session.click_option(control, option, toggle);
+                            }
+                            self.invalidate_page();
+                            self.request_redraw();
+                        }
+                    } else {
+                        self.open_select_popup(control);
+                    }
                     return;
                 }
                 "textarea" => {
@@ -1136,6 +1213,10 @@ impl App {
                 return;
             }
             match kind.as_str() {
+                "color" => {
+                    self.open_color_popup(control);
+                    return;
+                }
                 "checkbox" | "radio" => {
                     if let SessionState::Ready(session) = &mut self.state
                         && session.toggle_checkable(control)
@@ -1224,6 +1305,65 @@ impl App {
             selected,
             options,
         });
+        self.request_redraw();
+    }
+
+    /// Opens the swatch palette for a color input.
+    fn open_color_popup(&mut self, node: usize) {
+        let Some(rect) = self
+            .session()
+            .and_then(Session::page)
+            .and_then(|page| page.layout.find_by_node(node))
+            .map(|laid| laid.border_box())
+        else {
+            return;
+        };
+        let rows = COLOR_SWATCHES.len().div_ceil(SWATCH_COLUMNS);
+        self.color_popup = Some(ColorPopup {
+            node,
+            rect: Rect {
+                x: rect.x,
+                y: rect.y + rect.height + 4.0,
+                width: 16.0 + (SWATCH_SIZE + SWATCH_GAP) * SWATCH_COLUMNS as f32 - SWATCH_GAP,
+                height: 16.0 + (SWATCH_SIZE + SWATCH_GAP) * rows as f32 - SWATCH_GAP,
+            },
+            hovered: None,
+        });
+        self.request_redraw();
+    }
+
+    /// The `<option>` at or above a hit node, when it belongs to `select`.
+    fn option_at(&self, select: usize, node: usize) -> Option<usize> {
+        let page = self.session().and_then(Session::page)?;
+        let document = &page.document;
+        std::iter::once(node)
+            .chain(document.ancestors(node))
+            .take_while(|candidate| *candidate != select)
+            .find(|candidate| {
+                document
+                    .element(*candidate)
+                    .is_some_and(|element| element.tag_name == "option")
+            })
+    }
+
+    /// Moves a dragged range slider's thumb to the cursor's x position.
+    fn drag_range_to_cursor(&mut self, control: usize) {
+        let Some((x, _)) = self.page_cursor() else {
+            return;
+        };
+        let Some(content) = self
+            .session()
+            .and_then(Session::page)
+            .and_then(|page| page.layout.find_by_node(control))
+            .map(|laid| laid.content_box())
+        else {
+            return;
+        };
+        let fraction = ((x - content.x) / content.width.max(1.0)).clamp(0.0, 1.0);
+        if let SessionState::Ready(session) = &mut self.state {
+            session.set_range_fraction(control, fraction);
+        }
+        self.invalidate_page();
         self.request_redraw();
     }
 
@@ -1861,6 +2001,65 @@ impl App {
                 self.effective_font().as_deref(),
             );
         }
+        // Open color palette: the same card treatment with a grid of
+        // swatches; the hovered one gets a blue ring.
+        if let Some(popup) = &self.color_popup {
+            let mut commands: Vec<DisplayCommand> = Vec::new();
+            let rect = popup.rect;
+            commands.push(DisplayCommand::DrawShadow {
+                rect: Rect {
+                    x: rect.x,
+                    y: rect.y + 3.0,
+                    ..rect
+                },
+                radius: lumen_engine::Corners::uniform(8.0),
+                blur: 14.0,
+                color: lumen_css::Color::rgba(0x20, 0x1c, 0x2a, 70),
+                inset: false,
+            });
+            commands.push(DisplayCommand::FillRect {
+                rect,
+                color: lumen_css::Color::rgb(0xff, 0xff, 0xff),
+                radius: lumen_engine::Corners::uniform(8.0),
+            });
+            commands.push(DisplayCommand::StrokeRect {
+                rect,
+                widths: lumen_engine::EdgeSizes::uniform(1.0),
+                colors: lumen_engine::EdgeSizes::uniform(lumen_css::Color::rgb(0xd6, 0xd1, 0xc6)),
+                styles: lumen_engine::EdgeSizes::uniform(lumen_engine::BorderStyle::Solid),
+                radius: lumen_engine::Corners::uniform(8.0),
+            });
+            for (index, hex) in COLOR_SWATCHES.iter().enumerate() {
+                let swatch = swatch_rect(rect, index);
+                let Some(color) = lumen_css::Color::parse(hex) else {
+                    continue;
+                };
+                commands.push(DisplayCommand::FillRect {
+                    rect: swatch,
+                    color,
+                    radius: lumen_engine::Corners::uniform(4.0),
+                });
+                let ring = popup.hovered == Some(index);
+                commands.push(DisplayCommand::StrokeRect {
+                    rect: swatch,
+                    widths: lumen_engine::EdgeSizes::uniform(if ring { 2.0 } else { 1.0 }),
+                    colors: lumen_engine::EdgeSizes::uniform(if ring {
+                        lumen_css::Color::rgb(0x22, 0x66, 0xaa)
+                    } else {
+                        lumen_css::Color::rgba(0, 0, 0, 40)
+                    }),
+                    styles: lumen_engine::EdgeSizes::uniform(lumen_engine::BorderStyle::Solid),
+                    radius: lumen_engine::Corners::uniform(4.0),
+                });
+            }
+            rasterize_over(
+                &mut framebuffer,
+                &commands,
+                self.scroll_y - BAR_HEIGHT,
+                scale,
+                self.effective_font().as_deref(),
+            );
+        }
         // Scrollbar: a proportional overlay thumb on the right edge.
         let max_scroll = self.max_scroll();
         if max_scroll > 0.0 {
@@ -2010,10 +2209,37 @@ impl App {
         shift_held: bool,
         alt_held: bool,
     ) {
-        let Some((control, input)) = &mut self.page_input else {
+        let Some(control) = self.page_input.as_ref().map(|(control, _)| *control) else {
             return;
         };
-        let control = *control;
+        // Number inputs: Up/Down step the value by `step` within min/max.
+        if matches!(key, Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown))
+            && self
+                .session()
+                .is_some_and(|session| session.is_number_input(control))
+        {
+            let direction = if matches!(key, Key::Named(NamedKey::ArrowUp)) {
+                1.0
+            } else {
+                -1.0
+            };
+            let stepped = match &mut self.state {
+                SessionState::Ready(session) => session.step_number_input(control, direction),
+                _ => None,
+            };
+            if let Some(value) = stepped {
+                if let Some((_, input)) = &mut self.page_input {
+                    input.text = value;
+                    input.move_to(usize::MAX, false);
+                }
+                self.invalidate_page();
+                self.request_redraw();
+            }
+            return;
+        }
+        let Some((_, input)) = &mut self.page_input else {
+            return;
+        };
         let mut sync = false;
         match apply_edit(input, key, command_held, shift_held, alt_held) {
             EditOutcome::Changed => sync = true,
@@ -2096,10 +2322,11 @@ impl App {
                 return;
             }
         }
-        // An open select dropdown: Escape closes it.
-        if self.select_popup.is_some() {
+        // An open select dropdown or color palette: Escape closes it.
+        if self.select_popup.is_some() || self.color_popup.is_some() {
             if matches!(key, Key::Named(NamedKey::Escape)) {
                 self.select_popup = None;
+                self.color_popup = None;
                 self.request_redraw();
             }
             return;
@@ -2242,7 +2469,22 @@ impl ApplicationHandler<NavDone> for App {
                         self.request_redraw();
                     }
                 }
-                if self.press.is_some() {
+                if let Some(popup) = &mut self.color_popup
+                    && let Some((x, y)) = self
+                        .cursor
+                        .map(|(x, y)| (x, y - BAR_HEIGHT + self.scroll_y))
+                {
+                    let hovered = (0..COLOR_SWATCHES.len())
+                        .find(|index| rect_contains(swatch_rect(popup.rect, *index), x, y));
+                    if hovered != popup.hovered {
+                        popup.hovered = hovered;
+                        self.request_redraw();
+                    }
+                }
+                if let Some(control) = self.range_drag {
+                    // Dragging a slider: the thumb tracks the pointer.
+                    self.drag_range_to_cursor(control);
+                } else if self.press.is_some() {
                     // Dragging: extend the selection from the anchor.
                     if let (Some(anchor), Some(focus)) =
                         (self.select_anchor, self.caret_at_cursor())
@@ -2286,6 +2528,22 @@ impl ApplicationHandler<NavDone> for App {
                     self.invalidate_page();
                     self.request_redraw();
                 }
+                // A press on a range slider grabs the thumb for dragging.
+                let range = hit
+                    .and_then(|node| self.form_control_at(node))
+                    .filter(|control| {
+                        self.session()
+                            .and_then(Session::page)
+                            .and_then(|page| page.document.element(*control))
+                            .is_some_and(|element| {
+                                element.tag_name == "input"
+                                    && element.attributes.get("type") == Some("range")
+                            })
+                    });
+                if let Some(control) = range {
+                    self.range_drag = Some(control);
+                    self.drag_range_to_cursor(control);
+                }
             }
             WindowEvent::MouseInput {
                 state: ElementState::Released,
@@ -2293,6 +2551,7 @@ impl ApplicationHandler<NavDone> for App {
                 ..
             } => {
                 let press = self.press.take();
+                self.range_drag = None;
                 self.select_anchor = None;
                 if let SessionState::Ready(session) = &mut self.state
                     && session.set_active(None)

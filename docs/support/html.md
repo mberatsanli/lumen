@@ -78,10 +78,10 @@ interaction) — not just a DOM node.
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
 | `<table>` family | ⚠️ | ✅ | ✅ | ✅ | real column/row layout with colspan/rowspan; thead/tbody/tfoot flattened; caption ignored; no border-collapse |
-| `<form>` submission | ⚠️ | ✅ | ✅ | ✅ | GET only (Enter or submit click): name=value pairs URL-encoded onto the action; no POST |
-| `<progress>` / `<meter>` / range | ⚠️ | ✅ | ✅ | ✅ | vector value bars (range with a click-to-set thumb; no drag) |
-| `<input>` (all types) | ⚠️ | ✅ | ✅ | ✅ | text inputs editable (caret/selection/clipboard, click-to-position), checkbox/radio toggle, submit buttons submit; date/file/color etc render as text boxes |
-| `<textarea> <select> <button>` | ⚠️ | ✅ | ✅ | ✅ | select opens a shell-drawn dropdown, textarea edits multiline (Enter = newline), button submits; label clicks focus their control |
+| `<form>` submission | ⚠️ | ✅ | ✅ | ✅ | GET only (Enter or submit click): name=value pairs URL-encoded onto the action (multiple selects submit one pair per selection); no POST |
+| `<progress>` / `<meter>` / range | ⚠️ | ✅ | ✅ | ✅ | vector value bars; range thumb click-to-set and draggable |
+| `<input>` (all types) | ⚠️ | ✅ | ✅ | ✅ | text inputs editable (caret/selection/clipboard, click-to-position), checkbox/radio toggle, submit buttons submit, number steps with ↑/↓ (step/min/max), color opens a swatch palette; date/file etc render as text boxes |
+| `<textarea> <select> <button>` | ⚠️ | ✅ | ✅ | ✅ | select opens a shell-drawn dropdown (`multiple` renders an inline list box: click selects, Cmd/Ctrl+click toggles, rows highlight via `:checked`), `<optgroup>` labels shown; textarea edits multiline (Enter = newline), button submits; label clicks focus their control |
 | `<label> <fieldset> <progress> <meter>` | ⚠️ | ✅ | ✅ | ✅ | label click focuses its control; fieldset/legend framed; progress/meter as vector bars |
 | Focus / validation | ❌ | ✅ | ✅ | ✅ | |
 

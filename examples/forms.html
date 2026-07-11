@@ -59,6 +59,24 @@
           <option value="mavi" selected>Mavi</option>
           <option value="yesil">Yeşil</option>
         </select></div>
+      <div class="row"><span class="label">Meyveler</span>
+        <select name="meyve" multiple>
+          <optgroup label="Yumuşak">
+            <option value="muz" selected>Muz</option>
+            <option value="cilek">Çilek</option>
+          </optgroup>
+          <optgroup label="Sert">
+            <option value="elma" selected>Elma</option>
+            <option value="armut">Armut</option>
+          </optgroup>
+        </select>
+        <span class="hint">Cmd/Ctrl+tık çoklu seçer</span></div>
+      <div class="row"><span class="label">Adet</span>
+        <input type="number" name="adet" value="2" min="0" max="99" step="1">
+        <span class="hint">↑/↓ ile artır azalt</span></div>
+      <div class="row"><span class="label">Tema</span>
+        <input type="color" name="tema" value="#2266aa">
+        <span class="hint">tıkla, paletten seç</span></div>
       <div class="row"><span class="label">Not</span>
         <textarea name="not" style="width: 260px; height: 60px; border: 1px solid #b9b2a2;
           border-radius: 4px; padding: 6px 8px; background-color: #fffdf8;

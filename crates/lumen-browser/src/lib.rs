@@ -109,6 +109,42 @@ fn lerp_color(from: lumen_css::Color, to: lumen_css::Color, t: f32) -> lumen_css
     }
 }
 
+/// A select's `<option>` elements in order, flattening `<optgroup>`s.
+fn option_nodes(document: &lumen_html::Document, select: NodeId) -> Vec<NodeId> {
+    let mut nodes = Vec::new();
+    for child in document.children(select) {
+        let Some(element) = document.element(*child) else {
+            continue;
+        };
+        match element.tag_name.as_str() {
+            "option" => nodes.push(*child),
+            "optgroup" => {
+                for grandchild in document.children(*child) {
+                    if document
+                        .element(*grandchild)
+                        .is_some_and(|option| option.tag_name == "option")
+                    {
+                        nodes.push(*grandchild);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    nodes
+}
+
+/// An option's submit value: the `value` attribute, else its label text.
+fn option_value(document: &lumen_html::Document, option: NodeId) -> String {
+    document
+        .element(option)
+        .and_then(|element| element.attributes.get("value"))
+        .map_or_else(
+            || document.text_content(option).trim().to_string(),
+            str::to_string,
+        )
+}
+
 impl<L: ResourceLoader> Session<L> {
     #[must_use]
     pub fn new(loader: L, viewport: Size) -> Self {
@@ -273,13 +309,19 @@ impl<L: ResourceLoader> Session<L> {
             .descendants(document.root())
             .filter(|node| {
                 document.element(*node).is_some_and(|element| {
-                    element.tag_name == "input"
-                        && matches!(element.attributes.get("type"), Some("checkbox" | "radio"))
-                        && self
-                            .form_checked
-                            .get(node)
-                            .copied()
-                            .unwrap_or_else(|| element.attributes.contains("checked"))
+                    let live = self.form_checked.get(node).copied();
+                    match element.tag_name.as_str() {
+                        "input" => {
+                            matches!(element.attributes.get("type"), Some("checkbox" | "radio"))
+                                && live.unwrap_or_else(|| element.attributes.contains("checked"))
+                        }
+                        // Selected options match :checked so multiple
+                        // selects can style their list rows.
+                        "option" => {
+                            live.unwrap_or_else(|| element.attributes.contains("selected"))
+                        }
+                        _ => false,
+                    }
                 })
             })
             .collect()
@@ -618,27 +660,21 @@ impl<L: ResourceLoader> Session<L> {
             .is_some_and(|element| element.tag_name == "textarea")
     }
 
-    /// A select's options as (value, label) pairs, plus the index of the
-    /// currently selected one.
+    /// A select's options as (value, label) pairs (optgroups flattened),
+    /// plus the index of the currently selected one.
     #[must_use]
     pub fn select_options(&self, node: NodeId) -> (Vec<(String, String)>, usize) {
         let Some(page) = self.page.as_ref() else {
             return (Vec::new(), 0);
         };
         let document = &page.document;
-        let options: Vec<(String, String)> = document
-            .children(node)
+        let nodes = option_nodes(document, node);
+        let options: Vec<(String, String)> = nodes
             .iter()
-            .copied()
-            .filter(|child| {
-                document
-                    .element(*child)
-                    .is_some_and(|option| option.tag_name == "option")
-            })
             .map(|option| {
-                let label = document.text_content(option).trim().to_string();
+                let label = document.text_content(*option).trim().to_string();
                 let value = document
-                    .element(option)
+                    .element(*option)
                     .and_then(|element| element.attributes.get("value"))
                     .map_or_else(|| label.clone(), str::to_string);
                 (value, label)
@@ -649,22 +685,60 @@ impl<L: ResourceLoader> Session<L> {
             .iter()
             .position(|(value, _)| Some(value) == live)
             .or_else(|| {
-                document
-                    .children(node)
-                    .iter()
-                    .filter(|child| {
-                        document
-                            .element(**child)
-                            .is_some_and(|option| option.tag_name == "option")
-                    })
-                    .position(|child| {
-                        document
-                            .element(*child)
-                            .is_some_and(|element| element.attributes.contains("selected"))
-                    })
+                nodes.iter().position(|option| {
+                    document
+                        .element(*option)
+                        .is_some_and(|element| element.attributes.contains("selected"))
+                })
             })
             .unwrap_or(0);
         (options, selected)
+    }
+
+    /// Whether a select allows multiple selections (rendered inline as a
+    /// list box instead of a dropdown).
+    #[must_use]
+    pub fn is_multiple_select(&self, node: NodeId) -> bool {
+        self.page
+            .as_ref()
+            .and_then(|page| page.document.element(node))
+            .is_some_and(|element| {
+                element.tag_name == "select" && element.attributes.contains("multiple")
+            })
+    }
+
+    /// Whether an option is currently selected (live toggles win over the
+    /// parsed `selected` attribute).
+    #[must_use]
+    pub fn option_selected(&self, option: NodeId) -> bool {
+        self.form_checked.get(&option).copied().unwrap_or_else(|| {
+            self.page
+                .as_ref()
+                .and_then(|page| page.document.element(option))
+                .is_some_and(|element| element.attributes.contains("selected"))
+        })
+    }
+
+    /// Clicks an option in a multiple select: a plain click selects just
+    /// that option, a toggling click (Cmd/Ctrl) flips it and keeps the
+    /// rest.
+    pub fn click_option(&mut self, select: NodeId, option: NodeId, toggle: bool) {
+        let options = match self.page.as_ref() {
+            Some(page) => option_nodes(&page.document, select),
+            None => return,
+        };
+        if !options.contains(&option) {
+            return;
+        }
+        if toggle {
+            let current = self.option_selected(option);
+            self.form_checked.insert(option, !current);
+        } else {
+            for peer in options {
+                self.form_checked.insert(peer, peer == option);
+            }
+        }
+        self.relayout();
     }
 
     /// Selects an option by index: the live value and the displayed label
@@ -702,6 +776,61 @@ impl<L: ResourceLoader> Session<L> {
         let rounded = format!("{}", value.round());
         page.document.set_attribute(node, "value", &rounded);
         self.form_values.insert(node, rounded);
+        self.relayout();
+    }
+
+    /// Whether a node is an `<input type=number>` (arrow keys step it).
+    #[must_use]
+    pub fn is_number_input(&self, node: NodeId) -> bool {
+        self.page
+            .as_ref()
+            .and_then(|page| page.document.element(node))
+            .is_some_and(|element| {
+                element.tag_name == "input" && element.attributes.get("type") == Some("number")
+            })
+    }
+
+    /// Steps a number input by `direction` × its `step` attribute,
+    /// clamped to min/max. Returns the new text on success.
+    pub fn step_number_input(&mut self, node: NodeId, direction: f32) -> Option<String> {
+        let (step, min, max) = {
+            let element = self.page.as_ref()?.document.element(node)?;
+            if element.tag_name != "input" || element.attributes.get("type") != Some("number") {
+                return None;
+            }
+            let attr = |name: &str| -> Option<f32> {
+                element
+                    .attributes
+                    .get(name)
+                    .and_then(|value| value.parse().ok())
+            };
+            (attr("step").unwrap_or(1.0), attr("min"), attr("max"))
+        };
+        let current: f32 = self.form_value(node).trim().parse().unwrap_or(0.0);
+        let mut value = current + step * direction;
+        if let Some(min) = min {
+            value = value.max(min);
+        }
+        if let Some(max) = max {
+            value = value.min(max);
+        }
+        let text = if (value - value.round()).abs() < 1e-4 {
+            format!("{}", value.round() as i64)
+        } else {
+            format!("{value}")
+        };
+        self.set_form_value(node, &text);
+        Some(text)
+    }
+
+    /// Sets a color input's value: the attribute drives the swatch's
+    /// computed background color.
+    pub fn set_color_value(&mut self, node: NodeId, value: &str) {
+        let Some(page) = self.page.as_mut() else {
+            return;
+        };
+        page.document.set_attribute(node, "value", value);
+        self.form_values.insert(node, value.to_string());
         self.relayout();
     }
 
@@ -852,9 +981,18 @@ impl<L: ResourceLoader> Session<L> {
                     continue;
                 };
                 if tag == "select" {
-                    let (options, selected) = self.select_options(control);
-                    if let Some((value, _)) = options.get(selected) {
-                        pairs.push((name.to_string(), value.clone()));
+                    if element.attributes.contains("multiple") {
+                        // Every selected option submits its own pair.
+                        for option in option_nodes(document, control) {
+                            if self.option_selected(option) {
+                                pairs.push((name.to_string(), option_value(document, option)));
+                            }
+                        }
+                    } else {
+                        let (options, selected) = self.select_options(control);
+                        if let Some((value, _)) = options.get(selected) {
+                            pairs.push((name.to_string(), value.clone()));
+                        }
                     }
                     continue;
                 }
@@ -1574,6 +1712,113 @@ mod tests {
                 .iter()
                 .any(|text| text.contains("ara") && !text.contains("merhaba"))
         );
+    }
+
+    #[test]
+    fn multiple_select_toggles_and_submits_every_selection() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                (
+                    "https://a.test/",
+                    "<form action='/go'><select name='fruit' multiple>\
+                     <optgroup label='Soft'><option value='banana' selected>Banana</option>\
+                     <option value='berry'>Berry</option></optgroup>\
+                     <option value='apple'>Apple</option></select></form>",
+                ),
+                ("https://a.test/go?fruit=banana&fruit=apple", "<p>ok</p>"),
+            ]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let by_tag = |tag: &str| {
+            document
+                .descendants(document.root())
+                .find(|id| {
+                    document
+                        .element(*id)
+                        .is_some_and(|element| element.tag_name == tag)
+                })
+                .unwrap()
+        };
+        let select = by_tag("select");
+        let apple = document
+            .descendants(select)
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.attributes.get("value") == Some("apple"))
+            })
+            .unwrap();
+        assert!(session.is_multiple_select(select));
+        // The optgroup option starts selected; a toggling click adds apple.
+        session.click_option(select, apple, true);
+        assert!(session.option_selected(apple));
+        session.submit_form(select).unwrap();
+        assert_eq!(
+            session.current_url().unwrap().as_str(),
+            "https://a.test/go?fruit=banana&fruit=apple"
+        );
+    }
+
+    #[test]
+    fn number_input_steps_within_bounds() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<form><input type='number' name='n' value='2' min='0' max='3' step='2'></form>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let field = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+            .unwrap();
+        assert!(session.is_number_input(field));
+        assert_eq!(session.step_number_input(field, 1.0).as_deref(), Some("3"));
+        assert_eq!(session.step_number_input(field, -1.0).as_deref(), Some("1"));
+        assert_eq!(session.step_number_input(field, -1.0).as_deref(), Some("0"));
+        assert_eq!(session.form_value(field), "0");
+    }
+
+    #[test]
+    fn color_value_drives_the_swatch_background() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<form><input type='color' name='c' value='#ff0000'></form>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let field = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+            .unwrap();
+        let background = |session: &Session<FakeLoader>| {
+            session
+                .page()
+                .unwrap()
+                .styles
+                .by_node
+                .get(&field)
+                .and_then(|style| style.background_color)
+                .unwrap()
+        };
+        assert_eq!(background(&session), lumen_css::Color::rgb(0xff, 0, 0));
+        session.set_color_value(field, "#2266aa");
+        assert_eq!(background(&session), lumen_css::Color::rgb(0x22, 0x66, 0xaa));
     }
 
     #[test]

@@ -90,7 +90,8 @@ pub fn build_page_full(
         .descendants(document.root())
         .filter(|node| {
             document.element(*node).is_some_and(|element| {
-                element.tag_name == "input" && element.attributes.contains("checked")
+                (element.tag_name == "input" && element.attributes.contains("checked"))
+                    || (element.tag_name == "option" && element.attributes.contains("selected"))
             })
         })
         .collect();
@@ -166,24 +167,33 @@ pub fn page_from_document_interactive(
 /// values render as bullets; submit/button inputs fall back to a default
 /// label.
 fn materialize_form_values(document: &mut Document) {
-    // Selects display their selected (or first) option's label.
+    // Dropdown selects display their selected (or first) option's label;
+    // multiple selects render their options inline as a list box instead.
     let selects: Vec<(lumen_html::NodeId, String)> = document
         .descendants(document.root())
         .filter_map(|id| {
             let element = document.element(id)?;
-            if element.tag_name != "select" {
+            if element.tag_name != "select" || element.attributes.contains("multiple") {
                 return None;
             }
-            let options: Vec<lumen_html::NodeId> = document
-                .children(id)
-                .iter()
-                .copied()
-                .filter(|child| {
-                    document
-                        .element(*child)
-                        .is_some_and(|option| option.tag_name == "option")
-                })
-                .collect();
+            let mut options: Vec<lumen_html::NodeId> = Vec::new();
+            for child in document.children(id) {
+                match document.element(*child).map(|e| e.tag_name.as_str()) {
+                    Some("option") => options.push(*child),
+                    Some("optgroup") => options.extend(
+                        document
+                            .children(*child)
+                            .iter()
+                            .copied()
+                            .filter(|grandchild| {
+                                document
+                                    .element(*grandchild)
+                                    .is_some_and(|option| option.tag_name == "option")
+                            }),
+                    ),
+                    _ => {}
+                }
+            }
             let selected = options
                 .iter()
                 .copied()
@@ -202,6 +212,25 @@ fn materialize_form_values(document: &mut Document) {
         }
     }
 
+    // Optgroup labels render as generated heading text in list boxes.
+    let groups: Vec<(lumen_html::NodeId, String)> = document
+        .descendants(document.root())
+        .filter_map(|id| {
+            let element = document.element(id)?;
+            (element.tag_name == "optgroup").then(|| {
+                (
+                    id,
+                    element.attributes.get("label").unwrap_or_default().to_string(),
+                )
+            })
+        })
+        .collect();
+    for (id, label) in groups {
+        if !label.is_empty() && document.generated_text(id, true).is_none() {
+            document.upsert_generated_text(id, true, &label);
+        }
+    }
+
     let inputs: Vec<(lumen_html::NodeId, String)> = document
         .descendants(document.root())
         .filter_map(|id| {
@@ -212,8 +241,9 @@ fn materialize_form_values(document: &mut Document) {
             let kind = element.attributes.get("type").unwrap_or("text");
             let value = element.attributes.get("value");
             let text = match kind {
-                // Checkables draw vector marks via :checked, not text.
-                "hidden" | "checkbox" | "radio" => return None,
+                // Checkables draw vector marks via :checked, not text;
+                // color swatches paint their value as background.
+                "hidden" | "checkbox" | "radio" | "color" => return None,
                 "password" => "\u{2022}".repeat(value.map_or(0, str::len)),
                 "submit" => value.unwrap_or("Submit").to_string(),
                 "button" | "reset" => value.unwrap_or("").to_string(),

@@ -394,6 +394,19 @@
     </form>
     <p class="muted">↑ interactive: click a field and type; checkboxes toggle;
       Enter submits (GET). Entities: &copy; &mdash; &hellip; &rarr; &euro;</p>
+    <form action="#" class="form-row">
+      <select name="multi" multiple>
+        <optgroup label="Group A">
+          <option value="one" selected>One</option>
+          <option value="two">Two</option>
+        </optgroup>
+        <option value="three" selected>Three</option>
+      </select>
+      <input type="number" name="n" value="7" min="0" max="20">
+      <input type="color" name="col" value="#b3261e">
+    </form>
+    <p class="muted">↑ multiple select list box (selected rows highlight),
+      number input (↑/↓ steps), color swatch (click for the palette).</p>
     <div style="overflow: scroll; height: 70px; background-color: #f4f1ea; padding: 4px;">
       <p>Scrollable box line 1</p><p>line 2</p><p>line 3</p><p>line 4</p>
       <p>line 5</p><p>line 6</p><p>line 7</p><p>line 8 — wheel over me</p>
