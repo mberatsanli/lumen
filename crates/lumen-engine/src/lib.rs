@@ -23,7 +23,8 @@ pub use layout::{BoxType, LayoutBox, LayoutKind, dump_layout, layout_document};
 pub use paint::{DisplayCommand, build_display_list};
 pub use raster::{Framebuffer, rasterize, rasterize_over, rasterize_with};
 pub use selection::{
-    Caret, Selection, TextRun, caret_at_point, collect_text_runs, highlight_rects, selected_text,
+    Caret, HighlightRegion, Selection, TextRun, caret_at_point, collect_text_runs, highlight_rects,
+    selected_text,
 };
 pub use style::{
     ComputedStyle, Dimension, Display, FontWeight, StyleMap, TextAlign, compute_styles,

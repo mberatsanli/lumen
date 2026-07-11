@@ -11,6 +11,7 @@ use crate::inline::FragmentContent;
 use crate::layout::{LayoutBox, LayoutKind};
 use crate::style::ComputedStyle;
 use crate::text::{TextMeasurer, TextStyle};
+use lumen_css::Color;
 
 /// One selectable text fragment with its absolute geometry.
 #[derive(Debug, Clone)]
@@ -35,6 +36,8 @@ fn collect(layout: &LayoutBox, runs: &mut Vec<TextRun>) {
         for line in lines {
             for fragment in &line.fragments {
                 match &fragment.content {
+                    // `user-select: none` text is invisible to selection.
+                    FragmentContent::Text { style, .. } if !style.selectable => {}
                     FragmentContent::Text { text, style } => runs.push(TextRun {
                         text: text.clone(),
                         rect: Rect {
@@ -144,18 +147,26 @@ pub fn caret_at_point(
     Some(Caret { run: index, offset })
 }
 
-/// Highlight rectangles (page coordinates) for a selection.
+/// One highlighted region: a rectangle plus the run's `::selection`
+/// background override, when it has one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HighlightRegion {
+    pub rect: Rect,
+    pub background: Option<Color>,
+}
+
+/// Highlight regions (page coordinates) for a selection.
 #[must_use]
 pub fn highlight_rects(
     runs: &[TextRun],
     selection: &Selection,
     measurer: &dyn TextMeasurer,
-) -> Vec<Rect> {
+) -> Vec<HighlightRegion> {
     let (start, end) = selection.ordered();
     if selection.is_empty() {
         return Vec::new();
     }
-    let mut rects = Vec::new();
+    let mut regions = Vec::new();
     let last = end.run.min(runs.len().saturating_sub(1));
     for (index, run) in runs.iter().enumerate().take(last + 1).skip(start.run) {
         let from = if index == start.run {
@@ -169,15 +180,18 @@ pub fn highlight_rects(
             run.rect.width
         };
         if to > from {
-            rects.push(Rect {
-                x: run.rect.x + from,
-                y: run.rect.y,
-                width: to - from,
-                height: run.rect.height,
+            regions.push(HighlightRegion {
+                rect: Rect {
+                    x: run.rect.x + from,
+                    y: run.rect.y,
+                    width: to - from,
+                    height: run.rect.height,
+                },
+                background: run.style.selection_background,
             });
         }
     }
-    rects
+    regions
 }
 
 /// The selected text: runs on one line join with spaces, line changes
@@ -270,10 +284,28 @@ mod tests {
             anchor: Caret { run: 0, offset: 2 },
             focus: Caret { run: 0, offset: 7 },
         };
-        let rects = highlight_rects(&runs, &selection, &HeuristicMeasurer);
-        assert_eq!(rects.len(), 1);
-        assert_eq!(rects[0].x, 16.0);
-        assert_eq!(rects[0].width, 40.0);
+        let regions = highlight_rects(&runs, &selection, &HeuristicMeasurer);
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].rect.x, 16.0);
+        assert_eq!(regions[0].rect.width, 40.0);
+        assert_eq!(regions[0].background, None);
+    }
+
+    #[test]
+    fn unselectable_text_is_skipped_and_custom_color_carried() {
+        let runs = runs_for(
+            "<style>.locked { user-select: none; }
+                    .gold::selection { background-color: #f5c518; }</style>
+             <p class='locked'>secret</p><p class='gold'>shiny</p>",
+        );
+        let texts: Vec<&str> = runs.iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(texts, vec!["shiny"]);
+        let selection = Selection {
+            anchor: Caret { run: 0, offset: 0 },
+            focus: Caret { run: 0, offset: 5 },
+        };
+        let regions = highlight_rects(&runs, &selection, &HeuristicMeasurer);
+        assert_eq!(regions[0].background, Some(Color::rgb(0xf5, 0xc5, 0x18)));
     }
 
     #[test]

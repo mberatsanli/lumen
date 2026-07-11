@@ -102,6 +102,8 @@
     .hoverbox { background-color: #e8eef7; padding: 12px; }
     .hoverbox:hover { background-color: #2266aa; color: white; }
     a:hover { color: #b3261e; }
+    .no-select { user-select: none; color: #8a8272; }
+    .gold-select::selection { background-color: #f5c518; }
 
     /* unsupported things must be ignored, not break the page: */
     .section:focus { background-color: red; }     /* unsupported pseudo drops rule */
@@ -212,6 +214,8 @@
     <h2>Interaction</h2>
     <div class="hoverbox"><p>Hover me — background flips blue, text goes white.</p></div>
     <p><a href="hello.html">Hover turns this link red; click follows it.</a></p>
+    <p class="no-select">Try to select this — you can't (user-select: none).</p>
+    <p class="gold-select">Select this — the highlight turns gold (::selection).</p>
   </div>
 
   <div class="section">

@@ -192,6 +192,12 @@ pub struct ComputedStyle {
     /// Resolved to pixels.
     pub gap: f32,
     pub flex_grow: f32,
+    /// `user-select: none` makes the element's text unselectable.
+    pub selectable: bool,
+    /// `::selection` overrides: highlight background and (recorded, not
+    /// yet painted) text color.
+    pub selection_background: Option<Color>,
+    pub selection_color: Option<Color>,
 }
 
 pub const DEFAULT_FONT_SIZE: f32 = 16.0;
@@ -227,6 +233,9 @@ impl Default for ComputedStyle {
             align_items: AlignItems::default(),
             gap: 0.0,
             flex_grow: 0.0,
+            selectable: true,
+            selection_background: None,
+            selection_color: None,
         }
     }
 }
@@ -240,7 +249,9 @@ pub struct StyleMap {
 /// Properties whose declared values propagate to children.
 /// (`text-decoration` is not inherited in CSS — it *propagates by
 /// painting*; treating it as inherited approximates that.)
-const INHERITED_PROPERTIES: [&str; 7] = [
+/// (`user-select` and `::selection` styling are treated as inherited —
+/// an approximation that matches how they behave in practice.)
+const INHERITED_PROPERTIES: [&str; 10] = [
     "color",
     "font-size",
     "font-weight",
@@ -248,6 +259,9 @@ const INHERITED_PROPERTIES: [&str; 7] = [
     "text-align",
     "text-decoration",
     "font-style",
+    "user-select",
+    "::selection-background",
+    "::selection-color",
 ];
 
 /// The built-in user-agent stylesheet (weakest cascade origin).
@@ -386,17 +400,30 @@ fn winning_declarations(
     for rule in &sheet.rules {
         for selector in &rule.selectors {
             if selector_matches(document, node_id, element, selector, hover_chain) {
+                // `::selection` rules style the highlight, not the element:
+                // only their background-color/color apply, under internal
+                // property names.
+                let pseudo_element = selector.subject().pseudo_element.as_deref();
                 for declaration in &rule.declarations {
+                    let name = match pseudo_element {
+                        None => declaration.name.clone(),
+                        Some("selection") => match declaration.name.as_str() {
+                            "background-color" => "::selection-background".to_string(),
+                            "color" => "::selection-color".to_string(),
+                            _ => continue,
+                        },
+                        Some(_) => continue,
+                    };
                     let candidate = (
                         selector.specificity(),
                         rule.source_order,
                         declaration.value.clone(),
                     );
                     let replace = winners
-                        .get(&declaration.name)
+                        .get(&name)
                         .is_none_or(|current| (candidate.0, candidate.1) >= (current.0, current.1));
                     if replace {
-                        winners.insert(declaration.name.clone(), candidate);
+                        winners.insert(name, candidate);
                     }
                 }
             }
@@ -595,6 +622,15 @@ fn to_computed(
         raw.get("font-style").and_then(CssValue::as_keyword),
         Some("italic" | "oblique")
     );
+
+    style.selectable = !matches!(
+        raw.get("user-select").and_then(CssValue::as_keyword),
+        Some("none")
+    );
+    style.selection_background = raw
+        .get("::selection-background")
+        .and_then(CssValue::as_color);
+    style.selection_color = raw.get("::selection-color").and_then(CssValue::as_color);
 
     style.box_sizing = match raw.get("box-sizing").and_then(CssValue::as_keyword) {
         Some("border-box") => BoxSizing::BorderBox,
@@ -921,6 +957,52 @@ mod tests {
             style_of(&document, &styles, "h3").font_weight,
             FontWeight(700)
         );
+    }
+
+    #[test]
+    fn user_select_none_inherits_down() {
+        let (document, styles) = styles_for(
+            "<style>.locked { user-select: none; }</style>\
+             <div class='locked'><p>t</p></div><p>free</p>",
+        );
+        let locked = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.has_class("locked"))
+            })
+            .unwrap();
+        let inner_p = document
+            .descendants(locked)
+            .find(|id| document.element(*id).is_some())
+            .unwrap();
+        assert!(!styles.by_node[&inner_p].selectable);
+        // The sibling paragraph stays selectable.
+        let free = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "p")
+            })
+            .last()
+            .unwrap();
+        assert!(styles.by_node[&free].selectable);
+    }
+
+    #[test]
+    fn selection_pseudo_element_styles_the_highlight() {
+        let (document, styles) = styles_for(
+            "<style>p::selection { background-color: #f5c518; color: white; }\
+             p { color: #111111; }</style><p>t</p>",
+        );
+        let p = style_of(&document, &styles, "p");
+        assert_eq!(p.selection_background, Some(Color::rgb(0xf5, 0xc5, 0x18)));
+        assert_eq!(p.selection_color, Some(Color::rgb(255, 255, 255)));
+        // The rule did not leak into the element's own colors.
+        assert_eq!(p.color, Color::rgb(0x11, 0x11, 0x11));
+        assert_eq!(p.background_color, None);
     }
 
     #[test]

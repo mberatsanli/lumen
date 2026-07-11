@@ -26,6 +26,9 @@ pub struct CompoundSelector {
     /// Supported pseudo-classes (`link`, `visited`, `hover`). They count
     /// toward specificity like classes; `hover` matches dynamically.
     pub pseudo_classes: Vec<String>,
+    /// Supported pseudo-element (only `selection`). Rules with it style
+    /// the selection overlay of the matched element, not the element.
+    pub pseudo_element: Option<String>,
 }
 
 impl CompoundSelector {
@@ -34,7 +37,7 @@ impl CompoundSelector {
         Specificity {
             ids: u16::from(self.id.is_some()),
             classes: (self.classes.len() + self.pseudo_classes.len()) as u16,
-            types: u16::from(self.tag.is_some()),
+            types: u16::from(self.tag.is_some()) + u16::from(self.pseudo_element.is_some()),
         }
     }
 }
@@ -86,9 +89,25 @@ pub fn parse_selector(source: &str) -> Option<Selector> {
 /// (no visited state); `hover` matches against the engine's hover chain.
 const SUPPORTED_PSEUDO_CLASSES: [&str; 3] = ["link", "visited", "hover"];
 
+const SUPPORTED_PSEUDO_ELEMENTS: [&str; 1] = ["selection"];
+
 fn parse_compound(source: &str) -> Option<CompoundSelector> {
     let mut compound = CompoundSelector::default();
-    // Split off pseudo-classes first: `a:link` -> base `a` + pseudo `link`.
+    // Split off a pseudo-element first: `p::selection` -> base `p`.
+    let source = match source.split_once("::") {
+        Some((base, pseudo_element)) => {
+            if !SUPPORTED_PSEUDO_ELEMENTS.contains(&pseudo_element) {
+                return None; // Unsupported pseudo-element drops the rule.
+            }
+            compound.pseudo_element = Some(pseudo_element.to_string());
+            if base.is_empty() {
+                return None; // Bare `::selection` is unsupported.
+            }
+            base
+        }
+        None => source,
+    };
+    // Then pseudo-classes: `a:link` -> base `a` + pseudo `link`.
     let mut parts = source.split(':');
     let base = parts.next()?;
     for pseudo in parts {
@@ -155,6 +174,7 @@ mod tests {
             id: id.map(str::to_string),
             classes: classes.iter().map(|class| (*class).to_string()).collect(),
             pseudo_classes: Vec::new(),
+            pseudo_element: None,
         }
     }
 
@@ -224,6 +244,23 @@ mod tests {
     }
 
     #[test]
+    fn selection_pseudo_element_parses_with_type_specificity() {
+        let selector = parse_selector("p::selection").unwrap();
+        assert_eq!(
+            selector.compounds[0].pseudo_element.as_deref(),
+            Some("selection")
+        );
+        assert_eq!(
+            selector.specificity(),
+            Specificity {
+                ids: 0,
+                classes: 0,
+                types: 2
+            }
+        );
+    }
+
+    #[test]
     fn rejects_unsupported_selectors() {
         assert!(parse_selector("").is_none());
         assert!(parse_selector("p > a").is_none());
@@ -232,6 +269,8 @@ mod tests {
         assert!(parse_selector("#").is_none());
         assert!(parse_selector("div..x").is_none());
         assert!(parse_selector("[href]").is_none());
+        assert!(parse_selector("p::before").is_none());
+        assert!(parse_selector("::selection").is_none());
     }
 
     #[test]

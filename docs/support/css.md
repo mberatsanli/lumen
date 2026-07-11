@@ -28,7 +28,8 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `:not()`, `:is()`, `:where()` | ❌ | ✅ | ✅ | ✅ | |
 | `:has()` | ❌ | ✅ | ✅ | ✅ | |
 | `::before` / `::after` + `content` | ❌ | ✅ | ✅ | ✅ | |
-| `::first-line/-letter`, `::selection` | ❌ | ✅ | ✅ | ✅ | |
+| `::selection` | ⚠️ | ✅ | ✅ | ✅ | background-color works; color recorded but selected text keeps its color |
+| `::first-line/-letter` | ❌ | ✅ | ✅ | ✅ | |
 
 ## Cascade & values
 
@@ -160,4 +161,5 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `transition` | ❌ | ✅ | ✅ | ✅ | |
 | `animation` / `@keyframes` | ❌ | ✅ | ✅ | ✅ | |
 | `cursor` | ⚠️ | ✅ | ✅ | ✅ | pointer over links only; property ignored |
-| `pointer-events` / `user-select` | ❌ | ✅ | ✅ | ✅ | |
+| `user-select: none` | ✅ | ✅ | ✅ | ✅ | treated as inherited |
+| `pointer-events` | ❌ | ✅ | ✅ | ✅ | |
