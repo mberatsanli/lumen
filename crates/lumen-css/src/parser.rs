@@ -498,6 +498,20 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
             let side = &name["border-".len()..];
             expand_border_side(side, &components, output);
         }
+        // Multi-value properties whose components must survive together;
+        // the engine re-splits the joined text.
+        "background-position" | "background-size" => {
+            let text = components
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" ");
+            output.push(Declaration {
+                name: name.to_string(),
+                value: CssValue::Keyword(text),
+                important: false,
+            });
+        }
         "font-family" => {
             // Only the generic family matters to the engine: the list
             // normalizes to `monospace` when any entry names a monospace

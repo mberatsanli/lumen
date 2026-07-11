@@ -223,6 +223,7 @@ fn rasterize_clipped(
                 radius,
                 angle_degrees,
                 stops,
+                radial,
             } => {
                 fill_gradient(
                     framebuffer,
@@ -230,6 +231,7 @@ fn rasterize_clipped(
                     &scale_radius(radius, scale),
                     *angle_degrees,
                     stops,
+                    *radial,
                 );
             }
             DisplayCommand::FillRect {
@@ -638,6 +640,7 @@ fn fill_gradient(
     radius: &Corners<f32>,
     angle_degrees: f32,
     stops: &[(Color, f32)],
+    radial: bool,
 ) {
     if stops.is_empty() || rect.width <= 0.0 || rect.height <= 0.0 {
         return;
@@ -673,7 +676,12 @@ fn fill_gradient(
             if coverage <= 0.0 {
                 continue;
             }
-            let progress = if line_length <= 0.0 {
+            let progress = if radial {
+                // Centered ellipse: normalized distance to the edge.
+                let nx = (px - center_x) / (rect.width / 2.0).max(f32::EPSILON);
+                let ny = (py - center_y) / (rect.height / 2.0).max(f32::EPSILON);
+                (nx * nx + ny * ny).sqrt().clamp(0.0, 1.0)
+            } else if line_length <= 0.0 {
                 0.0
             } else {
                 (((px - center_x) * dx + (py - center_y) * dy) / line_length + 0.5).clamp(0.0, 1.0)
@@ -977,6 +985,7 @@ mod tests {
             radius: Corners::uniform(0.0),
             angle_degrees: 90.0, // to right
             stops: vec![(Color::rgb(0, 0, 0), 0.0), (Color::rgb(255, 255, 255), 1.0)],
+            radial: false,
         }];
         let framebuffer = rasterize(&commands, 10, 4, 0.0);
         let left = framebuffer.pixel(0, 2) & 0xff;

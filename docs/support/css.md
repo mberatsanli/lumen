@@ -124,10 +124,10 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `background-color` | ✅ | ✅ | ✅ | ✅ | |
 | `background` shorthand | ⚠️ | ✅ | ✅ | ✅ | color + image components only |
 | Body/root background → canvas | ✅ | ✅ | ✅ | ✅ | |
-| `background-image: url()` | ⚠️ | ✅ | ✅ | ✅ | stretched over the border box (no tiling/position/size); shares the 32-image page cap |
+| `background-image: url()` | ⚠️ | ✅ | ✅ | ✅ | position/size (auto/cover/contain/lengths)/repeat honored, clipped to the border box; shares the 32-image page cap |
 | `linear-gradient()` | ⚠️ | ✅ | ✅ | ✅ | angles + to-side/corner, %-positioned stops; no repeating, no interpolation hints |
-| `radial-gradient()` / `conic-gradient()` | ❌ | ✅ | ✅ | ✅ | |
-| position/size/repeat/attachment/clip | ❌ | ✅ | ✅ | ✅ | |
+| `radial-gradient()` / `conic-gradient()` | ⚠️ | ✅ | ✅ | ✅ | radial as a centered ellipse (shape/position prelude ignored); no conic |
+| position/size/repeat/attachment/clip | ⚠️ | ✅ | ✅ | ✅ | position (keywords/lengths/%), size (auto/cover/contain/lengths), repeat/no-repeat/-x/-y; no attachment/clip |
 | Multiple backgrounds | ❌ | ✅ | ✅ | ✅ | |
 
 ## Typography

@@ -24,26 +24,38 @@ pub fn render_svg(page: &Page) -> String {
                 radius,
                 angle_degrees,
                 stops,
+                radial,
             } => {
                 // CSS angle (0 = up) to a unit direction, mapped onto the
                 // object bounding box (approximation for non-square boxes).
                 let radians = angle_degrees.to_radians();
                 let (dx, dy) = (radians.sin() / 2.0, -radians.cos() / 2.0);
-                let _ = write!(
-                    svg,
-                    "<linearGradient id=\"gradient{gradient_id}\" x1=\"{:.4}\" y1=\"{:.4}\" x2=\"{:.4}\" y2=\"{:.4}\">",
-                    0.5 - dx,
-                    0.5 - dy,
-                    0.5 + dx,
-                    0.5 + dy,
-                );
+                if *radial {
+                    let _ = write!(
+                        svg,
+                        "<radialGradient id=\"gradient{gradient_id}\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\">",
+                    );
+                } else {
+                    let _ = write!(
+                        svg,
+                        "<linearGradient id=\"gradient{gradient_id}\" x1=\"{:.4}\" y1=\"{:.4}\" x2=\"{:.4}\" y2=\"{:.4}\">",
+                        0.5 - dx,
+                        0.5 - dy,
+                        0.5 + dx,
+                        0.5 + dy,
+                    );
+                }
                 for (color, position) in stops {
                     let _ = write!(
                         svg,
                         "<stop offset=\"{position:.4}\" stop-color=\"{color}\"/>"
                     );
                 }
-                svg.push_str("</linearGradient>\n");
+                svg.push_str(if *radial {
+                    "</radialGradient>\n"
+                } else {
+                    "</linearGradient>\n"
+                });
                 if radius.is_zero() {
                     let _ = writeln!(
                         svg,
