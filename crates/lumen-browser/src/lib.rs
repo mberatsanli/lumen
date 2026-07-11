@@ -131,8 +131,21 @@ impl<L: ResourceLoader> Session<L> {
         }
         let previous = self.hovered;
         self.hovered = node;
-        match self.hover_impact {
+        if self.hover_impact == lumen_engine::HoverImpact::Nothing {
             // No hover rules: styles cannot change, nothing to redraw.
+            return false;
+        }
+        // Regardless of impact class, do nothing unless the old or new
+        // hover target actually triggers a hover rule — crossing plain
+        // elements while moving the mouse stays free.
+        let affects = self.page.as_ref().is_some_and(|page| {
+            lumen_engine::hover_styles_may_change(&page.document, &self.author, previous)
+                || lumen_engine::hover_styles_may_change(&page.document, &self.author, node)
+        });
+        if !affects {
+            return false;
+        }
+        match self.hover_impact {
             lumen_engine::HoverImpact::Nothing => false,
             // Paint-only hover rules: swap styles + rebuild the display
             // list on the existing layout — no relayout.
@@ -143,20 +156,10 @@ impl<L: ResourceLoader> Session<L> {
                 }
                 None => false,
             },
+            // Geometry-affecting hover rules need the full relayout.
             lumen_engine::HoverImpact::Layout => {
-                // Geometry-affecting hover rules force a relayout — but
-                // only when the old or new hover target actually triggers
-                // one of them.
-                let affects = self.page.as_ref().is_some_and(|page| {
-                    lumen_engine::hover_styles_may_change(&page.document, &self.author, previous)
-                        || lumen_engine::hover_styles_may_change(&page.document, &self.author, node)
-                });
-                if affects {
-                    self.relayout();
-                    true
-                } else {
-                    false
-                }
+                self.relayout();
+                true
             }
         }
     }
@@ -683,6 +686,30 @@ mod tests {
             _ => None,
         });
         assert_eq!(hovered_text.as_deref(), Some("#ff0000"));
+    }
+
+    #[test]
+    fn paint_only_hover_on_unrelated_element_is_free() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>a:hover { color: #ff0000; }</style>\
+                 <p>plain text</p><a href='/x'>link</a>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let paragraph = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "p")
+            })
+            .unwrap();
+        // The paragraph triggers no hover rule: no restyle, no redraw.
+        assert!(!session.set_hovered(Some(paragraph)));
     }
 
     #[test]
