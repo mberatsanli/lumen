@@ -161,7 +161,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `transform` | ⚠️ | ✅ | ✅ | ✅ | translate/scale/rotate/matrix + transform-origin, paint-only; SVG exact, raster exact for translate/scale (rotation → bounding box, text stays upright) |
 | `filter` / `backdrop-filter` | ❌ | ✅ | ✅ | ✅ | |
 | `clip-path` / `mask` | ❌ | ✅ | ✅ | ✅ | |
-| `transition` | ❌ | ✅ | ✅ | ✅ | |
+| `transition` | ⚠️ | ✅ | ✅ | ✅ | opacity/color/background-color/transform; linear + smoothstep ease; driven by interaction restyles |
 | `animation` / `@keyframes` | ❌ | ✅ | ✅ | ✅ | |
 | `cursor` | ⚠️ | ✅ | ✅ | ✅ | pointer over links only; property ignored |
 | `user-select: none` | ✅ | ✅ | ✅ | ✅ | treated as inherited |
