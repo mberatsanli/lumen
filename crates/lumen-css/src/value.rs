@@ -13,6 +13,9 @@ pub enum Unit {
     /// Percent of the viewport width / height.
     Vw,
     Vh,
+    /// Percent of the smaller / larger viewport dimension.
+    Vmin,
+    Vmax,
     Percent,
 }
 
@@ -445,6 +448,41 @@ impl CssValue {
                 .ok()
                 .map(|v| Self::Length(v, Unit::Em));
         }
+        // Absolute units fold straight to px (96 px per inch); ch/ex are
+        // approximated as half an em, matching the heuristic measurer.
+        // These suffixes collide with keywords ("flex" ends in ex), so a
+        // failed numeric parse falls through instead of rejecting.
+        for (suffix, factor) in [
+            ("pt", 96.0 / 72.0),
+            ("pc", 16.0),
+            ("cm", 96.0 / 2.54),
+            ("mm", 96.0 / 25.4),
+            ("in", 96.0),
+            ("q", 96.0 / 101.6),
+        ] {
+            if let Some(number) = source.strip_suffix(suffix)
+                && let Ok(value) = number.trim().parse::<f32>()
+            {
+                return Some(Self::Length(value * factor, Unit::Px));
+            }
+        }
+        for suffix in ["ch", "ex"] {
+            if let Some(number) = source.strip_suffix(suffix)
+                && let Ok(value) = number.trim().parse::<f32>()
+            {
+                return Some(Self::Length(value * 0.5, Unit::Em));
+            }
+        }
+        if let Some(number) = source.strip_suffix("vmin")
+            && let Ok(value) = number.trim().parse::<f32>()
+        {
+            return Some(Self::Length(value, Unit::Vmin));
+        }
+        if let Some(number) = source.strip_suffix("vmax")
+            && let Ok(value) = number.trim().parse::<f32>()
+        {
+            return Some(Self::Length(value, Unit::Vmax));
+        }
         if let Some(number) = source.strip_suffix("vw") {
             return number
                 .trim()
@@ -524,6 +562,8 @@ impl fmt::Display for CssValue {
             Self::Length(value, Unit::Px) => write!(formatter, "{value}px"),
             Self::Length(value, Unit::Em) => write!(formatter, "{value}em"),
             Self::Length(value, Unit::Rem) => write!(formatter, "{value}rem"),
+            Self::Length(value, Unit::Vmin) => write!(formatter, "{value}vmin"),
+            Self::Length(value, Unit::Vmax) => write!(formatter, "{value}vmax"),
             Self::Length(value, Unit::Vw) => write!(formatter, "{value}vw"),
             Self::Length(value, Unit::Vh) => write!(formatter, "{value}vh"),
             Self::Length(value, Unit::Percent) => write!(formatter, "{value}%"),
@@ -579,6 +619,38 @@ pub fn split_components(source: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn absolute_and_font_relative_units_fold() {
+        assert_eq!(
+            CssValue::parse_component("72pt"),
+            Some(CssValue::Length(96.0, Unit::Px))
+        );
+        assert_eq!(
+            CssValue::parse_component("1in"),
+            Some(CssValue::Length(96.0, Unit::Px))
+        );
+        assert_eq!(
+            CssValue::parse_component("2.54cm"),
+            Some(CssValue::Length(96.0, Unit::Px))
+        );
+        assert_eq!(
+            CssValue::parse_component("1pc"),
+            Some(CssValue::Length(16.0, Unit::Px))
+        );
+        assert_eq!(
+            CssValue::parse_component("2ch"),
+            Some(CssValue::Length(1.0, Unit::Em))
+        );
+        assert_eq!(
+            CssValue::parse_component("10vmin"),
+            Some(CssValue::Length(10.0, Unit::Vmin))
+        );
+        assert_eq!(
+            CssValue::parse_component("10vmax"),
+            Some(CssValue::Length(10.0, Unit::Vmax))
+        );
+    }
 
     #[test]
     fn quoted_strings_survive_splitting_and_parse() {

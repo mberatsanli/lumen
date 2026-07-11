@@ -58,8 +58,9 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Unitless `0` | ✅ | ✅ | ✅ | ✅ | |
 | Unitless numbers | ✅ | ✅ | ✅ | ✅ | line-height, font-weight |
 | `rem` | ✅ | ✅ | ✅ | ✅ | resolves against the html font-size |
-| `vmin`/`vmax`, `dvh`/`svh`/`lvh` | ❌ | ✅ | ✅ | ✅ | |
-| `pt cm mm in pc ch ex Q` | ❌ | ✅ | ✅ | ✅ | |
+| `vmin`/`vmax` | ✅ | ✅ | ✅ | ✅ | dvh/svh/lvh unsupported |
+| `pt cm mm in pc Q` | ✅ | ✅ | ✅ | ✅ | folded to px at parse (96dpi) |
+| `ch` / `ex` | ⚠️ | ✅ | ✅ | ✅ | approximated as 0.5em (matches the heuristic measurer) |
 
 ## Colors
 

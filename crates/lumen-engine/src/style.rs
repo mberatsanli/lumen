@@ -50,6 +50,9 @@ pub enum Dimension {
     /// Percent of the viewport width / height.
     Vw(f32),
     Vh(f32),
+    /// Percent of the smaller / larger viewport dimension.
+    Vmin(f32),
+    Vmax(f32),
 }
 
 impl Dimension {
@@ -63,6 +66,8 @@ impl Dimension {
             Self::Percent(percent) => Some(containing * percent / 100.0),
             Self::Vw(percent) => Some(viewport.width * percent / 100.0),
             Self::Vh(percent) => Some(viewport.height * percent / 100.0),
+            Self::Vmin(percent) => Some(viewport.width.min(viewport.height) * percent / 100.0),
+            Self::Vmax(percent) => Some(viewport.width.max(viewport.height) * percent / 100.0),
         }
     }
 
@@ -76,6 +81,8 @@ impl Dimension {
             CssValue::Length(percent, lumen_css::Unit::Percent) => Some(Self::Percent(*percent)),
             CssValue::Length(percent, lumen_css::Unit::Vw) => Some(Self::Vw(*percent)),
             CssValue::Length(percent, lumen_css::Unit::Vh) => Some(Self::Vh(*percent)),
+            CssValue::Length(percent, lumen_css::Unit::Vmin) => Some(Self::Vmin(*percent)),
+            CssValue::Length(percent, lumen_css::Unit::Vmax) => Some(Self::Vmax(*percent)),
             _ => None,
         }
     }
