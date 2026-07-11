@@ -919,7 +919,8 @@ impl App {
                 self.invalidate_page();
                 self.request_redraw();
             }
-            if outcome.prevented {
+            self.follow_script_navigation();
+            if outcome.prevented || matches!(self.state, SessionState::Loading { .. }) {
                 return;
             }
         }
@@ -1190,6 +1191,23 @@ impl App {
         {
             self.invalidate_page();
             self.request_redraw();
+        }
+        self.follow_script_navigation();
+    }
+
+    /// Performs a navigation a script requested (location.href/reload).
+    fn follow_script_navigation(&mut self) {
+        let Some(target) = self
+            .page_scripts
+            .as_mut()
+            .and_then(lumen_browser::PageScripts::take_navigation)
+        else {
+            return;
+        };
+        if target == "::reload" {
+            self.start_nav(Nav::Refresh);
+        } else {
+            self.start_nav(Nav::Follow(target));
         }
     }
 
@@ -1533,6 +1551,7 @@ impl App {
                 // A timer is pending: keep frames coming so it fires.
                 self.request_redraw();
             }
+            self.follow_script_navigation();
         }
         let scale = self.scale();
         let chrome = self.chrome_commands();
@@ -2221,6 +2240,7 @@ impl ApplicationHandler<NavDone> for App {
             self.page_scripts = lumen_browser::PageScripts::new(&mut session);
         }
         self.state = SessionState::Ready(session);
+        self.follow_script_navigation();
         self.invalidate_page();
         self.scroll_to_fragment();
         self.refresh_find_matches();

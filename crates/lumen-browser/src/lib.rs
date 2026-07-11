@@ -1351,6 +1351,57 @@ mod tests {
     }
 
     #[test]
+    fn fetch_resolves_with_page_relative_resources() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                (
+                    "https://a.test/",
+                    "<p id='out'>bekliyor</p>\
+                     <script>\
+                     fetch('/veri.json')\
+                       .then((response) => response.json())\
+                       .then((data) => {\
+                         document.getElementById('out').textContent =\
+                           data.ad + ' ' + data.sayilar.length;\
+                       });\
+                     </script>",
+                ),
+                ("https://a.test/veri.json", "{\"ad\": \"lumen\", \"sayilar\": [1, 2, 3]}"),
+            ]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let document = &session.page().unwrap().document;
+        let out = document.get_element_by_id("out").unwrap();
+        assert_eq!(document.text_content(out), "lumen 3");
+    }
+
+    #[test]
+    fn scripts_request_navigation_via_location() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<button id='git'>git</button>\
+                 <script>\
+                 console.log(location.href);\
+                 document.getElementById('git').addEventListener('click', () => {\
+                   location.href = '/sonraki';\
+                 });\
+                 </script>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert!(scripts.take_navigation().is_none());
+        let document = &session.page().unwrap().document;
+        let button = document.get_element_by_id("git").unwrap();
+        scripts.dispatch(&mut session, button, "click");
+        assert_eq!(scripts.take_navigation().as_deref(), Some("/sonraki"));
+    }
+
+    #[test]
     fn scripts_create_append_and_remove_elements() {
         let mut session = Session::new(
             FakeLoader::new(&[(

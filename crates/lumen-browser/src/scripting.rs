@@ -14,8 +14,9 @@
 //! property; `textContent`/`value` are accessor properties reading and
 //! writing the live page.
 
-use crate::{Page, ResourceLoader, ResourceRequest, Session, resolve};
+use crate::{Page, ResourceLoader, ResourceRequest, Session, resolve as resolve_url};
 use boa_engine::object::ObjectInitializer;
+use boa_engine::object::builtins::JsPromise;
 use boa_engine::property::Attribute;
 use boa_engine::{Context, JsObject, JsResult, JsValue, NativeFunction, Source, js_string};
 use lumen_html::NodeId;
@@ -39,6 +40,12 @@ struct Bridge {
     prevented: bool,
     /// `event.stopPropagation()` was called (stops the bubble walk).
     stopped: bool,
+    /// fetch() calls made during the entry, resolved between entries.
+    pending_fetches: Vec<(String, JsObject, JsObject)>,
+    /// The page URL (feeds location.href reads).
+    url: String,
+    /// A navigation a script requested (location.href = ..., reload()).
+    pending_navigation: Option<String>,
 }
 
 thread_local! {
@@ -83,6 +90,10 @@ pub struct PageScripts {
     context: Context,
     listeners: Vec<(NodeId, String, JsObject)>,
     timers: Vec<Timer>,
+    /// fetch() calls awaiting their network round-trip.
+    pending_fetches: Vec<(String, JsObject, JsObject)>,
+    /// A navigation requested by a script, for the shell to perform.
+    navigation: Option<String>,
     now_ms: f64,
 }
 
@@ -101,6 +112,8 @@ impl PageScripts {
             context,
             listeners: Vec::new(),
             timers: Vec::new(),
+            pending_fetches: Vec::new(),
+            navigation: None,
             now_ms: 0.0,
         };
         for source in sources {
@@ -110,6 +123,7 @@ impl PageScripts {
                 }
             });
         }
+        scripts.pump_fetches(session);
         Some(scripts)
     }
 
@@ -187,6 +201,7 @@ impl PageScripts {
             }
         }
         outcome.prevented = with_bridge(|bridge| bridge.prevented);
+        self.pump_fetches(session);
         outcome
     }
 
@@ -214,7 +229,67 @@ impl PageScripts {
             });
             ran = true;
         }
+        if ran {
+            self.pump_fetches(session);
+        }
         ran
+    }
+
+    /// A navigation a script requested (location.href / reload), if any.
+    /// The shell performs it; `"::reload"` means refresh.
+    pub fn take_navigation(&mut self) -> Option<String> {
+        self.navigation.take()
+    }
+
+    /// Performs queued fetch() round-trips and resolves their promises,
+    /// looping because continuations may fetch again.
+    fn pump_fetches<L: ResourceLoader>(&mut self, session: &mut Session<L>) {
+        for _ in 0..8 {
+            let requests = std::mem::take(&mut self.pending_fetches);
+            if requests.is_empty() {
+                return;
+            }
+            let results: Vec<(Result<String, String>, JsObject, JsObject)> = requests
+                .into_iter()
+                .map(|(target, resolve, reject)| {
+                    let response = session
+                        .current_url()
+                        .cloned()
+                        .ok_or_else(|| "no page".to_string())
+                        .and_then(|base| {
+                            resolve_url(&base, &target).map_err(|error| error.to_string())
+                        })
+                        .and_then(|url| {
+                            session
+                                .loader
+                                .load(&ResourceRequest { url })
+                                .map(|response| response.text())
+                                .map_err(|error| error.to_string())
+                        });
+                    (response, resolve, reject)
+                })
+                .collect();
+            self.enter(session, |context| {
+                for (result, resolve, reject) in results {
+                    let call = match result {
+                        Ok(body) => {
+                            let response = response_object(&body, context);
+                            resolve.call(&JsValue::undefined(), &[response.into()], context)
+                        }
+                        Err(error) => reject.call(
+                            &JsValue::undefined(),
+                            &[JsValue::from(js_string!(error.as_str()))],
+                            context,
+                        ),
+                    };
+                    if let Err(error) = call {
+                        eprintln!("[js] script error: {error}");
+                    }
+                }
+            });
+        }
+        eprintln!("[js] fetch chain ran too deep; dropping the rest");
+        self.pending_fetches.clear();
     }
 
     /// Whether timers are pending (the shell keeps frames coming).
@@ -232,13 +307,23 @@ impl PageScripts {
         action: impl FnOnce(&mut Context),
     ) {
         let now_ms = self.now_ms;
+        let url = session
+            .current_url()
+            .map(ToString::to_string)
+            .unwrap_or_default();
         with_bridge(|bridge| {
             bridge.page = session.page.take();
             bridge.form_values = std::mem::take(&mut session.form_values);
             bridge.dirty = false;
             bridge.now_ms = now_ms;
+            bridge.url = url;
         });
         action(&mut self.context);
+        // Drain the microtask queue (promise .then/await continuations)
+        // while the page is still checked in.
+        if let Err(error) = self.context.run_jobs() {
+            eprintln!("[js] script error: {error}");
+        }
         let dirty = with_bridge(|bridge| {
             session.page = bridge.page.take();
             session.form_values = std::mem::take(&mut bridge.form_values);
@@ -255,6 +340,10 @@ impl PageScripts {
             }
             for cleared in bridge.cleared_timers.drain(..) {
                 self.timers.retain(|timer| timer.id != cleared);
+            }
+            self.pending_fetches.append(&mut bridge.pending_fetches);
+            if let Some(target) = bridge.pending_navigation.take() {
+                self.navigation = Some(target);
             }
             bridge.dirty
         });
@@ -289,7 +378,7 @@ fn script_sources<L: ResourceLoader>(session: &mut Session<L>) -> Vec<String> {
         .into_iter()
         .filter_map(|(src, inline)| match src {
             Some(src) => {
-                let url = resolve(&base, &src).ok()?;
+                let url = resolve_url(&base, &src).ok()?;
                 session
                     .loader
                     .load(&ResourceRequest { url })
@@ -359,6 +448,112 @@ fn install_globals(context: &mut Context) {
             .register_global_builtin_callable(name, 1, NativeFunction::from_fn_ptr(clear_timer))
             .expect("fresh context");
     }
+    context
+        .register_global_builtin_callable(js_string!("fetch"), 1, NativeFunction::from_fn_ptr(fetch_))
+        .expect("fresh context");
+
+    let href_get = NativeFunction::from_fn_ptr(location_href_get).to_js_function(context.realm());
+    let href_set = NativeFunction::from_fn_ptr(location_href_set).to_js_function(context.realm());
+    let location = ObjectInitializer::new(context)
+        .accessor(
+            js_string!("href"),
+            Some(href_get),
+            Some(href_set),
+            Attribute::all(),
+        )
+        .function(
+            NativeFunction::from_fn_ptr(location_reload),
+            js_string!("reload"),
+            0,
+        )
+        .build();
+    context
+        .register_global_property(js_string!("location"), location, Attribute::all())
+        .expect("fresh context");
+    // window is the global object itself (enough for window.location,
+    // window.setTimeout and friends).
+    let global = context.global_object();
+    context
+        .register_global_property(js_string!("window"), global, Attribute::all())
+        .expect("fresh context");
+}
+
+// ---- fetch ----
+
+fn fetch_(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let target = string_arg(args, 0, context);
+    let (promise, resolvers) = JsPromise::new_pending(context);
+    with_bridge(|bridge| {
+        bridge
+            .pending_fetches
+            .push((target, resolvers.resolve.into(), resolvers.reject.into()));
+    });
+    Ok(promise.into())
+}
+
+/// Builds the object a fetch resolves with: `ok`/`status` plus `text()`
+/// and `json()` returning already-resolved promises.
+fn response_object(body: &str, context: &mut Context) -> JsObject {
+    ObjectInitializer::new(context)
+        .property(js_string!("ok"), true, Attribute::all())
+        .property(js_string!("status"), 200, Attribute::all())
+        .property(
+            js_string!("__body"),
+            js_string!(body),
+            Attribute::empty(),
+        )
+        .function(NativeFunction::from_fn_ptr(response_text), js_string!("text"), 0)
+        .function(NativeFunction::from_fn_ptr(response_json), js_string!("json"), 0)
+        .build()
+}
+
+fn response_body(this: &JsValue, context: &mut Context) -> JsValue {
+    this.as_object()
+        .and_then(|object| object.get(js_string!("__body"), context).ok())
+        .unwrap_or_default()
+}
+
+fn response_text(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let body = response_body(this, context);
+    Ok(JsPromise::resolve(body, context).into())
+}
+
+fn response_json(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let body = response_body(this, context);
+    // Parse through the engine's own JSON.parse.
+    let json = context
+        .global_object()
+        .get(js_string!("JSON"), context)?;
+    let parse = json
+        .as_object()
+        .ok_or_else(|| boa_engine::JsNativeError::typ().with_message("JSON missing"))?
+        .get(js_string!("parse"), context)?;
+    let parsed = parse
+        .as_callable()
+        .ok_or_else(|| boa_engine::JsNativeError::typ().with_message("parse missing"))?
+        .call(&JsValue::undefined(), &[body], context);
+    Ok(match parsed {
+        Ok(value) => JsPromise::resolve(value, context).into(),
+        Err(error) => JsPromise::reject(error, context).into(),
+    })
+}
+
+// ---- location ----
+
+fn location_href_get(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {
+    let url = with_bridge(|bridge| bridge.url.clone());
+    Ok(JsValue::from(js_string!(url.as_str())))
+}
+
+fn location_href_set(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let target = string_arg(args, 0, context);
+    with_bridge(|bridge| bridge.pending_navigation = Some(target));
+    Ok(JsValue::undefined())
+}
+
+fn location_reload(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {
+    with_bridge(|bridge| bridge.pending_navigation = Some("::reload".to_string()));
+    Ok(JsValue::undefined())
 }
 
 fn console_log(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {

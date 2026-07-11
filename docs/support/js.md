@@ -17,17 +17,18 @@ loader thread); the whole world drops on navigation.
 | API | Lumen | Note |
 |---|:-:|---|
 | `console.log/warn/error` | ✅ | printed to the shell's terminal as `[js] …` |
-| `setTimeout` / `setInterval` | ⚠️ | driven by the shell's frame clock; no clearTimeout yet |
+| `setTimeout` / `setInterval` / `clearTimeout` / `clearInterval` | ✅ | driven by the shell's frame clock |
 | `document.getElementById` | ✅ | |
 | `document.querySelector(All)` | ⚠️ | `#id`, `.class`, `tag`, `tag.class` |
 | `element.textContent` / `innerText` | ✅ | live accessor properties; writes relayout the page |
 | `element.value` | ✅ | reads live form state, writes update the control |
 | `element.getAttribute` / `setAttribute` | ✅ | `setAttribute('style.color', …)` merges into the style attribute |
-| `element.addEventListener` | ⚠️ | `click` (bubbles to ancestors) and `input`; the handler gets `{ type, target }` |
+| `element.addEventListener` | ⚠️ | `click` (bubbles to ancestors), `input`, and `submit` on forms; the handler gets `{ type, target, preventDefault, stopPropagation }` |
+| `event.preventDefault` / `stopPropagation` | ✅ | cancels link follows, form submits and control activation |
+| `element.classList` / `className` | ✅ | add/remove/toggle/contains, writing through to the class attribute |
 | `document.createElement` / `el.appendChild` / `el.remove` | ✅ | detached nodes render nothing until appended; appends refuse cycles |
-| `preventDefault` / `stopPropagation` | ❌ | |
-| `fetch` / XHR | ❌ | |
-| `window` / `location` / `history` | ❌ | |
+| `fetch` | ⚠️ | GET only; blocking under the hood, resolved between script entries; `response.text()`/`.json()`; no headers/status detail |
+| `window` / `location` | ⚠️ | `window` aliases the global object; `location.href` read/write (write navigates) and `location.reload()`; no `history` |
 
 `<script>` elements (inline or `src=`) run once after the page first
 renders, in document order, sharing one global scope. Runtime errors

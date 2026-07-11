@@ -44,6 +44,16 @@
       <p class="hint">createElement + appendChild; maddeye tıklayınca remove() ile silinir.</p>
     </div>
 
+    <div class="row">
+      <button id="yukle">fetch ile yükle</button>
+      <span id="veri" class="hint">veri.json bekleniyor…</span>
+    </div>
+
+    <div class="row">
+      <a href="forms.html" id="engelli">Bu link engelli (preventDefault)</a>
+      — <a href="#" id="jsgit">location.href ile formlara git</a>
+    </div>
+
     <p class="hint">Butonlar addEventListener ile bağlı; yazı alanı input
       event'iyle selamı günceller; sayaç setInterval ile ilerler.
       console.log çıktısı terminale düşer.</p>
@@ -85,6 +95,26 @@
       li.addEventListener('click', () => li.remove());
       liste.appendChild(li);
       gorev.value = '';
+    });
+
+    document.getElementById('yukle').addEventListener('click', () => {
+      fetch('veri.json')
+        .then((r) => r.json())
+        .then((data) => {
+          document.getElementById('veri').textContent =
+            `${data.mesaj}: ${data.sayilar.join(', ')}`;
+        });
+    });
+
+    let engel = 0;
+    document.getElementById('engelli').addEventListener('click', (e) => {
+      e.preventDefault();
+      engel++;
+      e.target.textContent = `Engellendi ×${engel} (navigasyon yok)`;
+    });
+    document.getElementById('jsgit').addEventListener('click', (e) => {
+      e.preventDefault();
+      location.href = 'forms.html';
     });
 
     console.log('page script ready:', typeof sayac, [1,2,3].map(x => x * x).join('+'));
