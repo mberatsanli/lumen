@@ -137,6 +137,10 @@
     .code-sample { background-color: #2b2b33; color: #e8e6e3; padding: 12px;
                    border-radius: 6px; }
 
+    /* --- overflow ------------------------------------------------------ */
+    .clipped { overflow: hidden; height: 60px; background-color: #f0ead9;
+               padding: 8px; border: 1px solid #cbbf9e; }
+
     /* --- interaction ------------------------------------------------- */
     .hoverbox { background-color: #e8eef7; padding: 12px; }
     .hoverbox:hover { background-color: #2266aa; color: white; }
@@ -226,6 +230,17 @@
     println!("{spaced}");
 }</pre>
     <p>Inline <code>code spans</code> render in the monospace face.</p>
+  </div>
+
+  <div class="section">
+    <h2>Overflow</h2>
+    <div class="clipped">
+      <p>This box is 60px tall with overflow: hidden. Everything below its
+      padding box is clipped away, including this second sentence which
+      keeps going and going and going well past the visible area.</p>
+      <p>A second paragraph that should be fully invisible.</p>
+    </div>
+    <p class="muted">↑ overflow: hidden clips children.</p>
   </div>
 
   <div class="section">

@@ -6,7 +6,7 @@
 use crate::geometry::{Corners, EdgeSizes, Rect};
 use crate::image::{ImageMap, RasterImage};
 use crate::layout::{BoxType, LayoutBox, LayoutKind};
-use crate::style::BorderStyle;
+use crate::style::{BorderStyle, Overflow};
 use lumen_css::Color;
 use std::sync::Arc;
 
@@ -51,6 +51,12 @@ pub enum DisplayCommand {
         image: Arc<RasterImage>,
         alpha: u8,
     },
+    /// Clip all commands until the matching [`Self::PopClip`] to `rect`
+    /// (intersected with any enclosing clips). From `overflow`.
+    PushClip {
+        rect: Rect,
+    },
+    PopClip,
 }
 
 /// Flattens the layout tree into an ordered list of paint commands.
@@ -155,6 +161,15 @@ fn paint_box(
         }
     }
 
+    // `overflow: hidden/scroll/auto/clip`: children (including inline
+    // content) clip to the padding box; background and border stay intact.
+    let clips = !anonymous && layout.style.overflow == Overflow::Clip;
+    if clips {
+        commands.push(DisplayCommand::PushClip {
+            rect: layout.dimensions.padding_box(),
+        });
+    }
+
     if let LayoutKind::Inline { lines } = &layout.kind {
         let content = layout.content_box();
         for line in lines {
@@ -183,6 +198,10 @@ fn paint_box(
 
     for child in layout.children_in_paint_order() {
         paint_box(child, images, opacity, commands);
+    }
+
+    if clips {
+        commands.push(DisplayCommand::PopClip);
     }
 }
 
@@ -259,6 +278,16 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
                     rect.x, rect.y, rect.width, rect.height, image.width, image.height, image.mime
                 );
             }
+            DisplayCommand::PushClip { rect } => {
+                let _ = writeln!(
+                    output,
+                    "PushClip x={} y={} w={} h={}",
+                    rect.x, rect.y, rect.width, rect.height
+                );
+            }
+            DisplayCommand::PopClip => {
+                let _ = writeln!(output, "PopClip");
+            }
         }
     }
     output
@@ -320,6 +349,8 @@ mod tests {
                 DisplayCommand::StrokeRect { .. } => "stroke",
                 DisplayCommand::DrawText { .. } => "text",
                 DisplayCommand::DrawImage { .. } => "image",
+                DisplayCommand::PushClip { .. } => "push-clip",
+                DisplayCommand::PopClip => "pop-clip",
             })
             .collect();
         assert_eq!(kinds, vec!["fill", "stroke", "text"]);
@@ -349,6 +380,37 @@ mod tests {
         assert_eq!(rect.width, 104.0);
         assert_eq!(rect.height, 14.0);
         assert_eq!(widths.top, 2.0);
+    }
+
+    #[test]
+    fn overflow_hidden_clips_children_to_the_padding_box() {
+        let list = commands(
+            "<style>.clip { overflow: hidden; width: 100px; height: 40px; padding: 5px; }\
+             </style><div class='clip'><div style='width: 500px; height: 500px;'></div></div>",
+        );
+        let Some(DisplayCommand::PushClip { rect }) = list
+            .iter()
+            .find(|command| matches!(command, DisplayCommand::PushClip { .. }))
+        else {
+            panic!("no PushClip in {list:?}");
+        };
+        // Padding box: 100 + 2*5 wide, 40 + 2*5 tall.
+        assert_eq!(rect.width, 110.0);
+        assert_eq!(rect.height, 50.0);
+        assert!(
+            list.iter()
+                .any(|command| matches!(command, DisplayCommand::PopClip))
+        );
+        // The clip opens before the child's background paints.
+        let push = list
+            .iter()
+            .position(|command| matches!(command, DisplayCommand::PushClip { .. }))
+            .unwrap();
+        let pop = list
+            .iter()
+            .position(|command| matches!(command, DisplayCommand::PopClip))
+            .unwrap();
+        assert!(push < pop);
     }
 
     #[test]

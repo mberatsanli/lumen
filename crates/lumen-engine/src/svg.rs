@@ -15,8 +15,20 @@ pub fn render_svg(page: &Page) -> String {
     );
     svg.push_str("<rect width=\"100%\" height=\"100%\" fill=\"white\"/>\n");
 
+    let mut clip_id = 0usize;
     for command in &page.display_list {
         match command {
+            DisplayCommand::PushClip { rect } => {
+                let _ = writeln!(
+                    svg,
+                    "<clipPath id=\"clip{clip_id}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/></clipPath><g clip-path=\"url(#clip{clip_id})\">",
+                    rect.x, rect.y, rect.width, rect.height,
+                );
+                clip_id += 1;
+            }
+            DisplayCommand::PopClip => {
+                svg.push_str("</g>\n");
+            }
             DisplayCommand::FillRect {
                 rect,
                 color,

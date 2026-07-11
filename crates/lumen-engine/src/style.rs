@@ -199,6 +199,7 @@ pub struct ComputedStyle {
     pub box_sizing: BoxSizing,
     pub float: Float,
     pub clear: Clear,
+    pub overflow: Overflow,
     pub position: Position,
     /// `top`/`right`/`bottom`/`left` offsets for positioned boxes.
     pub offsets: EdgeSizes<Dimension>,
@@ -223,6 +224,15 @@ pub struct ComputedStyle {
     /// yet painted) text color.
     pub selection_background: Option<Color>,
     pub selection_color: Option<Color>,
+}
+
+/// `overflow` subset: anything that is not `visible` clips children to
+/// the padding box at paint time (no inner scrolling).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Overflow {
+    #[default]
+    Visible,
+    Clip,
 }
 
 /// `white-space` subset: `pre` preserves spaces and newlines and never
@@ -264,6 +274,7 @@ impl Default for ComputedStyle {
             box_sizing: BoxSizing::default(),
             float: Float::None,
             clear: Clear::None,
+            overflow: Overflow::Visible,
             position: Position::Static,
             offsets: EdgeSizes::uniform(Dimension::Auto),
             z_index: None,
@@ -675,6 +686,11 @@ fn to_computed(
         raw.get("font-family").and_then(CssValue::as_keyword),
         Some("monospace")
     );
+
+    style.overflow = match raw.get("overflow").and_then(CssValue::as_keyword) {
+        Some("hidden" | "scroll" | "auto" | "clip") => Overflow::Clip,
+        _ => Overflow::Visible,
+    };
 
     style.white_space = match raw.get("white-space").and_then(CssValue::as_keyword) {
         Some("pre" | "pre-wrap" | "pre-line") => WhiteSpace::Pre,

@@ -18,6 +18,9 @@ pub struct Framebuffer {
     pub width: u32,
     pub height: u32,
     pub pixels: Vec<u32>,
+    /// Active clip in device pixels (x0, y0, x1, y1); draws outside are
+    /// dropped. Maintained by PushClip/PopClip during rasterization.
+    clip: Option<(u32, u32, u32, u32)>,
 }
 
 impl Framebuffer {
@@ -27,7 +30,20 @@ impl Framebuffer {
             width,
             height,
             pixels: vec![0x00ff_ffff; (width as usize) * (height as usize)],
+            clip: None,
         }
+    }
+
+    /// The drawable bounds: the intersection of the buffer and the clip.
+    fn bounds(&self) -> (u32, u32, u32, u32) {
+        let (cx0, cy0, cx1, cy1) = self.clip.unwrap_or((0, 0, self.width, self.height));
+        (cx0, cy0, cx1.min(self.width), cy1.min(self.height))
+    }
+
+    /// Whether one device pixel is drawable under the current clip.
+    fn admits(&self, x: u32, y: u32) -> bool {
+        let (x0, y0, x1, y1) = self.bounds();
+        x >= x0 && x < x1 && y >= y0 && y < y1
     }
 
     #[must_use]
@@ -39,10 +55,11 @@ impl Framebuffer {
     /// translucent overlays like text-selection highlights.
     pub fn blend_fill(&mut self, rect: Rect, color: lumen_css::Color, alpha: u8) {
         let packed = pack(color);
-        let x0 = (rect.x.max(0.0) as u32).min(self.width);
-        let y0 = (rect.y.max(0.0) as u32).min(self.height);
-        let x1 = ((rect.x + rect.width).max(0.0) as u32).min(self.width);
-        let y1 = ((rect.y + rect.height).max(0.0) as u32).min(self.height);
+        let (cx0, cy0, cx1, cy1) = self.bounds();
+        let x0 = (rect.x.max(0.0) as u32).clamp(cx0, cx1);
+        let y0 = (rect.y.max(0.0) as u32).clamp(cy0, cy1);
+        let x1 = ((rect.x + rect.width).max(0.0) as u32).clamp(cx0, cx1);
+        let y1 = ((rect.y + rect.height).max(0.0) as u32).clamp(cy0, cy1);
         for y in y0..y1 {
             for x in x0..x1 {
                 let position = (y * self.width + x) as usize;
@@ -52,10 +69,11 @@ impl Framebuffer {
     }
 
     fn fill(&mut self, rect: Rect, color: u32) {
-        let x0 = (rect.x.max(0.0) as u32).min(self.width);
-        let y0 = (rect.y.max(0.0) as u32).min(self.height);
-        let x1 = ((rect.x + rect.width).max(0.0) as u32).min(self.width);
-        let y1 = ((rect.y + rect.height).max(0.0) as u32).min(self.height);
+        let (cx0, cy0, cx1, cy1) = self.bounds();
+        let x0 = (rect.x.max(0.0) as u32).clamp(cx0, cx1);
+        let y0 = (rect.y.max(0.0) as u32).clamp(cy0, cy1);
+        let x1 = ((rect.x + rect.width).max(0.0) as u32).clamp(cx0, cx1);
+        let y1 = ((rect.y + rect.height).max(0.0) as u32).clamp(cy0, cy1);
         for y in y0..y1 {
             let row = (y * self.width) as usize;
             for x in x0..x1 {
@@ -127,8 +145,37 @@ pub fn rasterize_over(
         height: rect.height * scale,
     };
 
+    // Clip stack: each entry is the device-space intersection so far.
+    let mut clips: Vec<(u32, u32, u32, u32)> = Vec::new();
+
     for command in commands {
         match command {
+            DisplayCommand::PushClip { rect } => {
+                let rect = shift(rect);
+                let x0 = rect.x.max(0.0) as u32;
+                let y0 = rect.y.max(0.0) as u32;
+                let x1 = (rect.x + rect.width).max(0.0).ceil() as u32;
+                let y1 = (rect.y + rect.height).max(0.0).ceil() as u32;
+                let outer =
+                    clips
+                        .last()
+                        .copied()
+                        .unwrap_or((0, 0, framebuffer.width, framebuffer.height));
+                let clip = (
+                    x0.max(outer.0),
+                    y0.max(outer.1),
+                    x1.min(outer.2),
+                    y1.min(outer.3),
+                );
+                clips.push(clip);
+                framebuffer.clip = Some(clip);
+                continue;
+            }
+            DisplayCommand::PopClip => {
+                clips.pop();
+                framebuffer.clip = clips.last().copied();
+                continue;
+            }
             DisplayCommand::FillRect {
                 rect,
                 color,
@@ -274,6 +321,8 @@ pub fn rasterize_over(
             }
         }
     }
+    // Never leak a clip into later overlay passes (e.g. browser chrome).
+    framebuffer.clip = None;
 }
 
 /// Draws a text run with the 8×8 bitmap font. `y` is the baseline; the
@@ -354,7 +403,7 @@ fn draw_glyph(
         let row_bits = glyph[source_row.min(7)];
         for pixel_x in x0..x1 {
             let source_column = (((pixel_x as f32 - cell_x) / cell_width) * 8.0) as usize;
-            if row_bits & (1 << source_column.min(7)) != 0 {
+            if row_bits & (1 << source_column.min(7)) != 0 && framebuffer.admits(pixel_x, pixel_y) {
                 let position = (pixel_y * framebuffer.width + pixel_x) as usize;
                 framebuffer.pixels[position] = blend(framebuffer.pixels[position], color, alpha);
             }
@@ -444,7 +493,7 @@ fn blend_glyph(
             continue;
         }
         let (pixel_x, pixel_y) = (pixel_x as u32, pixel_y as u32);
-        if pixel_x >= framebuffer.width || pixel_y >= framebuffer.height {
+        if !framebuffer.admits(pixel_x, pixel_y) {
             continue;
         }
         let position = (pixel_y * framebuffer.width + pixel_x) as usize;
@@ -573,7 +622,7 @@ fn fill_rounded(framebuffer: &mut Framebuffer, rect: &Rect, radius: &Corners<f32
         for pixel_x in x0..x1 {
             let coverage =
                 rounded_coverage(rect, &radius, pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
-            if coverage <= 0.0 {
+            if coverage <= 0.0 || !framebuffer.admits(pixel_x, pixel_y) {
                 continue;
             }
             let position = (pixel_y * framebuffer.width + pixel_x) as usize;
@@ -618,7 +667,7 @@ fn fill_rounded_ring(
             let (px, py) = (pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
             let coverage = rounded_coverage(rect, &radius, px, py)
                 - rounded_coverage(&inner, &inner_radius, px, py);
-            if coverage <= 0.0 {
+            if coverage <= 0.0 || !framebuffer.admits(pixel_x, pixel_y) {
                 continue;
             }
             let position = (pixel_y * framebuffer.width + pixel_x) as usize;
@@ -655,6 +704,9 @@ fn blit_image(
             let [r, g, b, a] = image.rgba[offset..offset + 4] else {
                 continue;
             };
+            if !framebuffer.admits(pixel_x, pixel_y) {
+                continue;
+            }
             let color = ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
             let position = (pixel_y * framebuffer.width + pixel_x) as usize;
             let combined = (u32::from(a) * u32::from(alpha_multiplier) / 255) as u8;
@@ -719,6 +771,45 @@ mod tests {
         assert_eq!(framebuffer.pixel(0, 0), 0x00ff_0000);
         assert_eq!(framebuffer.pixel(9, 9), 0x00ff_0000);
         assert_eq!(framebuffer.pixel(5, 5), 0x00ff_ffff);
+    }
+
+    #[test]
+    fn clips_drop_pixels_outside_the_clip_rect() {
+        let commands = vec![
+            DisplayCommand::PushClip {
+                rect: Rect {
+                    x: 2.0,
+                    y: 2.0,
+                    width: 4.0,
+                    height: 4.0,
+                },
+            },
+            DisplayCommand::FillRect {
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 10.0,
+                    height: 10.0,
+                },
+                color: Color::rgb(0xff, 0x00, 0x00),
+                radius: Corners::uniform(0.0),
+            },
+            DisplayCommand::PopClip,
+            DisplayCommand::FillRect {
+                rect: Rect {
+                    x: 8.0,
+                    y: 8.0,
+                    width: 1.0,
+                    height: 1.0,
+                },
+                color: Color::rgb(0x00, 0xff, 0x00),
+                radius: Corners::uniform(0.0),
+            },
+        ];
+        let framebuffer = rasterize(&commands, 10, 10, 0.0);
+        assert_eq!(framebuffer.pixel(3, 3), 0x00ff_0000); // inside clip
+        assert_eq!(framebuffer.pixel(1, 1), 0x00ff_ffff); // clipped away
+        assert_eq!(framebuffer.pixel(8, 8), 0x0000_ff00); // after PopClip
     }
 
     #[test]

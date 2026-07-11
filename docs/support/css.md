@@ -108,7 +108,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `display: list-item` | ❌ | ✅ | ✅ | ✅ | no markers |
 | `position` + offsets + `z-index` | ⚠️ | ✅ | ✅ | ✅ | relative/absolute/fixed; containing block = parent content box (not nearest positioned ancestor); absolute `bottom` unsupported; fixed scrolls with the page; z-index = simple sort, no stacking contexts |
 | `float` / `clear` | ⚠️ | ✅ | ✅ | ✅ | simplified: floats narrow inline lines in the same container only; block siblings ignore floats except clear |
-| `overflow` | ❌ | ✅ | ✅ | ✅ | boxes never clip/scroll |
+| `overflow` | ⚠️ | ✅ | ✅ | ✅ | hidden/scroll/auto/clip all clip to the padding box at paint time; no inner scrolling; hit testing unclipped |
 | `vertical-align` | ❌ | ✅ | ✅ | ✅ | |
 | `direction: rtl` / writing modes | ❌ | ✅ | ✅ | ✅ | |
 | Multi-column | ❌ | ✅ | ✅ | ✅ | |
