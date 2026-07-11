@@ -10,5 +10,8 @@ pub mod selector;
 pub mod value;
 
 pub use parser::{Declaration, Rule, Stylesheet, parse_declarations, parse_stylesheet};
-pub use selector::{CompoundSelector, Selector, Specificity, parse_selector};
+pub use selector::{
+    AttributeOperation, AttributeSelector, Combinator, CompoundSelector, PseudoClass, Selector,
+    Specificity, parse_selector,
+};
 pub use value::{Color, CssValue, Unit, split_components};

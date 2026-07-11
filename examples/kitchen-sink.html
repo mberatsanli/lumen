@@ -137,6 +137,16 @@
     .code-sample { background-color: #2b2b33; color: #e8e6e3; padding: 12px;
                    border-radius: 6px; }
 
+    /* --- selectors ------------------------------------------------------ */
+    .sel-list { background-color: #f4f1ea; padding: 8px; }
+    .sel-list > p { margin: 2px 0; padding-left: 8px; }
+    .sel-list p:first-child { color: #b3261e; }
+    .sel-list p:last-child { color: #1a6b3c; }
+    .sel-list p:nth-child(even) { background-color: #e7e0d1; }
+    .sel-list p:not(.plain) { font-weight: 700; }
+    .sel-title + p { font-style: italic; }
+    a[href^="https"] { color: #7a3d9e; }
+
     /* --- overflow ------------------------------------------------------ */
     .clipped { overflow: hidden; height: 60px; background-color: #f0ead9;
                padding: 8px; border: 1px solid #cbbf9e; }
@@ -230,6 +240,21 @@
     println!("{spaced}");
 }</pre>
     <p>Inline <code>code spans</code> render in the monospace face.</p>
+  </div>
+
+  <div class="section">
+    <h2>Selectors</h2>
+    <p class="sel-title">A heading-ish paragraph</p>
+    <p>This one follows it directly (A + B makes it italic).</p>
+    <div class="sel-list">
+      <p>first-child is red</p>
+      <p class="plain">even rows get a background; :not(.plain) bolds the rest</p>
+      <p>middle row</p>
+      <p class="plain">another plain even row</p>
+      <p>last-child is green</p>
+    </div>
+    <p>Secure links go purple: <a href="https://example.com">https link</a>
+       vs <a href="http://example.com">http link</a>.</p>
   </div>
 
   <div class="section">

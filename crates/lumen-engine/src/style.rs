@@ -11,7 +11,10 @@
 //! [`ComputedStyle`]; layout and paint never parse strings.
 
 use crate::geometry::{Corners, EdgeSizes};
-use lumen_css::{Color, CompoundSelector, CssValue, Selector, Specificity, Stylesheet};
+use lumen_css::{
+    AttributeOperation, Color, Combinator, CompoundSelector, CssValue, PseudoClass, Selector,
+    Specificity, Stylesheet,
+};
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
@@ -498,7 +501,35 @@ fn winning_declarations(
     winners
 }
 
+/// The element siblings of a node (children of its parent that are
+/// elements), plus the node's position among them.
+fn element_siblings(document: &Document, node_id: NodeId) -> (Vec<NodeId>, usize) {
+    let siblings: Vec<NodeId> = document.parent(node_id).map_or_else(Vec::new, |parent| {
+        document
+            .children(parent)
+            .iter()
+            .copied()
+            .filter(|child| document.element(*child).is_some())
+            .collect()
+    });
+    let position = siblings
+        .iter()
+        .position(|sibling| *sibling == node_id)
+        .unwrap_or(0);
+    (siblings, position)
+}
+
+/// Whether a 1-based index satisfies the `an+b` micro-syntax.
+fn nth_matches(a: i32, b: i32, index: i32) -> bool {
+    if a == 0 {
+        return index == b;
+    }
+    let distance = index - b;
+    distance % a == 0 && distance / a >= 0
+}
+
 fn compound_matches(
+    document: &Document,
     node_id: NodeId,
     element: &ElementData,
     compound: &CompoundSelector,
@@ -521,19 +552,47 @@ fn compound_matches(
     {
         return false;
     }
-    compound
-        .pseudo_classes
-        .iter()
-        .all(|pseudo| match pseudo.as_str() {
-            "hover" => hover_chain.contains(&node_id),
-            // `link`/`visited` are always-true (no visited state).
-            _ => true,
-        })
+    if !compound.attributes.iter().all(|attribute| {
+        let Some(value) = element.attributes.get(&attribute.name) else {
+            return false;
+        };
+        match &attribute.operation {
+            AttributeOperation::Exists => true,
+            AttributeOperation::Equals(expected) => value == expected,
+            AttributeOperation::StartsWith(prefix) => value.starts_with(prefix.as_str()),
+            AttributeOperation::EndsWith(suffix) => value.ends_with(suffix.as_str()),
+            AttributeOperation::Contains(needle) => value.contains(needle.as_str()),
+        }
+    }) {
+        return false;
+    }
+    compound.pseudo_classes.iter().all(|pseudo| match pseudo {
+        PseudoClass::Hover => hover_chain.contains(&node_id),
+        // No visited state: both always match.
+        PseudoClass::Link | PseudoClass::Visited => true,
+        PseudoClass::FirstChild => element_siblings(document, node_id).1 == 0,
+        PseudoClass::LastChild => {
+            let (siblings, position) = element_siblings(document, node_id);
+            position + 1 == siblings.len()
+        }
+        PseudoClass::OnlyChild => element_siblings(document, node_id).0.len() == 1,
+        PseudoClass::NthChild(a, b) => {
+            let (_, position) = element_siblings(document, node_id);
+            nth_matches(*a, *b, position as i32 + 1)
+        }
+        PseudoClass::NthLastChild(a, b) => {
+            let (siblings, position) = element_siblings(document, node_id);
+            nth_matches(*a, *b, (siblings.len() - position) as i32)
+        }
+        PseudoClass::Not(inner) => {
+            !compound_matches(document, node_id, element, inner, hover_chain)
+        }
+    })
 }
 
-/// Matches a complex selector: the subject compound must match the element
-/// itself, remaining compounds must match ancestors in order (descendant
-/// combinator, right to left).
+/// Matches a complex selector right to left: the subject compound must
+/// match the element itself, then each combinator walks to a parent,
+/// sibling or (with backtracking) ancestor/earlier sibling.
 pub(crate) fn selector_matches(
     document: &Document,
     node_id: NodeId,
@@ -541,26 +600,48 @@ pub(crate) fn selector_matches(
     selector: &Selector,
     hover_chain: &HashSet<NodeId>,
 ) -> bool {
-    if !compound_matches(node_id, element, selector.subject(), hover_chain) {
+    if !compound_matches(document, node_id, element, selector.subject(), hover_chain) {
         return false;
     }
-    let mut remaining = selector.compounds[..selector.compounds.len() - 1]
-        .iter()
-        .rev();
-    let Some(mut needed) = remaining.next() else {
+    complex_matches_from(
+        document,
+        selector,
+        selector.compounds.len() - 1,
+        node_id,
+        hover_chain,
+    )
+}
+
+/// Whether the selector prefix ending at `index` (which already matched
+/// `node_id`) can be completed toward the left.
+fn complex_matches_from(
+    document: &Document,
+    selector: &Selector,
+    index: usize,
+    node_id: NodeId,
+    hover_chain: &HashSet<NodeId>,
+) -> bool {
+    if index == 0 {
         return true;
+    }
+    let needed = &selector.compounds[index - 1];
+    let step = |candidate: NodeId| -> bool {
+        document.element(candidate).is_some_and(|element| {
+            compound_matches(document, candidate, element, needed, hover_chain)
+        }) && complex_matches_from(document, selector, index - 1, candidate, hover_chain)
     };
-    for ancestor in document.ancestors(node_id) {
-        if let Some(ancestor_element) = document.element(ancestor)
-            && compound_matches(ancestor, ancestor_element, needed, hover_chain)
-        {
-            match remaining.next() {
-                Some(next) => needed = next,
-                None => return true,
-            }
+    match selector.combinators[index - 1] {
+        Combinator::Child => document.parent(node_id).is_some_and(step),
+        Combinator::Descendant => document.ancestors(node_id).any(step),
+        Combinator::NextSibling => {
+            let (siblings, position) = element_siblings(document, node_id);
+            position > 0 && step(siblings[position - 1])
+        }
+        Combinator::SubsequentSibling => {
+            let (siblings, position) = element_siblings(document, node_id);
+            siblings[..position].iter().rev().any(|prior| step(*prior))
         }
     }
-    false
 }
 
 /// Converts raw declared values into a typed [`ComputedStyle`].
@@ -1104,6 +1185,101 @@ mod tests {
         assert_eq!(div.offsets.left, Dimension::Px(32.0));
         assert_eq!(div.offsets.bottom, Dimension::Auto);
         assert_eq!(div.z_index, Some(5));
+    }
+
+    #[test]
+    fn child_combinator_requires_the_direct_parent() {
+        let (document, styles) = styles_for(
+            "<style>div > p { color: #ff0000; }</style>\
+             <div><p>direct</p><section><p>nested</p></section></div>",
+        );
+        let direct = document
+            .descendants(document.root())
+            .find(|id| document.element(*id).is_some_and(|e| e.tag_name == "p"))
+            .unwrap();
+        assert_eq!(styles.by_node[&direct].color.to_string(), "#ff0000");
+        let nested = document
+            .descendants(document.root())
+            .filter(|id| document.element(*id).is_some_and(|e| e.tag_name == "p"))
+            .nth(1)
+            .unwrap();
+        assert_ne!(styles.by_node[&nested].color.to_string(), "#ff0000");
+    }
+
+    #[test]
+    fn sibling_combinators_match_preceding_elements() {
+        let (document, styles) = styles_for(
+            "<style>h1 + p { color: #00ff00; } h1 ~ span { color: #0000ff; }</style>\
+             <div><h1>t</h1><p>adjacent</p><p>second</p><span>later</span></div>",
+        );
+        let mut paragraphs = document
+            .descendants(document.root())
+            .filter(|id| document.element(*id).is_some_and(|e| e.tag_name == "p"));
+        let adjacent = paragraphs.next().unwrap();
+        let second = paragraphs.next().unwrap();
+        assert_eq!(styles.by_node[&adjacent].color.to_string(), "#00ff00");
+        assert_ne!(styles.by_node[&second].color.to_string(), "#00ff00");
+        let span = document
+            .descendants(document.root())
+            .find(|id| document.element(*id).is_some_and(|e| e.tag_name == "span"))
+            .unwrap();
+        assert_eq!(styles.by_node[&span].color.to_string(), "#0000ff");
+    }
+
+    #[test]
+    fn attribute_selectors_match_values_and_prefixes() {
+        let (document, styles) = styles_for(
+            "<style>a[href] { color: #111111; }\
+                    a[href^='https'] { color: #222222; }\
+                    input[type=text] { color: #333333; }</style>\
+             <a href='https://x.test'>s</a><input type='text'>",
+        );
+        let anchor = document
+            .descendants(document.root())
+            .find(|id| document.element(*id).is_some_and(|e| e.tag_name == "a"))
+            .unwrap();
+        // Both rules match; equal specificity, later wins.
+        assert_eq!(styles.by_node[&anchor].color.to_string(), "#222222");
+        let input = document
+            .descendants(document.root())
+            .find(|id| document.element(*id).is_some_and(|e| e.tag_name == "input"))
+            .unwrap();
+        assert_eq!(styles.by_node[&input].color.to_string(), "#333333");
+    }
+
+    #[test]
+    fn structural_pseudo_classes_use_element_positions() {
+        let (document, styles) = styles_for(
+            "<style>li:first-child { color: #111111; }\
+                    li:last-child { color: #222222; }\
+                    li:nth-child(2) { color: #333333; }</style>\
+             <ul> <li>one</li> <li>two</li> <li>three</li> </ul>",
+        );
+        let items: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| document.element(*id).is_some_and(|e| e.tag_name == "li"))
+            .collect();
+        assert_eq!(styles.by_node[&items[0]].color.to_string(), "#111111");
+        assert_eq!(styles.by_node[&items[1]].color.to_string(), "#333333");
+        assert_eq!(styles.by_node[&items[2]].color.to_string(), "#222222");
+    }
+
+    #[test]
+    fn nth_child_odd_and_not_exclude_elements() {
+        let (document, styles) = styles_for(
+            "<style>li:nth-child(odd) { color: #123456; }\
+                    li:not(.keep) { font-weight: 700; }</style>\
+             <ul><li>one</li><li class='keep'>two</li><li>three</li></ul>",
+        );
+        let items: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| document.element(*id).is_some_and(|e| e.tag_name == "li"))
+            .collect();
+        assert_eq!(styles.by_node[&items[0]].color.to_string(), "#123456");
+        assert_ne!(styles.by_node[&items[1]].color.to_string(), "#123456");
+        assert_eq!(styles.by_node[&items[2]].color.to_string(), "#123456");
+        assert_eq!(styles.by_node[&items[0]].font_weight.0, 700);
+        assert_ne!(styles.by_node[&items[1]].font_weight.0, 700);
     }
 
     #[test]

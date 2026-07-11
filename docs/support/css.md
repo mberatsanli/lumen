@@ -17,15 +17,15 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Compound `div.card#x` | ✅ | ✅ | ✅ | ✅ | |
 | Descendant `A B` | ✅ | ✅ | ✅ | ✅ | |
 | Selector list `h1, h2` | ✅ | ✅ | ✅ | ✅ | |
-| Child `A > B` | ❌ | ✅ | ✅ | ✅ | |
-| Siblings `A + B`, `A ~ B` | ❌ | ✅ | ✅ | ✅ | |
-| Attribute `[href]`, `[type="x"]` | ❌ | ✅ | ✅ | ✅ | |
+| Child `A > B` | ✅ | ✅ | ✅ | ✅ | |
+| Siblings `A + B`, `A ~ B` | ✅ | ✅ | ✅ | ✅ | |
+| Attribute `[href]`, `[type="x"]` | ✅ | ✅ | ✅ | ✅ | also `^=`, `$=`, `*=`; no `~=`, `|=`, case flags |
 | `:hover` | ✅ | ✅ | ✅ | ✅ | live hover chain in desktop shell |
 | `:link` / `:visited` | ⚠️ | ✅ | ✅ | ✅ | always match; no visited state |
 | `:active`, `:focus*` | ❌ | ✅ | ✅ | ✅ | |
-| `:first/last/only-child` | ❌ | ✅ | ✅ | ✅ | |
-| `:nth-child()` family | ❌ | ✅ | ✅ | ✅ | |
-| `:not()`, `:is()`, `:where()` | ❌ | ✅ | ✅ | ✅ | |
+| `:first/last/only-child` | ✅ | ✅ | ✅ | ✅ | |
+| `:nth-child()` family | ⚠️ | ✅ | ✅ | ✅ | nth-child/nth-last-child with an+b/odd/even; no `of S`, no nth-of-type |
+| `:not()`, `:is()`, `:where()` | ⚠️ | ✅ | ✅ | ✅ | `:not()` with one compound argument; no `:is()`/`:where()` |
 | `:has()` | ❌ | ✅ | ✅ | ✅ | |
 | `::before` / `::after` + `content` | ❌ | ✅ | ✅ | ✅ | |
 | `::selection` | ⚠️ | ✅ | ✅ | ✅ | background-color works; color recorded but selected text keeps its color |
