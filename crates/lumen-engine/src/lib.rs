@@ -301,6 +301,36 @@ pub fn extract_embedded_css(document: &Document) -> String {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn inputs_are_hit_testable() {
+        let page = crate::build_page(
+            "<div><input type='text' value='hello'></div>",
+            crate::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        let input = page
+            .document
+            .descendants(page.document.root())
+            .find(|id| {
+                page.document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+            .unwrap();
+        let laid = page.layout.find_by_node(input).expect("input has a box");
+        let rect = laid.border_box();
+        let hit = page
+            .layout
+            .hit_test(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
+            .expect("hit something");
+        let is_input_or_inside = std::iter::once(hit)
+            .chain(page.document.ancestors(hit))
+            .any(|id| id == input);
+        assert!(is_input_or_inside, "hit {hit}, input {input}");
+    }
+
+    #[test]
     fn form_controls_render_boxes_and_values() {
         let page = crate::build_page(
             "<center><input type='text' value='query here'>\

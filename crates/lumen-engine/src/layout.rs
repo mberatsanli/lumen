@@ -149,6 +149,19 @@ impl LayoutBox {
         if self.node_id == node_id && self.box_type != BoxType::AnonymousBlock {
             return Some(self);
         }
+        // Atomic inlines (inputs, inline-blocks, images) live inside line
+        // fragments, not `children`.
+        if let LayoutKind::Inline { lines } = &self.kind {
+            for line in lines {
+                for fragment in &line.fragments {
+                    if let FragmentContent::Box(laid) = &fragment.content
+                        && let Some(found) = laid.find_by_node(node_id)
+                    {
+                        return Some(found);
+                    }
+                }
+            }
+        }
         self.children
             .iter()
             .find_map(|child| child.find_by_node(node_id))
