@@ -242,6 +242,32 @@ impl TextInput {
         self.anchor = 0;
         self.caret = self.char_count();
     }
+
+    /// Start of the word before the caret (Option+Left target).
+    fn previous_word(&self) -> usize {
+        let chars: Vec<char> = self.text.chars().collect();
+        let mut index = self.caret.min(chars.len());
+        while index > 0 && !chars[index - 1].is_alphanumeric() {
+            index -= 1;
+        }
+        while index > 0 && chars[index - 1].is_alphanumeric() {
+            index -= 1;
+        }
+        index
+    }
+
+    /// End of the word after the caret (Option+Right target).
+    fn next_word(&self) -> usize {
+        let chars: Vec<char> = self.text.chars().collect();
+        let mut index = self.caret.min(chars.len());
+        while index < chars.len() && !chars[index].is_alphanumeric() {
+            index += 1;
+        }
+        while index < chars.len() && chars[index].is_alphanumeric() {
+            index += 1;
+        }
+        index
+    }
 }
 
 /// What an editing key did to a [`TextInput`].
@@ -260,10 +286,26 @@ enum EditOutcome {
 
 /// Applies one key to a text input. Clipboard actions are reported, not
 /// performed (the caller owns the clipboard).
-fn apply_edit(input: &mut TextInput, key: &Key, command: bool, shift: bool) -> EditOutcome {
+fn apply_edit(
+    input: &mut TextInput,
+    key: &Key,
+    command: bool,
+    shift: bool,
+    alt: bool,
+) -> EditOutcome {
     match key {
         Key::Named(NamedKey::Enter) => EditOutcome::Submit,
         Key::Named(NamedKey::Escape) => EditOutcome::Cancel,
+        Key::Named(NamedKey::Backspace) if alt => {
+            // Option+Backspace deletes the previous word.
+            if !input.has_selection() {
+                let target = input.previous_word();
+                input.anchor = input.caret;
+                input.caret = target;
+            }
+            input.delete_selection();
+            EditOutcome::Changed
+        }
         Key::Named(NamedKey::Backspace) => {
             input.backspace();
             EditOutcome::Changed
@@ -278,6 +320,17 @@ fn apply_edit(input: &mut TextInput, key: &Key, command: bool, shift: bool) -> E
         }
         Key::Named(NamedKey::ArrowRight) if command => {
             input.move_to(usize::MAX, shift);
+            EditOutcome::Moved
+        }
+        // Option+arrows step words (with Shift: extend the selection).
+        Key::Named(NamedKey::ArrowLeft) if alt => {
+            let target = input.previous_word();
+            input.move_to(target, shift);
+            EditOutcome::Moved
+        }
+        Key::Named(NamedKey::ArrowRight) if alt => {
+            let target = input.next_word();
+            input.move_to(target, shift);
             EditOutcome::Moved
         }
         Key::Named(NamedKey::ArrowLeft) => {
@@ -1628,6 +1681,7 @@ impl App {
         key: &Key,
         command_held: bool,
         shift_held: bool,
+        alt_held: bool,
     ) -> bool {
         let input = match bar {
             EditBar::Find => self.find_input.as_mut(),
@@ -1636,7 +1690,7 @@ impl App {
         let Some(input) = input else {
             return false;
         };
-        match apply_edit(input, key, command_held, shift_held) {
+        match apply_edit(input, key, command_held, shift_held, alt_held) {
             EditOutcome::Changed => match bar {
                 EditBar::Find => {
                     self.refresh_find_matches();
@@ -1704,13 +1758,19 @@ impl App {
 
     /// Applies a key to the focused in-page input, syncing the live value
     /// into the session (relayout under the hood) on every change.
-    fn handle_page_input_key(&mut self, key: &Key, command_held: bool, shift_held: bool) {
+    fn handle_page_input_key(
+        &mut self,
+        key: &Key,
+        command_held: bool,
+        shift_held: bool,
+        alt_held: bool,
+    ) {
         let Some((control, input)) = &mut self.page_input else {
             return;
         };
         let control = *control;
         let mut sync = false;
-        match apply_edit(input, key, command_held, shift_held) {
+        match apply_edit(input, key, command_held, shift_held, alt_held) {
             EditOutcome::Changed => sync = true,
             EditOutcome::Moved => self.request_redraw(),
             EditOutcome::Submit => {
@@ -1771,17 +1831,18 @@ impl App {
             return;
         }
         let shift_held = self.modifiers.state().shift_key();
+        let alt_held = self.modifiers.state().alt_key();
         // Bar editing captures input first: the find bar, then the address
         // bar. Both share one handler; only Submit/Cancel and the post-edit
         // refresh differ per bar.
         for bar in [EditBar::Find, EditBar::Url] {
-            if self.handle_bar_key(bar, key, command_held, shift_held) {
+            if self.handle_bar_key(bar, key, command_held, shift_held, alt_held) {
                 return;
             }
         }
         // In-page form input editing.
         if self.page_input.is_some() {
-            self.handle_page_input_key(key, command_held, shift_held);
+            self.handle_page_input_key(key, command_held, shift_held, alt_held);
             return;
         }
         match key {
