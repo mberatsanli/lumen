@@ -81,7 +81,7 @@
       const text = gorev.value.trim();
       if (text === '') return;
       const li = document.createElement('li');
-      li.textContent = `☐ ${text}`;
+      li.textContent = `– ${text}`;
       li.addEventListener('click', () => li.remove());
       liste.appendChild(li);
       gorev.value = '';
