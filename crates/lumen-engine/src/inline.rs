@@ -155,7 +155,7 @@ fn collect_items(
             if display == Display::None {
                 return;
             }
-            if display == Display::InlineBlock {
+            if display == Display::InlineBlock || element.tag_name == "img" {
                 items.push(InlineItem::Atomic {
                     node_id,
                     space_before: *pending_space,

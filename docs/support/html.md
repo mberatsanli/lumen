@@ -66,7 +66,7 @@ interaction) — not just a DOM node.
 
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
-| `<img>` | ⚠️ | ✅ | ✅ | ✅ | PNG/JPEG; width/height attrs + CSS + intrinsic ratio; block-level; max 32 images/page; no SVG/GIF/WebP, no srcset/lazy |
+| `<img>` | ⚠️ | ✅ | ✅ | ✅ | PNG/JPEG; width/height attrs + CSS + intrinsic ratio; flows inline as atomic inline (baseline-aligned); max 32 images/page; no SVG/GIF/WebP, no srcset/lazy |
 | `<picture> <source>` | ❌ | ✅ | ✅ | ✅ | |
 | Inline `<svg>` | ❌ | ✅ | ✅ | ✅ | |
 | `<video> <audio>` | ❌ | ✅ | ✅ | ✅ | out of scope |

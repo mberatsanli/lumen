@@ -244,9 +244,10 @@ fn is_inline_level(document: &Document, styles: &StyleMap, node_id: NodeId) -> b
             if style.display == Display::InlineBlock {
                 return true;
             }
-            // Replaced elements are promoted to block level (no inline images).
+            // Replaced elements flow in lines as atomic inlines unless
+            // explicitly made block-level.
             if element.tag_name == "img" {
-                return false;
+                return !matches!(style.display, Display::Block | Display::Flex);
             }
             style.display == Display::Inline && !has_block_descendant(document, styles, node_id)
         }
@@ -1900,6 +1901,26 @@ mod tests {
         assert_eq!(layout.children[1].content_box().height, 20.0);
         // The clamped box still stacks flow at its used height.
         assert_eq!(layout.children[1].content_box().y, 50.0);
+    }
+
+    #[test]
+    fn images_flow_inline_with_text() {
+        let layout = layout_of("<p>before <img src='x.png' width='30' height='20'> after</p>");
+        let paragraph = &layout.children[0];
+        let LayoutKind::Inline { lines } = &paragraph.children[0].kind else {
+            panic!("expected inline content in p");
+        };
+        // One line: text, image box, text.
+        assert_eq!(lines.len(), 1);
+        let kinds: Vec<bool> = lines[0]
+            .fragments
+            .iter()
+            .map(|fragment| matches!(fragment.content, FragmentContent::Box(_)))
+            .collect();
+        assert_eq!(kinds, vec![false, true, false]);
+        // The image fragment is 30 wide and lifts the line to 20 tall.
+        assert_eq!(lines[0].fragments[1].width, 30.0);
+        assert!(lines[0].height >= 20.0);
     }
 
     #[test]
