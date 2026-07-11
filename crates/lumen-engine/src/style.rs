@@ -404,12 +404,6 @@ impl Transform2D {
         )
     }
 
-    /// Whether the transform keeps rectangles axis-aligned.
-    #[must_use]
-    pub fn is_axis_aligned(&self) -> bool {
-        self.b.abs() < 1e-6 && self.c.abs() < 1e-6
-    }
-
     #[must_use]
     pub fn is_identity(&self) -> bool {
         *self == Self::IDENTITY

@@ -221,10 +221,9 @@ pub(crate) fn layout_table_children(
         cursor_y += row_height + spacing;
     }
 
-    // Non-row children (e.g. <caption>) flow above? Simplification: they
-    // are ignored unless they are rows (documented).
+    // Non-row children (e.g. <caption>) are ignored unless they are rows
+    // (documented simplification).
     let used_height = cursor_y - content_y;
-    let _ = table;
     (children, used_height)
 }
 

@@ -1126,10 +1126,7 @@ impl App {
         // An open select dropdown captures the click.
         if let Some(popup) = self.select_popup.take() {
             if let Some((x, y)) = self.page_cursor()
-                && x >= popup.rect.x
-                && x < popup.rect.x + popup.rect.width
-                && y >= popup.rect.y
-                && y < popup.rect.y + popup.rect.height
+                && rect_contains(popup.rect, x, y)
             {
                 let index = (((y - popup.rect.y - 6.0).max(0.0) / SELECT_ROW_HEIGHT) as usize)
                     .min(popup.options.len().saturating_sub(1));
@@ -2657,10 +2654,7 @@ impl ApplicationHandler<NavDone> for App {
                     && let Some((x, y)) = self
                         .cursor
                         .map(|(x, y)| (x, y - BAR_HEIGHT + self.scroll_y))
-                    && x >= popup.rect.x
-                    && x < popup.rect.x + popup.rect.width
-                    && y >= popup.rect.y
-                    && y < popup.rect.y + popup.rect.height
+                    && rect_contains(popup.rect, x, y)
                 {
                     let row = (((y - popup.rect.y - 6.0).max(0.0) / SELECT_ROW_HEIGHT) as usize)
                         .min(popup.options.len().saturating_sub(1));
