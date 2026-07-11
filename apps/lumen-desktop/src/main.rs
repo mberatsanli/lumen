@@ -308,6 +308,7 @@ impl App {
                 font_weight: 700,
                 underline: false,
                 italic: false,
+                monospace: false,
             },
             DisplayCommand::DrawText {
                 x: 36.0,
@@ -322,6 +323,7 @@ impl App {
                 font_weight: 700,
                 underline: false,
                 italic: false,
+                monospace: false,
             },
             DisplayCommand::FillRect {
                 rect: bar(60.0, 6.0, (width - 68.0).max(40.0), BAR_HEIGHT - 12.0),
@@ -350,6 +352,7 @@ impl App {
             font_weight: 400,
             underline: false,
             italic: false,
+            monospace: false,
         });
         commands
     }

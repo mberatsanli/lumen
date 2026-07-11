@@ -155,6 +155,7 @@ pub fn render_svg(page: &Page) -> String {
                 font_weight,
                 underline,
                 italic,
+                monospace,
             } => {
                 let decoration = if *underline {
                     " text-decoration=\"underline\""
@@ -166,9 +167,14 @@ pub fn render_svg(page: &Page) -> String {
                 } else {
                     ""
                 };
+                let family = if *monospace {
+                    "ui-monospace, Menlo, monospace"
+                } else {
+                    "system-ui, sans-serif"
+                };
                 let _ = writeln!(
                     svg,
-                    "<text x=\"{x}\" y=\"{y}\" fill=\"{color}\" font-family=\"system-ui, sans-serif\" font-size=\"{font_size}\" font-weight=\"{font_weight}\"{decoration}{slant}>{}</text>",
+                    "<text x=\"{x}\" y=\"{y}\" fill=\"{color}\" font-family=\"{family}\" font-size=\"{font_size}\" font-weight=\"{font_weight}\"{decoration}{slant}>{}</text>",
                     escape_xml(text)
                 );
             }

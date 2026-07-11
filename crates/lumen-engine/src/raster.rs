@@ -227,6 +227,7 @@ pub fn rasterize_over(
                 font_weight,
                 underline,
                 italic,
+                monospace,
             } => {
                 let (x, y, font_size) = (x * scale, (y - scroll_y) * scale, font_size * scale);
                 let packed = pack(*color);
@@ -244,6 +245,7 @@ pub fn rasterize_over(
                         font_size,
                         *font_weight,
                         shear,
+                        *monospace,
                     ),
                     None => draw_text(
                         framebuffer,
@@ -376,11 +378,12 @@ fn draw_text_scalable(
     font_size: f32,
     font_weight: u16,
     shear: f32,
+    monospace: bool,
 ) -> f32 {
     let mut pen_x = x;
     let bold = font_weight >= 600;
     for character in text.chars() {
-        let glyph = font.rasterize(character, font_size);
+        let glyph = font.rasterize(character, font_size, monospace);
         let glyph_x = pen_x + glyph.metrics.xmin as f32;
         let glyph_y = y - glyph.metrics.ymin as f32 - glyph.metrics.height as f32;
         blend_glyph(
@@ -747,6 +750,7 @@ mod tests {
             font_weight: 400,
             underline: false,
             italic: false,
+            monospace: false,
         }];
         let framebuffer = rasterize(&commands, 20, 20, 0.0);
         let painted = framebuffer

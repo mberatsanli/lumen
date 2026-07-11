@@ -8,7 +8,7 @@
 //! atomic boxes sitting bottom-on-baseline.
 
 use crate::layout::LayoutBox;
-use crate::style::{ComputedStyle, Display, StyleMap, TextAlign};
+use crate::style::{ComputedStyle, Display, StyleMap, TextAlign, WhiteSpace};
 use crate::text::{TextMeasurer, TextStyle};
 use lumen_html::{Document, NodeId, NodeKind};
 
@@ -99,6 +99,32 @@ fn collect_items(
 ) {
     match &document.node(node_id).kind {
         NodeKind::Text(text) => {
+            let pre = styles
+                .by_node
+                .get(&node_id)
+                .is_some_and(|style| style.white_space == WhiteSpace::Pre);
+            if pre {
+                // Preserved whitespace: each newline forces a line break and
+                // spaces survive verbatim. The newlines hugging the element
+                // tags are dropped (as HTML does for `<pre>`), tabs become
+                // four spaces.
+                let text = text.strip_prefix('\n').unwrap_or(text);
+                let text = text.strip_suffix('\n').unwrap_or(text);
+                for (index, segment) in text.split('\n').enumerate() {
+                    if index > 0 {
+                        items.push(InlineItem::HardBreak);
+                    }
+                    if !segment.is_empty() {
+                        items.push(InlineItem::Word {
+                            node_id,
+                            text: segment.replace('\t', "    "),
+                            space_before: false,
+                        });
+                    }
+                }
+                *pending_space = false;
+                return;
+            }
             let leading_space = text.chars().next().is_some_and(char::is_whitespace);
             let trailing_space = text.chars().last().is_some_and(char::is_whitespace);
             let mut first = true;
@@ -246,6 +272,7 @@ impl LineBuilder<'_> {
         let text_style = TextStyle {
             font_size: style.font_size,
             font_weight: style.font_weight,
+            monospace: style.monospace,
         };
         let word_width = self.measurer.measure(word, &text_style).width;
         let space_width = if space_before && !self.current.is_empty() {
@@ -254,7 +281,12 @@ impl LineBuilder<'_> {
             0.0
         };
 
-        if !self.current.is_empty() && self.pen_x + space_width + word_width > self.line_width {
+        // Preserved-whitespace text never wraps; over-long lines overflow.
+        let wraps = style.white_space != WhiteSpace::Pre;
+        if wraps
+            && !self.current.is_empty()
+            && self.pen_x + space_width + word_width > self.line_width
+        {
             self.flush_line(false);
             self.start_line_if_needed();
             self.append_text(node_id, word, word_width, 0.0, style);
@@ -276,6 +308,7 @@ impl LineBuilder<'_> {
             let text_style = TextStyle {
                 font_size: self.container.font_size,
                 font_weight: self.container.font_weight,
+                monospace: self.container.monospace,
             };
             self.measurer.measure(" ", &text_style).width
         } else {

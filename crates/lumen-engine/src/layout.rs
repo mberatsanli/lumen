@@ -1794,6 +1794,23 @@ mod tests {
     }
 
     #[test]
+    fn pre_preserves_spaces_and_newlines_without_wrapping() {
+        let layout = layout_of(
+            "<pre>a  b\nverylongline that would normally wrap far beyond any width limit set here</pre>",
+        );
+        let pre = &layout.children[0];
+        let LayoutKind::Inline { lines } = &pre.children[0].kind else {
+            panic!("expected inline content in pre");
+        };
+        assert_eq!(lines.len(), 2);
+        // Double space preserved: 4 chars at 0.6em (mono heuristic).
+        assert_eq!(lines[0].fragments[0].text(), Some("a  b"));
+        assert_eq!(lines[0].fragments[0].width, 4.0 * 16.0 * 0.6);
+        // The long line stays a single fragment (no wrapping).
+        assert_eq!(lines[1].fragments.len(), 1);
+    }
+
+    #[test]
     fn relayout_respects_new_viewport_width() {
         let document = parse_document("<div></div>");
         let styles = compute_styles(&document, &lumen_css::Stylesheet::default());

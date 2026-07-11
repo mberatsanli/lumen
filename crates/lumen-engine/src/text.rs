@@ -12,6 +12,8 @@ use crate::style::FontWeight;
 pub struct TextStyle {
     pub font_size: f32,
     pub font_weight: FontWeight,
+    /// Measure/draw with the monospace face.
+    pub monospace: bool,
 }
 
 /// Measured extent of a text run on a single line.
@@ -32,8 +34,10 @@ pub struct HeuristicMeasurer;
 
 impl TextMeasurer for HeuristicMeasurer {
     fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics {
+        // Monospace glyphs run a little wider than the proportional average.
+        let per_char = if style.monospace { 0.6 } else { 0.5 };
         TextMetrics {
-            width: text.chars().count() as f32 * style.font_size * 0.5,
+            width: text.chars().count() as f32 * style.font_size * per_char,
         }
     }
 }
@@ -45,6 +49,7 @@ mod tests {
     const STYLE: TextStyle = TextStyle {
         font_size: 16.0,
         font_weight: FontWeight(400),
+        monospace: false,
     };
 
     #[test]
@@ -56,6 +61,7 @@ mod tests {
             &TextStyle {
                 font_size: 32.0,
                 font_weight: FontWeight(400),
+                monospace: false,
             },
         );
         assert_eq!(big.width, 64.0);

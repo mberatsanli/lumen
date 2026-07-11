@@ -42,6 +42,7 @@ pub enum DisplayCommand {
         font_weight: u16,
         underline: bool,
         italic: bool,
+        monospace: bool,
     },
     /// A decoded image scaled into `rect`, with an extra alpha multiplier
     /// (255 = opaque) from `opacity`.
@@ -169,6 +170,7 @@ fn paint_box(
                             font_weight: style.font_weight.0,
                             underline: style.underline,
                             italic: style.italic,
+                            monospace: style.monospace,
                         });
                     }
                     crate::inline::FragmentContent::Box(laid) => {
@@ -240,12 +242,14 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
                 font_weight,
                 underline,
                 italic,
+                monospace,
             } => {
                 let decoration = if *underline { " underline" } else { "" };
                 let slant = if *italic { " italic" } else { "" };
+                let face = if *monospace { " mono" } else { "" };
                 let _ = writeln!(
                     output,
-                    "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color}{decoration}{slant} {text:?}"
+                    "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color}{decoration}{slant}{face} {text:?}"
                 );
             }
             DisplayCommand::DrawImage { rect, image, alpha } => {

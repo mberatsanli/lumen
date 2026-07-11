@@ -138,13 +138,13 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `text-align: left/center/right` | ✅ | ✅ | ✅ | ✅ | |
 | `text-align: justify` | ❌ | ✅ | ✅ | ✅ | |
 | `text-decoration: underline/none` | ⚠️ | ✅ | ✅ | ✅ | no line-through/color/style; propagation ≈ inheritance |
-| `font-family` | ❌ | ✅ | ✅ | ✅ | one system font, no fallback lists |
+| `font-family` | ⚠️ | ✅ | ✅ | ✅ | collapsed to generic: monospace vs everything else (one face each) |
 | `font-style: italic` | ✅ | ✅ | ✅ | ✅ | synthetic shear (no real italic face) |
 | `font` shorthand | ❌ | ✅ | ✅ | ✅ | |
 | `letter-/word-spacing` | ❌ | ✅ | ✅ | ✅ | |
 | `text-transform` | ❌ | ✅ | ✅ | ✅ | |
 | `text-indent` | ❌ | ✅ | ✅ | ✅ | |
-| `white-space` / `pre` | ❌ | ✅ | ✅ | ✅ | whitespace always collapses |
+| `white-space` / `pre` | ⚠️ | ✅ | ✅ | ✅ | normal + pre (pre-wrap/pre-line treated as pre); pre never wraps |
 | `word-break` / `overflow-wrap` | ❌ | ✅ | ✅ | ✅ | over-wide words overflow |
 | `text-overflow: ellipsis` | ❌ | ✅ | ✅ | ✅ | |
 | `text-shadow` | ❌ | ✅ | ✅ | ✅ | |

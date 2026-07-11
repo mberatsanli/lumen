@@ -216,6 +216,28 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
             let side = &name["border-".len()..];
             expand_border_side(side, &components, output);
         }
+        "font-family" => {
+            // Only the generic family matters to the engine: the list
+            // normalizes to `monospace` when any entry names a monospace
+            // family, and `sans-serif` otherwise.
+            let is_mono = components.iter().any(|component| match component {
+                CssValue::Keyword(keyword) => {
+                    let name = keyword
+                        .trim_matches(|c: char| c == ',' || c == '"' || c == '\'')
+                        .to_ascii_lowercase();
+                    name.contains("mono")
+                        || name.starts_with("courier")
+                        || matches!(name.as_str(), "menlo" | "monaco" | "consolas")
+                }
+                _ => false,
+            });
+            output.push(Declaration {
+                name: "font-family".to_string(),
+                value: CssValue::Keyword(
+                    if is_mono { "monospace" } else { "sans-serif" }.to_string(),
+                ),
+            });
+        }
         "flex" => {
             // grow [shrink [basis]]; `none` = 0 0, `auto`/`initial` keep
             // defaults with grow 1/0. flex-basis is unsupported and ignored.

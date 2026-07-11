@@ -133,6 +133,10 @@
     .flex-self .end { align-self: flex-end; }
     .flex-self .stretchy { align-self: stretch; }
 
+    /* --- code ---------------------------------------------------------- */
+    .code-sample { background-color: #2b2b33; color: #e8e6e3; padding: 12px;
+                   border-radius: 6px; }
+
     /* --- interaction ------------------------------------------------- */
     .hoverbox { background-color: #e8eef7; padding: 12px; }
     .hoverbox:hover { background-color: #2266aa; color: white; }
@@ -213,6 +217,15 @@
     <h2>Inheritance</h2>
     <div><p>Color, 18px font-size and centering inherited two levels down.
     <span>Spans inherit too.</span></p></div>
+  </div>
+
+  <div class="section">
+    <h2>Code</h2>
+    <pre class="code-sample">fn main() {
+    let spaced   =   "double  spaces  survive";
+    println!("{spaced}");
+}</pre>
+    <p>Inline <code>code spans</code> render in the monospace face.</p>
   </div>
 
   <div class="section">

@@ -193,6 +193,9 @@ pub struct ComputedStyle {
     pub underline: bool,
     /// `font-style: italic` (rendered as a synthetic shear).
     pub italic: bool,
+    /// `font-family` collapsed to its generic: monospace or not.
+    pub monospace: bool,
+    pub white_space: WhiteSpace,
     pub box_sizing: BoxSizing,
     pub float: Float,
     pub clear: Clear,
@@ -222,6 +225,15 @@ pub struct ComputedStyle {
     pub selection_color: Option<Color>,
 }
 
+/// `white-space` subset: `pre` preserves spaces and newlines and never
+/// wraps (pre-wrap/pre-line are approximated as pre).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WhiteSpace {
+    #[default]
+    Normal,
+    Pre,
+}
+
 pub const DEFAULT_FONT_SIZE: f32 = 16.0;
 /// Used when no `line-height` is declared or inherited.
 pub const DEFAULT_LINE_HEIGHT_FACTOR: f32 = 1.4;
@@ -247,6 +259,8 @@ impl Default for ComputedStyle {
             text_align: TextAlign::Left,
             underline: false,
             italic: false,
+            monospace: false,
+            white_space: WhiteSpace::Normal,
             box_sizing: BoxSizing::default(),
             float: Float::None,
             clear: Clear::None,
@@ -280,8 +294,10 @@ pub struct StyleMap {
 /// painting*; treating it as inherited approximates that.)
 /// (`user-select` and `::selection` styling are treated as inherited —
 /// an approximation that matches how they behave in practice.)
-const INHERITED_PROPERTIES: [&str; 10] = [
+const INHERITED_PROPERTIES: [&str; 12] = [
     "color",
+    "font-family",
+    "white-space",
     "font-size",
     "font-weight",
     "line-height",
@@ -313,7 +329,8 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             a { color: #0000ee; text-decoration: underline; }
             strong, b { font-weight: 700; }
             em, i { font-style: italic; }
-            code { font-size: 0.875em; }
+            pre { white-space: pre; font-family: monospace; margin-top: 8px; margin-bottom: 8px; }
+            code, kbd, samp, tt { font-family: monospace; font-size: 0.875em; }
         ";
         lumen_css::parse_stylesheet(source)
     })
@@ -653,6 +670,16 @@ fn to_computed(
         raw.get("font-style").and_then(CssValue::as_keyword),
         Some("italic" | "oblique")
     );
+
+    style.monospace = matches!(
+        raw.get("font-family").and_then(CssValue::as_keyword),
+        Some("monospace")
+    );
+
+    style.white_space = match raw.get("white-space").and_then(CssValue::as_keyword) {
+        Some("pre" | "pre-wrap" | "pre-line") => WhiteSpace::Pre,
+        _ => WhiteSpace::Normal,
+    };
 
     style.opacity = match raw.get("opacity") {
         Some(CssValue::Number(value)) => value.clamp(0.0, 1.0),
@@ -1048,6 +1075,27 @@ mod tests {
         assert_eq!(div.offsets.left, Dimension::Px(32.0));
         assert_eq!(div.offsets.bottom, Dimension::Auto);
         assert_eq!(div.z_index, Some(5));
+    }
+
+    #[test]
+    fn pre_and_code_get_monospace_defaults() {
+        let (document, styles) = styles_for("<pre>x</pre><p><code>y</code></p>");
+        let pre = style_of(&document, &styles, "pre");
+        assert!(pre.monospace);
+        assert_eq!(pre.white_space, WhiteSpace::Pre);
+        let code = style_of(&document, &styles, "code");
+        assert!(code.monospace);
+        assert_eq!(code.white_space, WhiteSpace::Normal);
+    }
+
+    #[test]
+    fn font_family_normalizes_to_a_generic() {
+        let (document, styles) = styles_for(
+            "<style>p { font-family: Menlo, monospace; } h1 { font-family: Arial; }</style>\
+             <p>m</p><h1>a</h1>",
+        );
+        assert!(style_of(&document, &styles, "p").monospace);
+        assert!(!style_of(&document, &styles, "h1").monospace);
     }
 
     #[test]

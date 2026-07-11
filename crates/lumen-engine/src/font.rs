@@ -19,7 +19,10 @@ use std::sync::{Arc, Mutex};
 /// with background loader threads.
 pub struct SystemFont {
     font: fontdue::Font,
-    glyph_cache: Mutex<HashMap<(char, u32), Arc<Glyph>>>,
+    /// Monospace face for `font-family: monospace`; falls back to the
+    /// regular face when no monospace font was found.
+    mono: Option<fontdue::Font>,
+    glyph_cache: Mutex<HashMap<(char, u32, bool), Arc<Glyph>>>,
 }
 
 /// A rasterized glyph: metrics plus an 8-bit coverage bitmap.
@@ -27,6 +30,21 @@ pub struct Glyph {
     pub metrics: fontdue::Metrics,
     pub coverage: Vec<u8>,
 }
+
+/// Common monospace font locations per platform, tried in order.
+const MONO_CANDIDATE_PATHS: [&str; 8] = [
+    // macOS
+    "/System/Library/Fonts/Monaco.ttf",
+    "/System/Library/Fonts/Supplemental/Courier New.ttf",
+    "/System/Library/Fonts/Menlo.ttc",
+    // Linux
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+    "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+    // Windows
+    "C:\\Windows\\Fonts\\consola.ttf",
+    "C:\\Windows\\Fonts\\cour.ttf",
+];
 
 /// Common system font locations per platform, tried in order.
 const CANDIDATE_PATHS: [&str; 8] = [
@@ -51,30 +69,52 @@ impl SystemFont {
             .ok()
             .map(|font| Self {
                 font,
+                mono: None,
                 glyph_cache: Mutex::new(HashMap::new()),
             })
     }
 
-    /// Tries the well-known system font paths for this platform.
+    /// Tries the well-known system font paths for this platform, plus a
+    /// monospace companion face when one exists.
     #[must_use]
     pub fn load_default() -> Option<Self> {
-        CANDIDATE_PATHS
-            .iter()
-            .filter_map(|path| std::fs::read(path).ok())
-            .find_map(|data| Self::from_bytes(&data))
+        let load = |paths: &[&str]| {
+            paths
+                .iter()
+                .filter_map(|path| std::fs::read(path).ok())
+                .find_map(|data| {
+                    fontdue::Font::from_bytes(data.as_slice(), fontdue::FontSettings::default())
+                        .ok()
+                })
+        };
+        let font = load(&CANDIDATE_PATHS)?;
+        Some(Self {
+            font,
+            mono: load(&MONO_CANDIDATE_PATHS),
+            glyph_cache: Mutex::new(HashMap::new()),
+        })
+    }
+
+    /// The face for a measurement/draw request.
+    fn face(&self, monospace: bool) -> &fontdue::Font {
+        if monospace {
+            self.mono.as_ref().unwrap_or(&self.font)
+        } else {
+            &self.font
+        }
     }
 
     /// Rasterizes one character at `font_size` (cached), returning metrics
     /// and an 8-bit coverage bitmap (row-major, `metrics.width` per row).
     #[must_use]
-    pub fn rasterize(&self, character: char, font_size: f32) -> Arc<Glyph> {
+    pub fn rasterize(&self, character: char, font_size: f32, monospace: bool) -> Arc<Glyph> {
         let rasterize = || {
-            let (metrics, coverage) = self.font.rasterize(character, font_size);
+            let (metrics, coverage) = self.face(monospace).rasterize(character, font_size);
             Arc::new(Glyph { metrics, coverage })
         };
         match self.glyph_cache.lock() {
             Ok(mut cache) => cache
-                .entry((character, font_size.to_bits()))
+                .entry((character, font_size.to_bits(), monospace))
                 .or_insert_with(rasterize)
                 .clone(),
             // A poisoned cache just means uncached rasterization.
@@ -94,9 +134,10 @@ impl SystemFont {
 
 impl TextMeasurer for SystemFont {
     fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics {
+        let face = self.face(style.monospace);
         let width = text
             .chars()
-            .map(|character| self.font.metrics(character, style.font_size).advance_width)
+            .map(|character| face.metrics(character, style.font_size).advance_width)
             .sum();
         TextMetrics { width }
     }
@@ -122,6 +163,7 @@ mod tests {
         let style = TextStyle {
             font_size: 16.0,
             font_weight: FontWeight(400),
+            monospace: false,
         };
         let narrow = font.measure("iiii", &style).width;
         let wide = font.measure("MMMM", &style).width;

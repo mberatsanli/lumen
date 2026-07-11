@@ -94,6 +94,7 @@ fn prefix_width(run: &TextRun, offset: usize, measurer: &dyn TextMeasurer) -> f3
     let text_style = TextStyle {
         font_size: run.style.font_size,
         font_weight: run.style.font_weight,
+        monospace: run.style.monospace,
     };
     measurer.measure(&prefix, &text_style).width
 }
