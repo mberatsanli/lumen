@@ -37,7 +37,11 @@ impl Framebuffer {
     /// The drawable bounds: the intersection of the buffer and the clip.
     fn bounds(&self) -> (u32, u32, u32, u32) {
         let (cx0, cy0, cx1, cy1) = self.clip.unwrap_or((0, 0, self.width, self.height));
-        (cx0, cy0, cx1.min(self.width), cy1.min(self.height))
+        // Clips can lie entirely off-screen (overflow boxes past the
+        // viewport); keep the bounds ordered so clamps never see min > max.
+        let x1 = cx1.min(self.width);
+        let y1 = cy1.min(self.height);
+        (cx0.min(x1), cy0.min(y1), x1, y1)
     }
 
     /// Whether one device pixel is drawable under the current clip.
@@ -962,6 +966,35 @@ mod tests {
         assert!(left < middle && middle < right, "{left} {middle} {right}");
         assert!(left < 40, "{left}");
         assert!(right > 215, "{right}");
+    }
+
+    #[test]
+    fn off_screen_clips_paint_nothing_without_panicking() {
+        // Regression: a clip entirely right of the buffer made bounds()
+        // return min > max and clamp() panicked.
+        let commands = vec![
+            DisplayCommand::PushClip {
+                rect: Rect {
+                    x: 1800.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+            },
+            DisplayCommand::FillRect {
+                rect: Rect {
+                    x: 1800.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+                color: Color::rgb(0xff, 0x00, 0x00),
+                radius: Corners::uniform(0.0),
+            },
+            DisplayCommand::PopClip,
+        ];
+        let framebuffer = rasterize(&commands, 10, 10, 0.0);
+        assert_eq!(framebuffer.pixel(5, 5), 0x00ff_ffff);
     }
 
     #[test]
