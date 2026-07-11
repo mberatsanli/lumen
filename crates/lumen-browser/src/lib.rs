@@ -918,6 +918,9 @@ impl<L: ResourceLoader> Session<L> {
         self.images = Arc::new(images);
 
         self.hovered = None; // New document, new node ids.
+        self.active = None;
+        self.focused = None;
+        self.transitions.clear();
         self.scroll_offsets.clear();
         self.form_values.clear();
         self.form_checked.clear();
@@ -1309,6 +1312,42 @@ mod tests {
             session.current_url().unwrap().as_str(),
             "https://a.test/search?q=hello+w%26rld&hl=tr&safe=1"
         );
+    }
+
+    #[test]
+    fn interaction_state_resets_across_navigation() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                (
+                    "https://a.test/",
+                    "<form action='/next'><input type='text' name='q'>\
+                     <p>filler filler filler filler filler filler filler</p>\
+                     <p>more filler to raise node counts</p></form>",
+                ),
+                ("https://a.test/next?q=", "<p>tiny</p>"),
+            ]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let field = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+            .unwrap();
+        // Focus + press a high-id node, then navigate to a smaller page:
+        // stale ids must not be walked on the new document.
+        session.set_focused(Some(field));
+        session.set_active(Some(field));
+        session.submit_form(field).unwrap();
+        session.set_viewport(Size {
+            width: 500.0,
+            height: 400.0,
+        });
+        assert!(session.page().is_some());
     }
 
     #[test]
