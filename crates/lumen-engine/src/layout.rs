@@ -1908,6 +1908,39 @@ mod tests {
     }
 
     #[test]
+    fn ellipsis_truncates_the_overflowing_line() {
+        let layout = layout_of(
+            "<style>div { width: 80px; white-space: nowrap; overflow: hidden; \
+                          text-overflow: ellipsis; }</style>\
+             <div>a very long sentence that cannot fit</div>",
+        );
+        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+            panic!("expected inline content");
+        };
+        assert_eq!(lines.len(), 1);
+        let text = lines[0].fragments[0].text().unwrap();
+        assert!(text.ends_with('…'), "{text}");
+        // The kept text fits the 80px box (10 chars at 8px each).
+        assert!(lines[0].fragments[0].width <= 80.0);
+    }
+
+    #[test]
+    fn break_all_splits_over_wide_words() {
+        let layout = layout_of(
+            "<style>div { width: 40px; word-break: break-all; }</style>\
+             <div>abcdefghijklmnop</div>",
+        );
+        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+            panic!("expected inline content");
+        };
+        // 16 chars at 8px = 128px over a 40px box → 4 lines of 5 chars.
+        assert!(lines.len() >= 3, "got {} lines", lines.len());
+        for line in lines {
+            assert!(line.fragments[0].width <= 40.0 + 8.0);
+        }
+    }
+
+    #[test]
     fn nowrap_keeps_text_on_one_line() {
         let layout = layout_of(
             "<style>div { width: 60px; white-space: nowrap; }</style>\

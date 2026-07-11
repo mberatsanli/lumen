@@ -147,8 +147,8 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `text-transform` | ✅ | ✅ | ✅ | ✅ | uppercase/lowercase/capitalize |
 | `text-indent` | ✅ | ✅ | ✅ | ✅ | first line of the block |
 | `white-space` / `pre` | ⚠️ | ✅ | ✅ | ✅ | normal, nowrap, pre (pre-wrap/pre-line treated as pre) |
-| `word-break` / `overflow-wrap` | ❌ | ✅ | ✅ | ✅ | over-wide words overflow |
-| `text-overflow: ellipsis` | ❌ | ✅ | ✅ | ✅ | |
+| `word-break` / `overflow-wrap` | ⚠️ | ✅ | ✅ | ✅ | break-all/break-word/anywhere split over-wide words at any character |
+| `text-overflow: ellipsis` | ⚠️ | ✅ | ✅ | ✅ | truncates the overflowing line with …; pair with nowrap + overflow |
 | `text-shadow` | ❌ | ✅ | ✅ | ✅ | |
 | Web fonts `@font-face` | ❌ | ✅ | ✅ | ✅ | |
 

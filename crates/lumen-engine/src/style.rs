@@ -240,6 +240,11 @@ pub struct ComputedStyle {
     pub word_spacing: f32,
     /// First-line indent, px.
     pub text_indent: f32,
+    /// `text-overflow: ellipsis` (effective with nowrap + clipping).
+    pub text_overflow_ellipsis: bool,
+    /// `word-break: break-all` / `overflow-wrap: break-word`: over-wide
+    /// words split at any character instead of overflowing.
+    pub break_words: bool,
     /// `text-decoration: line-through` (inherited like underline).
     pub line_through: bool,
     pub box_sizing: BoxSizing,
@@ -495,6 +500,8 @@ impl Default for ComputedStyle {
             letter_spacing: 0.0,
             word_spacing: 0.0,
             text_indent: 0.0,
+            text_overflow_ellipsis: false,
+            break_words: false,
             line_through: false,
             box_sizing: BoxSizing::default(),
             float: Float::None,
@@ -658,9 +665,12 @@ pub struct PseudoText {
 /// painting*; treating it as inherited approximates that.)
 /// (`user-select` and `::selection` styling are treated as inherited —
 /// an approximation that matches how they behave in practice.)
-const INHERITED_PROPERTIES: [&str; 17] = [
+const INHERITED_PROPERTIES: [&str; 20] = [
     "color",
     "visibility",
+    "word-break",
+    "overflow-wrap",
+    "word-wrap",
     "font-family",
     "white-space",
     "text-transform",
@@ -1718,6 +1728,20 @@ fn to_computed(
         Some("capitalize") => TextTransform::Capitalize,
         _ => TextTransform::None,
     };
+
+    style.text_overflow_ellipsis = matches!(
+        raw.get("text-overflow").and_then(CssValue::as_keyword),
+        Some("ellipsis")
+    );
+    style.break_words = matches!(
+        raw.get("word-break").and_then(CssValue::as_keyword),
+        Some("break-all" | "break-word")
+    ) || matches!(
+        raw.get("overflow-wrap")
+            .or_else(|| raw.get("word-wrap"))
+            .and_then(CssValue::as_keyword),
+        Some("break-word" | "anywhere")
+    );
 
     style.letter_spacing = raw
         .get("letter-spacing")

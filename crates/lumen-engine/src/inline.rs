@@ -310,6 +310,47 @@ impl LineBuilder<'_> {
 
         // Preserved-whitespace and nowrap text never wrap.
         let wraps = style.white_space == WhiteSpace::Normal;
+        // word-break: an over-wide word splits at character boundaries,
+        // filling each line before breaking to the next.
+        if wraps && style.break_words && word_width > self.line_width {
+            let mut rest: &str = word;
+            let mut space = space_width;
+            while !rest.is_empty() {
+                if !self.current.is_empty() && self.pen_x + space >= self.line_width {
+                    self.flush_line(false);
+                    self.start_line_if_needed();
+                    space = 0.0;
+                }
+                let available = (self.line_width - self.pen_x - space).max(0.0);
+                let mut end = 0;
+                let mut kept_width = 0.0;
+                for (index, character) in rest.char_indices() {
+                    let next_end = index + character.len_utf8();
+                    let width = self.measurer.measure(&rest[..next_end], &text_style).width;
+                    if width > available && end > 0 {
+                        break;
+                    }
+                    // The first char always fits (guarantees progress).
+                    end = next_end;
+                    kept_width = width;
+                    if width > available {
+                        break;
+                    }
+                }
+                if end == 0 {
+                    break;
+                }
+                let chunk = &rest[..end];
+                self.append_text(node_id, chunk, kept_width, space, style.clone());
+                space = 0.0;
+                rest = &rest[end..];
+                if !rest.is_empty() {
+                    self.flush_line(false);
+                    self.start_line_if_needed();
+                }
+            }
+            return;
+        }
         if wraps
             && !self.current.is_empty()
             && self.pen_x + space_width + word_width > self.line_width
@@ -397,6 +438,63 @@ impl LineBuilder<'_> {
             return;
         }
         let mut fragments = std::mem::take(&mut self.current);
+
+        // text-overflow: ellipsis — when the line overflows its box, drop
+        // trailing content and end the last surviving text fragment in an
+        // ellipsis that fits the available width.
+        if self.container.text_overflow_ellipsis && self.pen_x > self.line_width {
+            let ellipsis_style = TextStyle {
+                font_size: self.container.font_size,
+                font_weight: self.container.font_weight,
+                monospace: self.container.monospace,
+                letter_spacing: self.container.letter_spacing,
+            };
+            let ellipsis_width = self.measurer.measure("…", &ellipsis_style).width;
+            let budget = (self.line_width - ellipsis_width).max(0.0);
+            let mut kept: Vec<Fragment> = Vec::new();
+            for fragment in fragments {
+                if fragment.x + fragment.width <= budget {
+                    kept.push(fragment);
+                    continue;
+                }
+                // Boundary fragment: truncate its text to the budget.
+                if let FragmentContent::Text { text, style } = &fragment.content {
+                    let text_style = TextStyle {
+                        font_size: style.font_size,
+                        font_weight: style.font_weight,
+                        monospace: style.monospace,
+                        letter_spacing: style.letter_spacing,
+                    };
+                    let mut cut = String::new();
+                    for character in text.chars() {
+                        let mut candidate = cut.clone();
+                        candidate.push(character);
+                        if fragment.x + self.measurer.measure(&candidate, &text_style).width
+                            > budget
+                        {
+                            break;
+                        }
+                        cut = candidate;
+                    }
+                    cut.push('…');
+                    let width = self.measurer.measure(&cut, &text_style).width;
+                    kept.push(Fragment {
+                        node_id: fragment.node_id,
+                        x: fragment.x,
+                        width,
+                        content: FragmentContent::Text {
+                            text: cut,
+                            style: style.clone(),
+                        },
+                    });
+                }
+                break; // Everything after the boundary is dropped.
+            }
+            self.pen_x = kept
+                .last()
+                .map_or(0.0, |fragment| fragment.x + fragment.width);
+            fragments = kept;
+        }
 
         let mut height = self.container.line_height;
         let mut baseline = self.container.font_size;
