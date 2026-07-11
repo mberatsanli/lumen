@@ -530,6 +530,8 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
                 | "background-position"
                 | "background-size"
                 | "background-repeat"
+                | "grid-template-columns"
+                | "grid-column"
         ) {
             declarations.push(Declaration {
                 name,

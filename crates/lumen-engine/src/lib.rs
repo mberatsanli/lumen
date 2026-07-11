@@ -7,6 +7,7 @@ mod flex;
 mod float;
 pub mod font;
 pub mod geometry;
+mod grid;
 pub mod image;
 pub mod inline;
 pub mod layout;

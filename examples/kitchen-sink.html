@@ -148,6 +148,11 @@
     .sel-title + p { font-style: italic; }
     a[href^="https"] { color: #7a3d9e; }
 
+    /* --- grid ------------------------------------------------------------ */
+    .grid-demo { display: grid; grid-template-columns: 120px repeat(2, 1fr); gap: 8px; }
+    .grid-demo div { background-color: #dfe7f2; padding: 6px; }
+    .grid-demo .span2 { grid-column: span 2; background-color: #ccd8e8; }
+
     /* --- tables ---------------------------------------------------------- */
     .demo-table td, .demo-table th { border: 1px solid #cbbf9e; padding: 4px 8px;
                                      background-color: #faf7ee; }
@@ -321,6 +326,14 @@
     </div>
     <p>Secure links go purple: <a href="https://example.com">https link</a>
        vs <a href="http://example.com">http link</a>.</p>
+  </div>
+
+  <div class="section">
+    <h2>Grid</h2>
+    <div class="grid-demo">
+      <div><p>120px</p></div><div><p>1fr</p></div><div><p>1fr</p></div>
+      <div class="span2"><p>span 2</p></div><div><p>next</p></div>
+    </div>
   </div>
 
   <div class="section">

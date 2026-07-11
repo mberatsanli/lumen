@@ -105,7 +105,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `display: none` | ✅ | ✅ | ✅ | ✅ | |
 | `display: inline-block` | ✅ | ✅ | ✅ | ✅ | atomic inline; auto width = crude shrink-to-fit (auto-width block children inflate to available) |
 | Flexbox | ⚠️ | ✅ | ✅ | ✅ | direction row/column, flex-wrap, justify-content (start/center/end/space-between), align-items/align-self, gap (both axes), flex-grow/shrink, `flex` shorthand; no flex-basis/order/align-content/wrap-reverse |
-| Grid | ❌ | ✅ | ✅ | ✅ | |
+| Grid | ⚠️ | ✅ | ✅ | ✅ | grid-template-columns (px/%/fr/auto + repeat), gap, auto row placement, grid-column: span N; no named areas/lines, explicit placement or row sizing |
 | Table layout | ⚠️ | ✅ | ✅ | ✅ | auto column widths (widest cell preference, proportional fit), colspan/rowspan grid, 2px border-spacing; no border-collapse, captions ignored, rowspan cells not stretched |
 | `display: list-item` | ❌ | ✅ | ✅ | ✅ | no markers |
 | `position` + offsets + `z-index` | ⚠️ | ✅ | ✅ | ✅ | relative/absolute/fixed; containing block = nearest positioned ancestor (viewport at root); absolute `bottom` works under explicit heights; fixed scrolls with the page; z-index = sibling sort, no full stacking contexts |

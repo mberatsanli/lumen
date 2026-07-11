@@ -38,6 +38,7 @@ pub enum Display {
     /// Flex container (single-line; see layout docs for the subset).
     Flex,
     None,
+    Grid,
 }
 
 /// A width/height/margin/padding value before resolution against the
@@ -203,6 +204,10 @@ pub struct ComputedStyle {
     pub outline_style: BorderStyle,
     /// width / height; derives an auto height from the used width.
     pub aspect_ratio: Option<f32>,
+    /// Column tracks for `display: grid` (empty = one auto column).
+    pub grid_columns: Vec<GridTrack>,
+    /// `grid-column: span N` on grid items.
+    pub grid_span: usize,
     pub width: Dimension,
     pub height: Dimension,
     /// Size constraints; `Auto` means unconstrained.
@@ -341,6 +346,17 @@ pub struct TextShadow {
     pub color: Color,
 }
 
+/// One grid column track.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GridTrack {
+    Px(f32),
+    /// Fraction of the leftover space.
+    Fr(f32),
+    Percent(f32),
+    /// Behaves like `1fr` (simplification).
+    Auto,
+}
+
 /// One background layer (image + placement). Lists cycle per CSS when
 /// shorter than the image list.
 #[derive(Debug, Clone, PartialEq)]
@@ -461,6 +477,68 @@ fn parse_gradient_stops(parts: &[&str]) -> Option<Vec<(Color, f32)>> {
     Some(resolved)
 }
 
+/// Parses a grid track list: lengths, percents, `Nfr`, `auto` and
+/// `repeat(N, tracks)`.
+fn parse_grid_tracks(source: &str, font_size: f32) -> Vec<GridTrack> {
+    let mut tracks = Vec::new();
+    let mut rest = source.trim();
+    while !rest.is_empty() {
+        if let Some(after) = rest.strip_prefix("repeat(") {
+            let Some(close) = find_balanced_paren(after) else {
+                break;
+            };
+            let inner = &after[..close];
+            if let Some((count, list)) = inner.split_once(',')
+                && let Ok(count) = count.trim().parse::<usize>()
+            {
+                let inner_tracks = parse_grid_tracks(list, font_size);
+                for _ in 0..count.min(64) {
+                    tracks.extend(inner_tracks.iter().copied());
+                }
+            }
+            rest = after[close + 1..].trim_start();
+            continue;
+        }
+        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        let token = &rest[..end];
+        rest = rest[end..].trim_start();
+        if token == "auto" {
+            tracks.push(GridTrack::Auto);
+        } else if let Some(number) = token.strip_suffix("fr") {
+            if let Ok(value) = number.parse::<f32>() {
+                tracks.push(GridTrack::Fr(value.max(0.0)));
+            }
+        } else if let Some(dimension) = CssValue::parse_component(token)
+            .and_then(|value| Dimension::from_value(&value, font_size))
+        {
+            match dimension {
+                Dimension::Px(value) => tracks.push(GridTrack::Px(value)),
+                Dimension::Percent(value) => tracks.push(GridTrack::Percent(value)),
+                _ => {}
+            }
+        }
+    }
+    tracks
+}
+
+/// Index of the `)` matching an already-consumed `(`.
+fn find_balanced_paren(source: &str) -> Option<usize> {
+    let mut depth = 1usize;
+    for (index, character) in source.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Splits at commas outside parentheses (rgb() stays whole).
 fn split_top_level_commas(source: &str) -> Vec<&str> {
     let mut parts = Vec::new();
@@ -519,6 +597,8 @@ impl Default for ComputedStyle {
             outline_color: None,
             outline_style: BorderStyle::None,
             aspect_ratio: None,
+            grid_columns: Vec::new(),
+            grid_span: 1,
             width: Dimension::Auto,
             height: Dimension::Auto,
             min_width: Dimension::Auto,
@@ -1657,6 +1737,7 @@ fn to_computed(
             "inline" => Some(Display::Inline),
             "inline-block" => Some(Display::InlineBlock),
             "flex" => Some(Display::Flex),
+            "grid" => Some(Display::Grid),
             "none" => Some(Display::None),
             _ => None,
         })
@@ -1904,6 +1985,24 @@ fn to_computed(
             };
             (height > 0.0 && width > 0.0).then_some(width / height)
         });
+
+    // grid-template-columns: px/%/fr/auto tracks with repeat(N, ...).
+    style.grid_columns = raw
+        .get("grid-template-columns")
+        .map(|value| parse_grid_tracks(&value.raw_text(), style.font_size))
+        .unwrap_or_default();
+
+    style.grid_span = raw
+        .get("grid-column")
+        .map(CssValue::raw_text)
+        .as_deref()
+        .and_then(|text| {
+            let text = text.trim();
+            text.strip_prefix("span")
+                .and_then(|rest| rest.trim().parse::<usize>().ok())
+        })
+        .filter(|span| *span >= 1)
+        .unwrap_or(1);
 
     style.visible = !matches!(
         raw.get("visibility").and_then(CssValue::as_keyword),

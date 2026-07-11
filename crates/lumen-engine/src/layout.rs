@@ -330,10 +330,12 @@ fn first_block_child_top_margin(
 
 fn has_block_descendant(document: &Document, styles: &StyleMap, node_id: NodeId) -> bool {
     document.descendants(node_id).any(|descendant| {
-        styles
-            .by_node
-            .get(&descendant)
-            .is_some_and(|style| matches!(style.display, Display::Block | Display::Flex))
+        styles.by_node.get(&descendant).is_some_and(|style| {
+            matches!(
+                style.display,
+                Display::Block | Display::Flex | Display::Grid
+            )
+        })
     })
 }
 
@@ -663,6 +665,43 @@ fn layout_element(
             images,
         );
         let content_height = explicit_height.unwrap_or(used_height);
+        let dimensions = Dimensions {
+            content: Rect {
+                x: content_x,
+                y: content_y,
+                width: content_width,
+                height: content_height,
+            },
+            padding,
+            border,
+            margin,
+        };
+        *cursor_y = dimensions.margin_box().y + dimensions.margin_box().height;
+        return LayoutBox {
+            node_id,
+            box_type: BoxType::Block,
+            kind: LayoutKind::Element(element.tag_name.clone()),
+            dimensions,
+            style,
+            children,
+        };
+    }
+
+    // Grid containers use the grid algorithm (see grid.rs).
+    if style.display == Display::Grid {
+        let (children, used_height) = crate::grid::layout_grid_children(
+            document,
+            styles,
+            node_id,
+            &style,
+            content_x,
+            content_y,
+            content_width,
+            viewport,
+            measurer,
+            images,
+        );
+        let content_height = explicit_content_height.unwrap_or(used_height);
         let dimensions = Dimensions {
             content: Rect {
                 x: content_x,
@@ -2314,6 +2353,44 @@ mod tests {
         // The image fragment is 30 wide and lifts the line to 20 tall.
         assert_eq!(lines[0].fragments[1].width, 30.0);
         assert!(lines[0].height >= 20.0);
+    }
+
+    #[test]
+    fn grid_places_items_in_tracks() {
+        let layout = layout_of(
+            "<style>.g { display: grid; grid-template-columns: 100px 1fr 2fr; gap: 10px; }\
+                    .g div { height: 10px; }</style>\
+             <div class='g'><div></div><div></div><div></div><div></div></div>",
+        );
+        let grid = &layout.children[0];
+        let cell = |index: usize| grid.children[index].border_box();
+        // 800 - 100 - 20 gaps = 680 leftover → 1fr ≈ 226.67, 2fr ≈ 453.33.
+        assert_eq!(cell(0).width, 100.0);
+        assert!((cell(1).width - 680.0 / 3.0).abs() < 0.5);
+        assert!((cell(2).width - 2.0 * 680.0 / 3.0).abs() < 0.5);
+        assert_eq!(cell(1).x, 110.0);
+        // Fourth item wraps to row 2, column 1.
+        assert_eq!(cell(3).x, 0.0);
+        assert_eq!(cell(3).y, 20.0);
+        assert_eq!(grid.content_box().height, 30.0);
+    }
+
+    #[test]
+    fn grid_span_and_repeat_work() {
+        let layout = layout_of(
+            "<style>.g { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0px; }\
+                    .wide { grid-column: span 2; height: 10px; }\
+                    .one { height: 10px; }</style>\
+             <div class='g'><div class='wide'></div><div class='one'></div>\
+             <div class='one'></div></div>",
+        );
+        let grid = &layout.children[0];
+        let wide = grid.children[0].border_box();
+        let single = grid.children[1].border_box();
+        assert!((wide.width - 2.0 * 800.0 / 3.0).abs() < 1.0);
+        assert!((single.x - 2.0 * 800.0 / 3.0).abs() < 1.0);
+        // The third item wraps (no room after span 2 + 1).
+        assert_eq!(grid.children[2].border_box().y, 10.0);
     }
 
     #[test]
