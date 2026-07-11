@@ -20,6 +20,9 @@ loader thread); the whole world drops on navigation.
 | `setTimeout` / `setInterval` / `clearTimeout` / `clearInterval` | ✅ | driven by the shell's frame clock |
 | `document.getElementById` | ✅ | |
 | `document.querySelector(All)` | ⚠️ | `#id`, `.class`, `tag`, `tag.class` |
+| `document.getElementsByClassName/TagName` | ✅ | |
+| `document.body` / `document.addEventListener` | ✅ | window/document listeners land on the root; `DOMContentLoaded` and `load` fire after page scripts run |
+| `localStorage` / `sessionStorage` / `navigator` / `matchMedia` / `requestAnimationFrame` / `getComputedStyle` | ⚠️ | survival stubs: storage is in-memory per page, matchMedia never matches, rAF is a 16ms timeout |
 | `element.textContent` / `innerText` | ✅ | live accessor properties; writes relayout the page |
 | `element.value` | ✅ | reads live form state, writes update the control |
 | `element.getAttribute` / `setAttribute` | ✅ | `setAttribute('style.color', …)` merges into the style attribute |
@@ -31,7 +34,9 @@ loader thread); the whole world drops on navigation.
 | `window` / `location` | ⚠️ | `window` aliases the global object; `location.href` read/write (write navigates) and `location.reload()`; no `history` |
 
 `<script>` elements (inline or `src=`) run once after the page first
-renders, in document order, sharing one global scope. Runtime errors
+renders, in document order, sharing one global scope. Only classic
+JavaScript executes — `type="application/ld+json"`, templates, import
+maps and `type="module"` (no import support) are skipped. Runtime errors
 abort the current script/handler with a `[js] script error: …` message
 and the page keeps working.
 

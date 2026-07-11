@@ -124,6 +124,9 @@ impl PageScripts {
             });
         }
         scripts.pump_fetches(session);
+        // The document is ready: fire the lifecycle events on the root.
+        scripts.dispatch(session, 0, "DOMContentLoaded");
+        scripts.dispatch(session, 0, "load");
         Some(scripts)
     }
 
@@ -366,7 +369,17 @@ fn script_sources<L: ResourceLoader>(session: &mut Session<L>) -> Vec<String> {
         .descendants(document.root())
         .filter_map(|node| {
             let element = document.element(node)?;
-            (element.tag_name == "script").then(|| {
+            if element.tag_name != "script" {
+                return None;
+            }
+            // Only classic JavaScript runs: JSON-LD, templates, import
+            // maps and modules (no import support) are skipped.
+            let kind = element.attributes.get("type").unwrap_or("").trim();
+            let classic = matches!(
+                kind,
+                "" | "text/javascript" | "application/javascript" | "application/ecmascript"
+            );
+            classic.then(|| {
                 (
                     element.attributes.get("src").map(str::to_string),
                     document.text_content(node),
@@ -403,7 +416,15 @@ fn install_globals(context: &mut Context) {
         .register_global_property(js_string!("console"), console, Attribute::all())
         .expect("fresh context");
 
+    let body_get = NativeFunction::from_fn_ptr(document_body_get).to_js_function(context.realm());
     let document = ObjectInitializer::new(context)
+        .property(js_string!("__node"), JsValue::from(0.0), Attribute::empty())
+        .function(
+            NativeFunction::from_fn_ptr(add_event_listener),
+            js_string!("addEventListener"),
+            2,
+        )
+        .accessor(js_string!("body"), Some(body_get), None, Attribute::all())
         .function(
             NativeFunction::from_fn_ptr(get_element_by_id),
             js_string!("getElementById"),
@@ -424,10 +445,30 @@ fn install_globals(context: &mut Context) {
             js_string!("querySelectorAll"),
             1,
         )
+        .function(
+            NativeFunction::from_fn_ptr(get_elements_by_class_name),
+            js_string!("getElementsByClassName"),
+            1,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(get_elements_by_tag_name),
+            js_string!("getElementsByTagName"),
+            1,
+        )
         .build();
     context
         .register_global_property(js_string!("document"), document, Attribute::all())
         .expect("fresh context");
+    // window.addEventListener (also reachable bare) registers on the
+    // document root, so load/DOMContentLoaded and bubbled events reach it.
+    context
+        .register_global_builtin_callable(
+            js_string!("addEventListener"),
+            2,
+            NativeFunction::from_fn_ptr(window_add_event_listener),
+        )
+        .expect("fresh context");
+    install_stubs(context);
 
     context
         .register_global_builtin_callable(
@@ -476,6 +517,72 @@ fn install_globals(context: &mut Context) {
     context
         .register_global_property(js_string!("window"), global, Attribute::all())
         .expect("fresh context");
+}
+
+fn document_body_get(_this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let body = with_bridge(|bridge| {
+        let page = bridge.page.as_ref()?;
+        let document = &page.document;
+        document.descendants(document.root()).find(|node| {
+            document
+                .element(*node)
+                .is_some_and(|element| element.tag_name == "body")
+        })
+    });
+    Ok(match body {
+        Some(node) => element_object(node, context).into(),
+        None => JsValue::null(),
+    })
+}
+
+fn window_add_event_listener(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let event = string_arg(args, 0, context);
+    let Some(callback) = args.get(1).and_then(JsValue::as_object) else {
+        return Ok(JsValue::undefined());
+    };
+    with_bridge(|bridge| {
+        // The window listens on the document root (node 0).
+        bridge.pending_listeners.push((0, event, callback.clone()));
+    });
+    Ok(JsValue::undefined())
+}
+
+/// Cheap stubs that keep common site boot code from crashing:
+/// localStorage/sessionStorage (in-memory via plain objects driven by
+/// JS), matchMedia, navigator and requestAnimationFrame.
+fn install_stubs(context: &mut Context) {
+    let source = r#"
+        var localStorage = {
+            __data: {},
+            getItem(key) { return Object.hasOwn(this.__data, key) ? this.__data[key] : null; },
+            setItem(key, value) { this.__data[key] = String(value); },
+            removeItem(key) { delete this.__data[key]; },
+            clear() { this.__data = {}; },
+        };
+        var sessionStorage = {
+            __data: {},
+            getItem(key) { return Object.hasOwn(this.__data, key) ? this.__data[key] : null; },
+            setItem(key, value) { this.__data[key] = String(value); },
+            removeItem(key) { delete this.__data[key]; },
+            clear() { this.__data = {}; },
+        };
+        var navigator = { userAgent: "Lumen/0.1 (educational)", language: "tr-TR", languages: ["tr-TR", "en"] };
+        function matchMedia(query) {
+            return { matches: false, media: query,
+                     addListener() {}, removeListener() {},
+                     addEventListener() {}, removeEventListener() {} };
+        }
+        function requestAnimationFrame(callback) { return setTimeout(callback, 16); }
+        function cancelAnimationFrame(id) { clearTimeout(id); }
+        function getComputedStyle() { return { getPropertyValue() { return ""; } }; }
+    "#;
+    if let Err(error) = context.eval(Source::from_bytes(source)) {
+        eprintln!("[js] stub install error: {error}");
+    }
 }
 
 // ---- fetch ----
@@ -639,6 +746,32 @@ fn query_selector(_this: &JsValue, args: &[JsValue], context: &mut Context) -> J
         Some(node) => element_object(*node, context).into(),
         None => JsValue::null(),
     })
+}
+
+fn elements_matching(selector: String, context: &mut Context) -> JsResult<JsValue> {
+    let elements: Vec<JsValue> = query_nodes(selector.trim())
+        .into_iter()
+        .map(|node| element_object(node, context).into())
+        .collect();
+    Ok(boa_engine::object::builtins::JsArray::from_iter(elements, context).into())
+}
+
+fn get_elements_by_class_name(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let class = string_arg(args, 0, context);
+    elements_matching(format!(".{class}"), context)
+}
+
+fn get_elements_by_tag_name(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let tag = string_arg(args, 0, context);
+    elements_matching(tag, context)
 }
 
 fn query_selector_all(
