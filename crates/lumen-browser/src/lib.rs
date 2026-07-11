@@ -11,8 +11,11 @@ use lumen_engine::{
 };
 use lumen_html::NodeId;
 use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, Url, resolve};
+
+pub use editor::{EditOp, EditOverlay, EditResult, Motion, TextBuffer};
 use std::sync::Arc;
 
+mod editor;
 mod forms;
 
 /// One browsing context with linear history.
@@ -52,7 +55,9 @@ pub struct Session<L: ResourceLoader> {
     /// Whether the current stylesheet declares any `transition` at all.
     has_transitions: bool,
     /// Per-element inner scroll offsets (`overflow: scroll/auto`).
-    scroll_offsets: std::collections::HashMap<NodeId, f32>,
+    pub(crate) scroll_offsets: std::collections::HashMap<NodeId, f32>,
+    /// Editing state of the focused text control.
+    pub(crate) editor: Option<editor::TextEdit>,
     /// First usable `@font-face` font of the page (TTF/OTF only —
     /// fontdue cannot parse WOFF), used as the document font.
     web_font: Option<Arc<lumen_engine::SystemFont>>,
@@ -115,6 +120,7 @@ impl<L: ResourceLoader> Session<L> {
             transitions: Vec::new(),
             has_transitions: false,
             scroll_offsets: std::collections::HashMap::new(),
+            editor: None,
             web_font: None,
             hover_impact: lumen_engine::HoverImpact::Nothing,
         }
@@ -587,7 +593,7 @@ impl<L: ResourceLoader> Session<L> {
 
     /// The measurer layout runs with: the web font when one loaded, else
     /// the shell-provided measurer.
-    fn effective_measurer(&self) -> &dyn TextMeasurer {
+    pub(crate) fn effective_measurer(&self) -> &dyn TextMeasurer {
         match &self.web_font {
             Some(font) => font.as_ref(),
             None => self.measurer.as_ref(),
@@ -734,6 +740,7 @@ impl<L: ResourceLoader> Session<L> {
         self.hovered = None; // New document, new node ids.
         self.active = None;
         self.focused = None;
+        self.editor = None;
         self.transitions.clear();
         self.scroll_offsets.clear();
         self.form_values.clear();
@@ -1261,6 +1268,45 @@ mod tests {
                 .iter()
                 .any(|text| text.contains("ara") && !text.contains("merhaba"))
         );
+    }
+
+    #[test]
+    fn session_owned_editing_types_selects_and_overlays() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<form><input type='text' name='q' value='abc'></form>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let field = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+            .unwrap();
+        assert!(session.begin_edit(field, None));
+        assert_eq!(session.editing(), Some(field));
+        // Everything starts selected: typing replaces the value.
+        session.edit(EditOp::Insert("merhaba".to_string()));
+        assert_eq!(session.form_value(field), "merhaba");
+        // Select-all then word-left selection math still works.
+        session.edit(EditOp::SelectAll);
+        assert_eq!(
+            session.edit_buffer().unwrap().selected_text(),
+            "merhaba".to_string()
+        );
+        let overlay = session.edit_overlay().expect("overlay while editing");
+        assert!(overlay.caret.is_some());
+        assert!(overlay.selection.is_some());
+        // Ending the edit clears the state.
+        session.end_edit();
+        assert_eq!(session.editing(), None);
+        assert!(session.edit_overlay().is_none());
     }
 
     #[test]

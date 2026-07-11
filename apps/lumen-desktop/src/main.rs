@@ -21,7 +21,7 @@
 mod popups;
 mod text_input;
 
-use lumen_browser::Session;
+use lumen_browser::{EditOp, Motion, Session};
 use lumen_engine::{
     Caret, DisplayCommand, HeuristicMeasurer, Rect, Selection, Size, SystemFont, caret_at_point,
     collect_text_runs, highlight_rects, rasterize_over, rasterize_region, rasterize_with,
@@ -121,6 +121,66 @@ impl TextMeasurer for SharedFont {
     }
 }
 
+/// What a page-input key resolved to: an edit op for the session, or a
+/// shell-level action.
+enum PageEdit {
+    Op(EditOp),
+    Submit,
+    Cancel,
+    Copy,
+    Cut,
+    Paste,
+}
+
+/// Translates a key event into a page edit action (clipboard stays with
+/// the shell; the session owns the buffer).
+fn page_edit_action(key: &Key, command: bool, shift: bool, alt: bool) -> Option<PageEdit> {
+    Some(match key {
+        Key::Named(NamedKey::Enter) => PageEdit::Submit,
+        Key::Named(NamedKey::Escape) => PageEdit::Cancel,
+        Key::Named(NamedKey::Backspace) => PageEdit::Op(EditOp::Backspace { word: alt }),
+        Key::Named(NamedKey::Delete) => PageEdit::Op(EditOp::DeleteForward),
+        Key::Named(NamedKey::ArrowLeft) => PageEdit::Op(EditOp::Move {
+            motion: if command {
+                Motion::LineStart
+            } else if alt {
+                Motion::WordLeft
+            } else {
+                Motion::Left
+            },
+            select: shift,
+        }),
+        Key::Named(NamedKey::ArrowRight) => PageEdit::Op(EditOp::Move {
+            motion: if command {
+                Motion::LineEnd
+            } else if alt {
+                Motion::WordRight
+            } else {
+                Motion::Right
+            },
+            select: shift,
+        }),
+        Key::Named(NamedKey::Home) => PageEdit::Op(EditOp::Move {
+            motion: Motion::LineStart,
+            select: shift,
+        }),
+        Key::Named(NamedKey::End) => PageEdit::Op(EditOp::Move {
+            motion: Motion::LineEnd,
+            select: shift,
+        }),
+        Key::Named(NamedKey::Space) => PageEdit::Op(EditOp::Insert(" ".to_string())),
+        Key::Character(text) if command => match text.as_str() {
+            "a" => PageEdit::Op(EditOp::SelectAll),
+            "c" => PageEdit::Copy,
+            "x" => PageEdit::Cut,
+            "v" => PageEdit::Paste,
+            _ => return None,
+        },
+        Key::Character(text) => PageEdit::Op(EditOp::Insert(text.to_string())),
+        _ => return None,
+    })
+}
+
 /// The session's inner scroll offsets (empty map while loading).
 fn session_offsets(state: &SessionState) -> &std::collections::HashMap<usize, f32> {
     static EMPTY: std::sync::OnceLock<std::collections::HashMap<usize, f32>> =
@@ -211,11 +271,6 @@ struct App {
     modifiers: Modifiers,
     /// The find-bar query, when Ctrl/Cmd+F is active.
     find_input: Option<TextInput>,
-    /// In-page text input being edited: (input element node, edit state).
-    page_input: Option<(usize, TextInput)>,
-    /// Chars scrolled off the left edge of the edited single-line input
-    /// (the display window keeps the caret visible).
-    input_window: usize,
     /// Whether the current mouse press is drag-selecting inside the
     /// edited text control (suppresses page text selection).
     input_drag: bool,
@@ -280,8 +335,6 @@ impl App {
             selection: None,
             modifiers: Modifiers::default(),
             find_input: None,
-            page_input: None,
-            input_window: 0,
             input_drag: false,
             select_popup: None,
             color_popup: None,
@@ -371,7 +424,7 @@ impl App {
             return;
         }
         let target = nav.label();
-        self.close_page_input();
+        self.end_page_edit();
         self.selection = None;
         self.select_anchor = None;
         self.select_popup = None;
@@ -907,21 +960,17 @@ impl App {
                     return;
                 }
                 "textarea" => {
-                    let value = self
-                        .session()
-                        .map(|session| session.form_value(control))
-                        .unwrap_or_default();
-                    self.close_page_input();
-                    let mut input = TextInput::with_all_selected(value);
-                    input.move_to(usize::MAX, false);
-                    self.page_input = Some((control, input));
+                    self.input_drag = false;
+                    if let SessionState::Ready(session) = &mut self.state {
+                        session.begin_edit(control, None);
+                    }
                     self.invalidate_page();
                     self.request_redraw();
                     return;
                 }
                 "button" => {
                     if kind == "submit" {
-                        self.close_page_input();
+                        self.end_page_edit();
                         self.start_nav(Nav::Submit(control));
                     }
                     return;
@@ -958,28 +1007,19 @@ impl App {
                     return;
                 }
                 "submit" => {
-                    self.close_page_input();
+                    self.end_page_edit();
                     self.start_nav(Nav::Submit(control));
                     return;
                 }
                 _ => {
-                    let is_text = self
-                        .session()
-                        .is_some_and(|session| session.is_text_input(control));
-                    if is_text {
-                        let value = self
-                            .session()
-                            .map(|session| session.form_value(control))
-                            .unwrap_or_default();
-                        // Position the caret at the click (or select all on
-                        // a fresh focus of another control).
-                        let index = self.caret_index_in_control(control);
-                        self.close_page_input();
-                        let mut input = TextInput::with_all_selected(value);
-                        if let Some(index) = index {
-                            input.move_to(index, false);
-                        }
-                        self.page_input = Some((control, input));
+                    // The session positions the caret at the click x.
+                    let x = self.page_cursor().map(|(x, _)| x);
+                    self.input_drag = false;
+                    let began = match &mut self.state {
+                        SessionState::Ready(session) => session.begin_edit(control, x),
+                        SessionState::Loading { .. } => false,
+                    };
+                    if began {
                         self.invalidate_page();
                         self.request_redraw();
                         return;
@@ -987,26 +1027,10 @@ impl App {
                 }
             }
         }
-        self.close_page_input();
+        self.end_page_edit();
         let Some(node) = node else { return };
         if let Some(href) = self.session().and_then(|session| session.link_target(node)) {
             self.start_nav(Nav::Follow(href));
-        }
-    }
-
-    /// What a control actually displays: passwords render as bullets, so
-    /// caret math must measure bullets too.
-    fn control_display_text(&self, control: usize, value: &str) -> String {
-        let is_password = self
-            .session()
-            .and_then(Session::page)
-            .and_then(|page| page.document.element(control))
-            .and_then(|element| element.attributes.get("type"))
-            == Some("password");
-        if is_password {
-            "\u{2022}".repeat(value.chars().count())
-        } else {
-            value.to_string()
         }
     }
 
@@ -1100,171 +1124,13 @@ impl App {
         self.request_redraw();
     }
 
-    /// Ends in-page editing, restoring the full (head-clipped) value text
-    /// when the display was windowed.
-    fn close_page_input(&mut self) {
+    /// Ends in-page editing (the session restores the display).
+    fn end_page_edit(&mut self) {
         self.input_drag = false;
-        if let Some((control, input)) = self.page_input.take() {
-            if self.input_window != 0 {
-                let value = input.text;
-                if let SessionState::Ready(session) = &mut self.state {
-                    session.set_form_value(control, &value);
-                }
-                self.invalidate_page();
-            }
-            self.input_window = 0;
+        if let SessionState::Ready(session) = &mut self.state {
+            session.end_edit();
         }
-    }
-
-    /// Pushes the edited value into the page. Single-line inputs keep the
-    /// caret visible by rendering a windowed tail of the value; textareas
-    /// scroll their inner offset to the caret's line instead.
-    fn sync_input_display(&mut self, control: usize, text_changed: bool) {
-        let Some((_, input)) = &self.page_input else {
-            return;
-        };
-        let caret = input.caret;
-        let value = input.text.clone();
-        let is_textarea = self
-            .session()
-            .is_some_and(|session| session.is_textarea(control));
-        if is_textarea {
-            if text_changed
-                && let SessionState::Ready(session) = &mut self.state
-            {
-                session.set_form_value(control, &value);
-            }
-            self.follow_textarea_caret(control);
-            self.invalidate_page();
-            self.request_redraw();
-            return;
-        }
-        if value.is_empty() {
-            self.input_window = 0;
-            if text_changed {
-                if let SessionState::Ready(session) = &mut self.state {
-                    session.set_form_value(control, "");
-                }
-                self.invalidate_page();
-            }
-            self.request_redraw();
-            return;
-        }
-        let display_full = self.control_display_text(control, &value);
-        let Some(content) = self
-            .session()
-            .and_then(Session::page)
-            .and_then(|page| page.layout.find_by_node(control))
-            .map(|laid| laid.content_box())
-        else {
-            return;
-        };
-        let Some(text_style) = self
-            .session()
-            .and_then(Session::page)
-            .and_then(|page| page.styles.by_node.get(&control))
-            .map(|style| TextStyle {
-                font_size: style.font_size,
-                font_weight: style.font_weight,
-                monospace: style.monospace,
-                letter_spacing: style.letter_spacing,
-            })
-        else {
-            return;
-        };
-        let chars: Vec<char> = display_full.chars().collect();
-        let start = {
-            let measurer = self.measurer();
-            let width_of = |from: usize, to: usize| {
-                let slice: String = chars[from.min(chars.len())..to.min(chars.len())]
-                    .iter()
-                    .collect::<String>();
-                measurer.measure(&slice, &text_style).width
-            };
-            // Leave room for the caret line at the right edge. Both scans
-            // binary-search a monotonic width, so long values stay cheap.
-            let budget = (content.width - 4.0).max(10.0);
-            let mut start = self.input_window.min(caret);
-            if width_of(start, caret) > budget {
-                // Slide right to the smallest start that fits ..caret.
-                let (mut low, mut high) = (start, caret);
-                while low < high {
-                    let mid = low + (high - low) / 2;
-                    if width_of(mid, caret) > budget {
-                        low = mid + 1;
-                    } else {
-                        high = mid;
-                    }
-                }
-                start = low;
-            }
-            // Refill from the left when deletions free up room: the
-            // smallest start whose tail still fits.
-            if start > 0 && width_of(start - 1, chars.len()) <= budget {
-                let (mut low, mut high) = (0usize, start - 1);
-                while low < high {
-                    let mid = low + (high - low) / 2;
-                    if width_of(mid, chars.len()) <= budget {
-                        high = mid;
-                    } else {
-                        low = mid + 1;
-                    }
-                }
-                start = low;
-            }
-            start
-        };
-        if text_changed || start != self.input_window {
-            self.input_window = start;
-            let display: String = chars[start..].iter().collect();
-            if let SessionState::Ready(session) = &mut self.state {
-                session.set_form_value_display(control, &value, &display);
-            }
-            self.invalidate_page();
-        }
-        self.request_redraw();
-    }
-
-    /// Scrolls a textarea's inner offset so the caret's line stays inside
-    /// the visible box.
-    fn follow_textarea_caret(&mut self, control: usize) {
-        let Some((_, input)) = &self.page_input else {
-            return;
-        };
-        let caret_line = input
-            .text
-            .chars()
-            .take(input.caret)
-            .filter(|character| *character == '\n')
-            .count();
-        let Some((line_height, content_height, offset)) =
-            self.session().and_then(|session| {
-                let page = session.page()?;
-                let laid = page.layout.find_by_node(control)?;
-                let style = page.styles.by_node.get(&control)?;
-                let offset = session
-                    .scroll_offsets()
-                    .get(&control)
-                    .copied()
-                    .unwrap_or(0.0);
-                Some((style.line_height, laid.content_box().height, offset))
-            })
-        else {
-            return;
-        };
-        let caret_top = caret_line as f32 * line_height;
-        let delta = if caret_top < offset {
-            caret_top - offset
-        } else if caret_top + line_height > offset + content_height {
-            caret_top + line_height - (offset + content_height)
-        } else {
-            0.0
-        };
-        if delta != 0.0
-            && let SessionState::Ready(session) = &mut self.state
-        {
-            session.scroll_inner(control, delta);
-        }
+        self.invalidate_page();
     }
 
     /// The nearest form control at or above a hit node; labels resolve
@@ -1299,52 +1165,6 @@ impl App {
                 matches!(target.tag_name.as_str(), "input" | "select" | "textarea")
             })
         })
-    }
-
-    /// Where in a text control's value the cursor points (char index).
-    fn caret_index_in_control(&self, control: usize) -> Option<usize> {
-        let (x, _) = self.page_cursor()?;
-        let session = self.session()?;
-        let page = session.page()?;
-        let laid = page.layout.find_by_node(control)?;
-        let content = laid.content_box();
-        // When this control is mid-edit its rendered text is a windowed
-        // tail; measure what is displayed and map back to value indices.
-        let window = match &self.page_input {
-            Some((editing, _)) if *editing == control => self.input_window,
-            _ => 0,
-        };
-        let value: String = self
-            .control_display_text(control, &session.form_value(control))
-            .chars()
-            .skip(window)
-            .collect();
-        let style = page.styles.by_node.get(&control)?;
-        let text_style = TextStyle {
-            font_size: style.font_size,
-            font_weight: style.font_weight,
-            monospace: style.monospace,
-            letter_spacing: style.letter_spacing,
-        };
-        let measurer = self.measurer();
-        let relative = (x - content.x).max(0.0);
-        // Prefix width grows monotonically, so binary-search the first
-        // index whose prefix reaches the click (O(n log n), not O(n²)).
-        let count = value.chars().count();
-        let width_to = |index: usize| {
-            let prefix: String = value.chars().take(index).collect();
-            measurer.measure(&prefix, &text_style).width
-        };
-        let (mut low, mut high) = (0usize, count);
-        while low < high {
-            let mid = low + (high - low) / 2;
-            if width_to(mid) >= relative {
-                high = mid;
-            } else {
-                low = mid + 1;
-            }
-        }
-        Some(window + low)
     }
 
     fn chrome_click(&mut self, x: f32) {
@@ -1758,87 +1578,28 @@ impl App {
                 }
             }
         }
-        // Focused in-page input: selection highlight + caret line.
-        if let Some((control, input)) = &self.page_input
-            && let Some(page) = self.session().and_then(Session::page)
-            && let Some(laid) = page.layout.find_by_node(*control)
-        {
-            let content = laid.content_box();
-            if let Some(style) = page.styles.by_node.get(control) {
-                let text_style = TextStyle {
-                    font_size: style.font_size,
-                    font_weight: style.font_weight,
-                    monospace: style.monospace,
-                    letter_spacing: style.letter_spacing,
-                };
-                let measurer = self.measurer();
-                let display_all = self.control_display_text(*control, &input.text);
-                // Single-line inputs render a windowed tail of the value;
-                // the overlay must window its indices the same way.
-                let multiline = display_all.contains('\n');
-                let window = if multiline { 0 } else { self.input_window };
-                let display: String = display_all.chars().skip(window).collect();
-                let caret_index = input.caret.saturating_sub(window);
-                let width_to = |index: usize| {
-                    let prefix: String = display.chars().take(index).collect();
-                    measurer.measure(&prefix, &text_style).width
-                };
-                let to_device = |x: f32, y: f32, w: f32, h: f32| Rect {
-                    x: x * scale,
-                    y: (y - self.scroll_y + BAR_HEIGHT) * scale,
-                    width: w * scale,
-                    height: h * scale,
-                };
-                // Multiline (textarea) caret: place on its line, shifted by
-                // the box's inner scroll; the selection highlight only
-                // renders for single-line values.
-                let inner_offset = self
-                    .session()
-                    .and_then(|session| session.scroll_offsets().get(control).copied())
-                    .unwrap_or(0.0);
-                let caret_line = display
-                    .chars()
-                    .take(caret_index)
-                    .filter(|character| *character == '\n')
-                    .count();
-                let line_offset = caret_line as f32 * style.line_height - inner_offset;
-                let last_line_start = display
-                    .chars()
-                    .take(caret_index)
-                    .collect::<String>()
-                    .rfind('\n')
-                    .map(|at| at + 1)
-                    .unwrap_or(0);
-                let (start, end) = input.selection();
-                if start != end && !multiline {
-                    let (start, end) = (start.saturating_sub(window), end.saturating_sub(window));
-                    let x0 = (content.x + width_to(start)).min(content.x + content.width);
-                    let x1 = (content.x + width_to(end)).min(content.x + content.width);
-                    framebuffer.blend_fill(
-                        to_device(x0, content.y, x1 - x0, content.height),
-                        lumen_css::Color::rgb(0xb3, 0xd4, 0xfc),
-                        140,
-                    );
-                }
-                let caret_prefix: String = display
-                    .chars()
-                    .take(caret_index)
-                    .collect::<String>()
-                    .get(last_line_start..)
-                    .unwrap_or("")
-                    .to_string();
-                let caret_x = (content.x + measurer.measure(&caret_prefix, &text_style).width)
-                    .min(content.x + content.width - 1.5);
-                let caret_height = style.line_height.min(content.height);
-                // Never draw the caret outside the control's box (a caret
-                // line scrolled past the edges just hides).
-                if line_offset > -0.5 && line_offset + caret_height <= content.height + 0.5 {
-                    framebuffer.blend_fill(
-                        to_device(caret_x, content.y + line_offset, 1.5, caret_height),
-                        lumen_css::Color::rgb(0x20, 0x20, 0x20),
-                        255,
-                    );
-                }
+        // Focused in-page input: selection highlight + caret line (the
+        // session owns the geometry).
+        if let Some(overlay) = self.session().and_then(Session::edit_overlay) {
+            let to_device = |rect: Rect| Rect {
+                x: rect.x * scale,
+                y: (rect.y - self.scroll_y + BAR_HEIGHT) * scale,
+                width: rect.width * scale,
+                height: rect.height * scale,
+            };
+            if let Some(selection) = overlay.selection {
+                framebuffer.blend_fill(
+                    to_device(selection),
+                    lumen_css::Color::rgb(0xb3, 0xd4, 0xfc),
+                    140,
+                );
+            }
+            if let Some(caret) = overlay.caret {
+                framebuffer.blend_fill(
+                    to_device(caret),
+                    lumen_css::Color::rgb(0x20, 0x20, 0x20),
+                    255,
+                );
             }
         }
         // Inner scrollbars: a thin thumb on every scrollable box.
@@ -2140,7 +1901,7 @@ impl App {
         shift_held: bool,
         alt_held: bool,
     ) {
-        let Some(control) = self.page_input.as_ref().map(|(control, _)| *control) else {
+        let Some(control) = self.session().and_then(Session::editing) else {
             return;
         };
         // Number inputs: Up/Down step the value by `step` within min/max.
@@ -2156,72 +1917,82 @@ impl App {
             };
             let stepped = match &mut self.state {
                 SessionState::Ready(session) => session.step_number_input(control, direction),
-                _ => None,
+                SessionState::Loading { .. } => None,
             };
-            if let Some(value) = stepped {
-                if let Some((_, input)) = &mut self.page_input {
-                    input.text = value;
-                    input.move_to(usize::MAX, false);
-                }
+            if stepped.is_some() {
                 self.invalidate_page();
                 self.request_redraw();
             }
             return;
         }
-        let Some((_, input)) = &mut self.page_input else {
+        let Some(action) = page_edit_action(key, command_held, shift_held, alt_held) else {
             return;
         };
-        let mut sync = false;
-        let mut moved = false;
-        match apply_edit(input, key, command_held, shift_held, alt_held) {
-            EditOutcome::Changed => sync = true,
-            EditOutcome::Moved => moved = true,
-            EditOutcome::Submit => {
+        match action {
+            PageEdit::Submit => {
                 // Enter inside a textarea inserts a newline instead.
                 let is_textarea = self
                     .session()
                     .is_some_and(|session| session.is_textarea(control));
                 if is_textarea {
-                    if let Some((_, input)) = &mut self.page_input {
-                        input.insert("\n");
+                    if let SessionState::Ready(session) = &mut self.state {
+                        session.edit(EditOp::Insert("\n".to_string()));
                     }
-                    sync = true;
+                    self.invalidate_page();
+                    self.request_redraw();
                 } else {
-                    self.close_page_input();
+                    self.end_page_edit();
                     self.start_nav(Nav::Submit(control));
-                    return;
                 }
             }
-            EditOutcome::Cancel => {
-                self.close_page_input();
+            PageEdit::Cancel => {
+                self.end_page_edit();
                 if let SessionState::Ready(session) = &mut self.state
                     && session.set_focused(None)
                 {
                     self.invalidate_page();
                 }
                 self.request_redraw();
-                return;
             }
-            EditOutcome::Copy => {
-                clipboard_set(&input.selected_text());
-            }
-            EditOutcome::Cut => {
-                clipboard_set(&input.selected_text());
-                input.delete_selection();
-                sync = true;
-            }
-            EditOutcome::Paste => {
-                if let Some(pasted) = clipboard_get() {
-                    input.insert(pasted.replace(['\n', '\r'], " ").as_str());
-                    sync = true;
+            PageEdit::Copy => {
+                if let Some(buffer) = self.session().and_then(Session::edit_buffer) {
+                    clipboard_set(&buffer.selected_text());
                 }
             }
-            EditOutcome::Ignored => {}
-        }
-        if sync || moved {
-            // Both cases may move the display window / inner scroll so the
-            // caret stays visible.
-            self.sync_input_display(control, sync);
+            PageEdit::Cut => {
+                let selected = self
+                    .session()
+                    .and_then(Session::edit_buffer)
+                    .filter(|buffer| buffer.has_selection())
+                    .map(|buffer| buffer.selected_text());
+                if let Some(selected) = selected {
+                    clipboard_set(&selected);
+                    if let SessionState::Ready(session) = &mut self.state {
+                        session.edit(EditOp::DeleteForward);
+                    }
+                    self.invalidate_page();
+                    self.request_redraw();
+                }
+            }
+            PageEdit::Paste => {
+                if let Some(pasted) = clipboard_get() {
+                    if let SessionState::Ready(session) = &mut self.state {
+                        session.edit(EditOp::Insert(pasted.replace(['\n', '\r'], " ")));
+                    }
+                    self.invalidate_page();
+                    self.request_redraw();
+                }
+            }
+            PageEdit::Op(op) => {
+                let result = match &mut self.state {
+                    SessionState::Ready(session) => session.edit(op),
+                    SessionState::Loading { .. } => lumen_browser::EditResult::Ignored,
+                };
+                if result != lumen_browser::EditResult::Ignored {
+                    self.invalidate_page();
+                    self.request_redraw();
+                }
+            }
         }
     }
 
@@ -2261,7 +2032,7 @@ impl App {
             return;
         }
         // In-page form input editing.
-        if self.page_input.is_some() {
+        if self.session().and_then(Session::editing).is_some() {
             self.handle_page_input_key(key, command_held, shift_held, alt_held);
             return;
         }
@@ -2413,14 +2184,12 @@ impl ApplicationHandler<NavDone> for App {
                 } else if self.input_drag && self.press.is_some() {
                     // Drag-selecting inside the edited control: the caret
                     // extends the selection from the press anchor.
-                    if let Some((control, _)) = &self.page_input {
-                        let control = *control;
-                        if let Some(index) = self.caret_index_in_control(control) {
-                            if let Some((_, input)) = &mut self.page_input {
-                                input.move_to(index, true);
-                            }
-                            self.sync_input_display(control, false);
-                        }
+                    if let Some((x, _)) = self.page_cursor()
+                        && let SessionState::Ready(session) = &mut self.state
+                    {
+                        session.edit_drag_to(x);
+                        self.invalidate_page();
+                        self.request_redraw();
                     }
                 } else if self.press.is_some() {
                     // Dragging: extend the selection from the anchor.
@@ -2484,18 +2253,18 @@ impl ApplicationHandler<NavDone> for App {
                 }
                 // A press inside the edited single-line control anchors a
                 // caret drag-select (page text selection stays off).
-                if let Some((control, _)) = &self.page_input {
-                    let control = *control;
+                if let Some(control) = self.session().and_then(Session::editing) {
                     let over = hit.and_then(|node| self.form_control_at(node)) == Some(control)
                         && self
                             .session()
                             .is_some_and(|session| session.is_text_input(control));
-                    if over && let Some(index) = self.caret_index_in_control(control) {
-                        if let Some((_, input)) = &mut self.page_input {
-                            input.move_to(index, false);
+                    if over && let Some((x, _)) = self.page_cursor() {
+                        if let SessionState::Ready(session) = &mut self.state {
+                            session.begin_edit(control, Some(x));
                         }
                         self.input_drag = true;
                         self.select_anchor = None;
+                        self.invalidate_page();
                         self.request_redraw();
                     }
                 }

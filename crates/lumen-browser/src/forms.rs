@@ -249,6 +249,13 @@ impl<L: ResourceLoader> Session<L> {
             format!("{value}")
         };
         self.set_form_value(node, &text);
+        // The live edit buffer follows the stepped value.
+        if let Some(edit) = self.editor.as_mut()
+            && edit.node == node
+        {
+            edit.buffer.text = text.clone();
+            edit.buffer.move_to(usize::MAX, false);
+        }
         Some(text)
     }
 
