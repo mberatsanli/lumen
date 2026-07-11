@@ -147,19 +147,25 @@ impl<L: ResourceLoader> Session<L> {
     }
 
     fn relayout(&mut self) {
-        if let Some(source) = &self.source {
-            // Reparse the cached source; node ids are stable, and the
-            // cached author stylesheet avoids refetching external CSS.
-            let document = lumen_html::parse_document(source);
-            self.page = Some(page_from_document(
-                document,
-                self.author.clone(),
-                self.images.clone(),
-                self.viewport,
-                self.measurer.as_ref(),
-                self.hovered,
-            ));
-        }
+        // Reuse the page's document: it already carries materialized
+        // ::before/::after nodes, so hover ids (which may point at
+        // generated content) stay valid. Fall back to reparsing the
+        // cached source when there is no page yet.
+        let document = match self.page.take() {
+            Some(page) => page.document,
+            None => match &self.source {
+                Some(source) => lumen_html::parse_document(source),
+                None => return,
+            },
+        };
+        self.page = Some(page_from_document(
+            document,
+            self.author.clone(),
+            self.images.clone(),
+            self.viewport,
+            self.measurer.as_ref(),
+            self.hovered,
+        ));
     }
 
     #[must_use]
@@ -568,6 +574,30 @@ mod tests {
         });
         session.set_hovered(Some(1));
         assert_eq!(session.loader.loads.borrow().len(), 2);
+    }
+
+    #[test]
+    fn hovering_generated_content_does_not_panic() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>p::before { content: \"* \"; } p:hover { color: #ff0000; }</style>\
+                 <p>hover me</p>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        // The generated node has the highest id — exactly what a hit test
+        // over the ::before text would return.
+        let generated = session.page().unwrap().document.nodes().len() - 1;
+        assert!(session.set_hovered(Some(generated)));
+        assert!(session.page().is_some());
+        // And a viewport change (full relayout) with the hover still set.
+        session.set_viewport(Size {
+            width: 640.0,
+            height: 480.0,
+        });
+        assert!(session.page().is_some());
     }
 
     #[test]
