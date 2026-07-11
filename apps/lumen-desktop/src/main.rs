@@ -1064,9 +1064,30 @@ impl App {
                     })
                 })
             });
+        // Form controls pick their cursor: clickables get the pointer,
+        // editable text gets the I-beam (labels resolve to their target).
+        let over_control = hit
+            .and_then(|node| self.form_control_at(node))
+            .and_then(|control| {
+                let page = self.session().and_then(Session::page)?;
+                let element = page.document.element(control)?;
+                Some(match element.tag_name.as_str() {
+                    "select" | "button" => CursorIcon::Pointer,
+                    "textarea" => CursorIcon::Text,
+                    "input" => match element.attributes.get("type").unwrap_or("text") {
+                        "checkbox" | "radio" | "submit" | "button" | "reset" | "range"
+                        | "color" => CursorIcon::Pointer,
+                        "hidden" => CursorIcon::Default,
+                        _ => CursorIcon::Text,
+                    },
+                    _ => CursorIcon::Default,
+                })
+            });
         if let Some(window) = &self.window {
             window.set_cursor(if over_link {
                 CursorIcon::Pointer
+            } else if let Some(cursor) = over_control {
+                cursor
             } else if over_text {
                 CursorIcon::Text
             } else {
