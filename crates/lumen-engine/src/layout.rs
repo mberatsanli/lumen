@@ -1564,6 +1564,65 @@ mod tests {
     }
 
     #[test]
+    fn flex_wrap_flows_items_onto_new_lines() {
+        let layout = layout_of(
+            "<style>
+                .row { display: flex; flex-wrap: wrap; gap: 10px; }
+                .item { width: 300px; height: 20px; }
+             </style>\
+             <div class='row'><div class='item'></div><div class='item'></div>\
+             <div class='item'></div></div>",
+        );
+        let row = &layout.children[0];
+        // 300+10+300 = 610 fits in 800; the third item (needs 920) wraps.
+        assert_eq!(
+            row.children[0].border_box().y,
+            row.children[1].border_box().y
+        );
+        assert_eq!(row.children[2].border_box().x, 0.0);
+        assert_eq!(row.children[2].border_box().y, 30.0);
+        // Container height covers both lines.
+        assert_eq!(row.content_box().height, 50.0);
+    }
+
+    #[test]
+    fn flex_shrink_narrows_overflowing_items() {
+        let layout = layout_of(
+            "<style>
+                .row { display: flex; }
+                .a { width: 600px; height: 10px; }
+                .b { width: 600px; height: 10px; flex-shrink: 2; }
+             </style>\
+             <div class='row'><div class='a'></div><div class='b'></div></div>",
+        );
+        let row = &layout.children[0];
+        // Overflow 400 split by shrink*base 600 : 1200 → 133.3 and 266.7.
+        let a = row.children[0].border_box().width;
+        let b = row.children[1].border_box().width;
+        assert!((a - 466.7).abs() < 0.5, "a = {a}");
+        assert!((b - 333.3).abs() < 0.5, "b = {b}");
+        assert!((a + b - 800.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn align_self_overrides_align_items() {
+        let layout = layout_of(
+            "<style>
+                .row { display: flex; align-items: flex-start; height: 100px; }
+                .a { width: 10px; height: 20px; }
+                .b { width: 10px; height: 20px; align-self: flex-end; }
+                .c { width: 10px; align-self: stretch; }
+             </style>\
+             <div class='row'><div class='a'></div><div class='b'></div>\
+             <div class='c'></div></div>",
+        );
+        let row = &layout.children[0];
+        assert_eq!(row.children[0].border_box().y, 0.0);
+        assert_eq!(row.children[1].border_box().y, 80.0);
+        assert_eq!(row.children[2].border_box().height, 100.0);
+    }
+
+    #[test]
     fn justify_content_positions_the_line() {
         for (justify, expected_x) in [
             ("center", 300.0),

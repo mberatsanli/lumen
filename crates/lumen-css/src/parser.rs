@@ -216,6 +216,31 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
             let side = &name["border-".len()..];
             expand_border_side(side, &components, output);
         }
+        "flex" => {
+            // grow [shrink [basis]]; `none` = 0 0, `auto`/`initial` keep
+            // defaults with grow 1/0. flex-basis is unsupported and ignored.
+            let (grow, shrink) = match components.first() {
+                Some(CssValue::Keyword(keyword)) if keyword == "none" => (0.0, 0.0),
+                Some(CssValue::Keyword(keyword)) if keyword == "auto" => (1.0, 1.0),
+                Some(CssValue::Keyword(keyword)) if keyword == "initial" => (0.0, 1.0),
+                Some(CssValue::Number(grow)) => {
+                    let shrink = match components.get(1) {
+                        Some(CssValue::Number(shrink)) => *shrink,
+                        _ => 1.0,
+                    };
+                    (*grow, shrink)
+                }
+                _ => return,
+            };
+            output.push(Declaration {
+                name: "flex-grow".to_string(),
+                value: CssValue::Number(grow),
+            });
+            output.push(Declaration {
+                name: "flex-shrink".to_string(),
+                value: CssValue::Number(shrink),
+            });
+        }
         _ => output.push(Declaration {
             name: name.to_string(),
             value: components.swap_remove(0),
@@ -327,6 +352,39 @@ mod tests {
             expect("margin-bottom", *bottom);
             expect("margin-left", *left);
         }
+    }
+
+    #[test]
+    fn expands_flex_shorthand() {
+        let sheet = parse_stylesheet("a { flex: 2; } b { flex: none; } c { flex: 1 3; }");
+        let decls = |index: usize| -> Vec<(String, String)> {
+            sheet.rules[index]
+                .declarations
+                .iter()
+                .map(|d| (d.name.clone(), format!("{:?}", d.value)))
+                .collect()
+        };
+        assert_eq!(
+            decls(0),
+            vec![
+                ("flex-grow".to_string(), "Number(2.0)".to_string()),
+                ("flex-shrink".to_string(), "Number(1.0)".to_string()),
+            ]
+        );
+        assert_eq!(
+            decls(1),
+            vec![
+                ("flex-grow".to_string(), "Number(0.0)".to_string()),
+                ("flex-shrink".to_string(), "Number(0.0)".to_string()),
+            ]
+        );
+        assert_eq!(
+            decls(2),
+            vec![
+                ("flex-grow".to_string(), "Number(1.0)".to_string()),
+                ("flex-shrink".to_string(), "Number(3.0)".to_string()),
+            ]
+        );
     }
 
     #[test]

@@ -117,6 +117,21 @@
                 height: 120px; background-color: #f0e8f0; padding: 8px; }
     .flex-col .cell { background-color: #ddcfe0; }
     .flex-col .grow { flex-grow: 1; background-color: #cfc0d8; }
+    .flex-wrap { display: flex; flex-wrap: wrap; gap: 8px;
+                 background-color: #e9f0ea; padding: 8px; }
+    .flex-wrap .chip { width: 150px; background-color: #cdddd3;
+                       padding: 6px; flex-shrink: 0; }
+    .flex-shrink-demo { display: flex; gap: 8px; background-color: #f2ecdf;
+                        padding: 8px; }
+    .flex-shrink-demo .wide { width: 400px; background-color: #e3d3b8;
+                              padding: 6px; }
+    .flex-shrink-demo .stubborn { flex-shrink: 0; width: 160px;
+                                  background-color: #d8c49a; padding: 6px; }
+    .flex-self { display: flex; align-items: flex-start; height: 90px;
+                 gap: 8px; background-color: #edf0f4; padding: 8px; }
+    .flex-self .cell { background-color: #ccd8e8; padding: 6px; }
+    .flex-self .end { align-self: flex-end; }
+    .flex-self .stretchy { align-self: stretch; }
 
     /* --- interaction ------------------------------------------------- */
     .hoverbox { background-color: #e8eef7; padding: 12px; }
@@ -248,6 +263,26 @@
       <div class="cell grow"><p>growing middle</p></div>
       <div class="cell"><p>column bottom</p></div>
     </div>
+    <p class="muted">↑ column with flex-grow.</p>
+    <div class="flex-wrap">
+      <div class="chip"><p>one</p></div><div class="chip"><p>two</p></div>
+      <div class="chip"><p>three</p></div><div class="chip"><p>four</p></div>
+      <div class="chip"><p>five</p></div><div class="chip"><p>six</p></div>
+      <div class="chip"><p>seven</p></div><div class="chip"><p>eight</p></div>
+    </div>
+    <p class="muted">↑ flex-wrap: wrap — chips flow onto new lines.</p>
+    <div class="flex-shrink-demo">
+      <div class="wide"><p>shrinks</p></div>
+      <div class="wide"><p>shrinks</p></div>
+      <div class="stubborn"><p>flex-shrink: 0</p></div>
+    </div>
+    <p class="muted">↑ overflow resolved by flex-shrink (last item refuses).</p>
+    <div class="flex-self">
+      <div class="cell"><p>start</p></div>
+      <div class="cell end"><p>align-self: flex-end</p></div>
+      <div class="cell stretchy"><p>align-self: stretch</p></div>
+    </div>
+    <p class="muted">↑ align-self overrides align-items.</p>
   </div>
 
   <div class="section">

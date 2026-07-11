@@ -63,14 +63,16 @@ they overlap it vertically, and stretches the container's auto height;
 block siblings ignore floats except via `clear`, and text in nested
 blocks does not wrap around outer floats.
 
-Flex containers (`display: flex`) implement a single-line subset:
-`flex-direction: row | column`, `justify-content` (start/center/end/
-space-between), `align-items` (start/center/end/stretch), `gap` and
-`flex-grow`. Base sizes come from `width`/`height` (auto = shrink-to-fit
-on rows, fill on columns); positive free space is distributed by grow
-weights and grown/stretched items are laid out again at their target
-size. No wrapping, shrinking, `flex-basis`, `order` or `align-self`.
-Bare text children become anonymous flex items.
+Flex containers (`display: flex`) implement a wrapping subset:
+`flex-direction: row | column`, `flex-wrap: wrap` (greedy line filling),
+`justify-content` (start/center/end/space-between), `align-items` with
+per-item `align-self`, `gap` (used on both axes) and `flex-grow`/
+`flex-shrink` (shrink weighted by base size). Base sizes come from
+`width`/`height` (auto = shrink-to-fit on rows, fill on columns);
+free space is distributed per line and adjusted items are laid out again
+at their target size. No `flex-basis`, `order`, `align-content`
+distribution or `wrap-reverse`. Bare text children become anonymous flex
+items.
 
 Positioning (simplified): `relative` translates the finished box without
 affecting flow; `absolute`/`fixed` leave the flow, size shrink-to-fit for

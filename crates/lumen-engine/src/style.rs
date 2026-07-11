@@ -201,11 +201,16 @@ pub struct ComputedStyle {
     pub offsets: EdgeSizes<Dimension>,
     pub z_index: Option<i32>,
     pub flex_direction: FlexDirection,
+    /// `flex-wrap: wrap` (wrap-reverse is treated as wrap).
+    pub flex_wrap: bool,
     pub justify_content: JustifyContent,
     pub align_items: AlignItems,
+    /// Per-item `align-items` override; `None` is `auto`.
+    pub align_self: Option<AlignItems>,
     /// Resolved to pixels.
     pub gap: f32,
     pub flex_grow: f32,
+    pub flex_shrink: f32,
     /// Element opacity 0..=1, multiplied into every paint command of the
     /// subtree (an approximation of real group compositing).
     pub opacity: f32,
@@ -249,10 +254,13 @@ impl Default for ComputedStyle {
             offsets: EdgeSizes::uniform(Dimension::Auto),
             z_index: None,
             flex_direction: FlexDirection::default(),
+            flex_wrap: false,
             justify_content: JustifyContent::default(),
             align_items: AlignItems::default(),
+            align_self: None,
             gap: 0.0,
             flex_grow: 0.0,
+            flex_shrink: 1.0,
             opacity: 1.0,
             selectable: true,
             selection_background: None,
@@ -725,6 +733,24 @@ fn to_computed(
     style.flex_grow = match raw.get("flex-grow") {
         Some(CssValue::Number(value)) => value.max(0.0),
         _ => 0.0,
+    };
+
+    style.flex_shrink = match raw.get("flex-shrink") {
+        Some(CssValue::Number(value)) => value.max(0.0),
+        _ => 1.0,
+    };
+
+    style.flex_wrap = matches!(
+        raw.get("flex-wrap").and_then(CssValue::as_keyword),
+        Some("wrap" | "wrap-reverse")
+    );
+
+    style.align_self = match raw.get("align-self").and_then(CssValue::as_keyword) {
+        Some("flex-start" | "start") => Some(AlignItems::Start),
+        Some("center") => Some(AlignItems::Center),
+        Some("flex-end" | "end") => Some(AlignItems::End),
+        Some("stretch") => Some(AlignItems::Stretch),
+        _ => None,
     };
 
     style.text_align = raw

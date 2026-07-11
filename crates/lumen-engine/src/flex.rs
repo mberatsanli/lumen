@@ -1,4 +1,4 @@
-//! Single-line flexbox layout (see `layout.rs` for the block algorithm).
+//! Flexbox layout (wrapping subset) (see `layout.rs` for the block algorithm).
 
 use crate::geometry::{Dimensions, Rect, Size};
 use crate::image::ImageMap;
@@ -13,8 +13,11 @@ use crate::style::{
 use crate::text::TextMeasurer;
 use lumen_html::{Document, NodeId, NodeKind};
 
-/// Single-line flexbox (no wrap, no shrink, no flex-basis; `width`/
-/// `height` act as the base size). Bare text children become anonymous
+/// Flexbox subset: `flex-wrap: wrap` (greedy line filling), `flex-grow`,
+/// `flex-shrink` (weighted by base size), `align-items`/`align-self`,
+/// `justify-content` and `gap` (used on both axes). No `flex-basis`,
+/// `order`, `align-content` distribution or `wrap-reverse`; `width`/
+/// `height` act as the base size. Bare text children become anonymous
 /// items via inline layout.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn layout_flex_children(
@@ -146,18 +149,41 @@ pub(crate) fn layout_flex_children(
         }
     };
 
-    let mut boxes: Vec<(LayoutBox, f32)> = items
+    // Base layout plus flex factors per item.
+    struct FlexItem {
+        laid: LayoutBox,
+        grow: f32,
+        shrink: f32,
+        align_self: Option<AlignItems>,
+    }
+    let mut flex_items: Vec<FlexItem> = items
         .iter()
         .map(|item| {
             let laid = match item {
                 Item::Element(child) => lay_element(*child, None),
                 Item::Run(nodes) => lay_run(nodes, content_width),
             };
-            let grow = match item {
-                Item::Element(child) => styles.by_node.get(child).map_or(0.0, |s| s.flex_grow),
-                Item::Run(_) => 0.0,
+            let (grow, shrink, align_self) = match item {
+                Item::Element(child) => {
+                    styles
+                        .by_node
+                        .get(child)
+                        .map_or((0.0, 1.0, None), |item_style| {
+                            (
+                                item_style.flex_grow,
+                                item_style.flex_shrink,
+                                item_style.align_self,
+                            )
+                        })
+                }
+                Item::Run(_) => (0.0, 1.0, None),
             };
-            (laid, grow)
+            FlexItem {
+                laid,
+                grow,
+                shrink,
+                align_self,
+            }
         })
         .collect();
 
@@ -169,25 +195,84 @@ pub(crate) fn layout_flex_children(
             margin_box.height
         }
     };
+    let cross_of = |laid: &LayoutBox| {
+        let margin_box = laid.margin_box();
+        if row {
+            margin_box.height
+        } else {
+            margin_box.width
+        }
+    };
     let container_main = if row {
         content_width
     } else {
         explicit_height.unwrap_or(f32::INFINITY)
     };
-    let count = boxes.len() as f32;
-    let total_gap = style.gap * (count - 1.0).max(0.0);
 
-    // flex-grow: distribute positive free space, then re-lay grown items.
-    let used: f32 = boxes.iter().map(|(laid, _)| main_size(laid)).sum::<f32>() + total_gap;
-    let total_grow: f32 = boxes.iter().map(|(_, grow)| grow).sum();
-    if container_main.is_finite() && container_main > used && total_grow > 0.0 {
+    // Split items into flex lines: greedy filling when wrapping, one line
+    // otherwise. Lines hold consecutive item indices.
+    let mut lines: Vec<Vec<usize>> = Vec::new();
+    if style.flex_wrap && container_main.is_finite() {
+        let mut line: Vec<usize> = Vec::new();
+        let mut used = 0.0;
+        for (index, item) in flex_items.iter().enumerate() {
+            let main = main_size(&item.laid);
+            let extra = if line.is_empty() {
+                main
+            } else {
+                style.gap + main
+            };
+            if !line.is_empty() && used + extra > container_main + 0.5 {
+                lines.push(std::mem::take(&mut line));
+                used = main;
+            } else {
+                used += extra;
+            }
+            line.push(index);
+        }
+        if !line.is_empty() {
+            lines.push(line);
+        }
+    } else {
+        lines.push((0..flex_items.len()).collect());
+    }
+    let single_line = lines.len() == 1;
+
+    // Resolve flexible lengths per line: distribute positive free space by
+    // grow weights, negative by shrink weights (factor times base size),
+    // then re-lay adjusted items at their target main size.
+    for line in &lines {
+        if !container_main.is_finite() {
+            continue;
+        }
+        let gaps = style.gap * (line.len() as f32 - 1.0).max(0.0);
+        let used: f32 = line
+            .iter()
+            .map(|&index| main_size(&flex_items[index].laid))
+            .sum::<f32>()
+            + gaps;
         let free = container_main - used;
-        for (index, item) in items.iter().enumerate() {
-            let (laid, grow) = &boxes[index];
-            if *grow <= 0.0 {
+        let weights: Vec<f32> = line
+            .iter()
+            .map(|&index| {
+                let item = &flex_items[index];
+                if free > 0.0 {
+                    item.grow
+                } else {
+                    item.shrink * main_size(&item.laid)
+                }
+            })
+            .collect();
+        let total: f32 = weights.iter().sum();
+        if free.abs() < 0.5 || total <= 0.0 {
+            continue;
+        }
+        for (&index, &weight) in line.iter().zip(&weights) {
+            if weight <= 0.0 {
                 continue;
             }
-            let extra = free * grow / total_grow;
+            let delta = free * weight / total;
+            let laid = &flex_items[index].laid;
             let dimensions = &laid.dimensions;
             let edges_main = if row {
                 dimensions.margin.left
@@ -204,40 +289,46 @@ pub(crate) fn layout_flex_children(
                     + dimensions.padding.top
                     + dimensions.padding.bottom
             };
-            let target = main_size(laid) + extra - edges_main;
-            let grow_value = *grow;
-            let relaid = match item {
+            let target = (main_size(laid) + delta - edges_main).max(0.0);
+            flex_items[index].laid = match &items[index] {
                 Item::Element(child) => lay_element(*child, Some(target)),
-                Item::Run(nodes) => lay_run(nodes, target.max(0.0)),
+                Item::Run(nodes) => lay_run(nodes, target),
             };
-            boxes[index] = (relaid, grow_value);
         }
     }
 
-    // Cross size of the line.
-    let cross_of = |laid: &LayoutBox| {
-        let margin_box = laid.margin_box();
+    // The cross size of one line of items.
+    let natural_cross = |line: &[usize], flex_items: &[FlexItem]| -> f32 {
+        line.iter()
+            .map(|&index| cross_of(&flex_items[index].laid))
+            .fold(0.0, f32::max)
+    };
+    let line_cross_size = |line: &[usize], flex_items: &[FlexItem]| -> f32 {
         if row {
-            margin_box.height
+            if single_line {
+                explicit_height.unwrap_or_else(|| natural_cross(line, flex_items))
+            } else {
+                natural_cross(line, flex_items)
+            }
+        } else if single_line {
+            content_width
         } else {
-            margin_box.width
+            natural_cross(line, flex_items)
         }
     };
-    let line_cross = if row {
-        explicit_height.unwrap_or_else(|| {
-            boxes
-                .iter()
-                .map(|(laid, _)| cross_of(laid))
-                .fold(0.0, f32::max)
-        })
-    } else {
-        content_width
-    };
 
-    // align-items: stretch re-lays auto-cross items to fill the line.
-    if style.align_items == AlignItems::Stretch {
-        for (index, item) in items.iter().enumerate() {
-            let Item::Element(child) = item else { continue };
+    // Stretch: items whose effective alignment is stretch and whose cross
+    // size is auto re-lay to fill their line.
+    for line in &lines {
+        let line_cross = line_cross_size(line, &flex_items);
+        for &index in line {
+            let Item::Element(child) = &items[index] else {
+                continue;
+            };
+            let align = flex_items[index].align_self.unwrap_or(style.align_items);
+            if align != AlignItems::Stretch {
+                continue;
+            }
             let mut item_style = styles.by_node.get(child).cloned().unwrap_or_default();
             let auto_cross = if row {
                 matches!(item_style.height, Dimension::Auto)
@@ -247,7 +338,7 @@ pub(crate) fn layout_flex_children(
             if !auto_cross {
                 continue;
             }
-            let dimensions = &boxes[index].0.dimensions;
+            let dimensions = &flex_items[index].laid.dimensions;
             let (margins, pb) = if row {
                 (
                     dimensions.margin.top + dimensions.margin.bottom,
@@ -272,81 +363,90 @@ pub(crate) fn layout_flex_children(
                 item_style.width = Dimension::Px(target);
             }
             item_style.box_sizing = BoxSizing::ContentBox;
-            // Preserve any grow-adjusted main size.
+            // Preserve any flex-adjusted main size.
             if row {
-                item_style.width = Dimension::Px(boxes[index].0.content_box().width);
+                item_style.width = Dimension::Px(flex_items[index].laid.content_box().width);
             } else {
-                item_style.height = Dimension::Px(boxes[index].0.content_box().height);
+                item_style.height = Dimension::Px(flex_items[index].laid.content_box().height);
             }
-            let grow_value = boxes[index].1;
-            boxes[index] = (
-                layout_isolated_with_style(
-                    document,
-                    styles,
-                    *child,
-                    item_style,
-                    content_width,
-                    viewport,
-                    measurer,
-                    images,
-                ),
-                grow_value,
+            flex_items[index].laid = layout_isolated_with_style(
+                document,
+                styles,
+                *child,
+                item_style,
+                content_width,
+                viewport,
+                measurer,
+                images,
             );
         }
     }
 
-    // Main-axis positions from justify-content.
-    let used: f32 = boxes.iter().map(|(laid, _)| main_size(laid)).sum::<f32>() + total_gap;
-    let free = if container_main.is_finite() {
-        (container_main - used).max(0.0)
-    } else {
-        0.0
-    };
-    let (mut main_cursor, between_extra) = match style.justify_content {
-        JustifyContent::Start => (0.0, 0.0),
-        JustifyContent::Center => (free / 2.0, 0.0),
-        JustifyContent::End => (free, 0.0),
-        JustifyContent::SpaceBetween => {
-            if count > 1.0 {
-                (0.0, free / (count - 1.0))
-            } else {
-                (free / 2.0, 0.0)
-            }
-        }
-    };
-
+    // Position lines along the cross axis and items along the main axis.
+    let line_crosses: Vec<f32> = lines
+        .iter()
+        .map(|line| line_cross_size(line, &flex_items))
+        .collect();
+    let mut item_iter = flex_items.into_iter();
     let mut children = Vec::new();
-    let mut used_cross: f32 = 0.0;
-    for (laid, _) in boxes {
-        let margin_box = laid.margin_box();
-        let cross = cross_of(&laid);
-        used_cross = used_cross.max(cross);
-        let cross_offset = match style.align_items {
-            AlignItems::Stretch | AlignItems::Start => 0.0,
-            AlignItems::Center => (line_cross - cross) / 2.0,
-            AlignItems::End => line_cross - cross,
-        };
-        let (dx, dy) = if row {
-            (
-                content_x + main_cursor - margin_box.x,
-                content_y + cross_offset - margin_box.y,
-            )
+    let mut cross_cursor: f32 = 0.0;
+    let mut main_extent: f32 = 0.0;
+    for (line, line_cross) in lines.iter().zip(line_crosses) {
+        let line_items: Vec<FlexItem> = item_iter.by_ref().take(line.len()).collect();
+        let count = line_items.len() as f32;
+        let gaps = style.gap * (count - 1.0).max(0.0);
+        let used: f32 = line_items
+            .iter()
+            .map(|item| main_size(&item.laid))
+            .sum::<f32>()
+            + gaps;
+        let free = if container_main.is_finite() {
+            (container_main - used).max(0.0)
         } else {
-            (
-                content_x + cross_offset - margin_box.x,
-                content_y + main_cursor - margin_box.y,
-            )
+            0.0
         };
-        let mut laid = laid;
-        laid.translate(dx, dy);
-        main_cursor += main_size(&laid) + style.gap + between_extra;
-        children.push(laid);
+        let (mut main_cursor, between_extra) = match style.justify_content {
+            JustifyContent::Start => (0.0, 0.0),
+            JustifyContent::Center => (free / 2.0, 0.0),
+            JustifyContent::End => (free, 0.0),
+            JustifyContent::SpaceBetween => {
+                if count > 1.0 {
+                    (0.0, free / (count - 1.0))
+                } else {
+                    (free / 2.0, 0.0)
+                }
+            }
+        };
+        for item in line_items {
+            let mut laid = item.laid;
+            let margin_box = laid.margin_box();
+            let cross = cross_of(&laid);
+            let align = item.align_self.unwrap_or(style.align_items);
+            let cross_offset = match align {
+                AlignItems::Stretch | AlignItems::Start => 0.0,
+                AlignItems::Center => (line_cross - cross) / 2.0,
+                AlignItems::End => line_cross - cross,
+            };
+            let (dx, dy) = if row {
+                (
+                    content_x + main_cursor - margin_box.x,
+                    content_y + cross_cursor + cross_offset - margin_box.y,
+                )
+            } else {
+                (
+                    content_x + cross_cursor + cross_offset - margin_box.x,
+                    content_y + main_cursor - margin_box.y,
+                )
+            };
+            laid.translate(dx, dy);
+            main_cursor += main_size(&laid) + style.gap + between_extra;
+            children.push(laid);
+        }
+        main_extent = main_extent.max((main_cursor - style.gap - between_extra).max(0.0));
+        cross_cursor += line_cross + style.gap;
     }
 
-    let used_height = if row {
-        line_cross
-    } else {
-        (main_cursor - style.gap - between_extra).max(0.0)
-    };
+    let total_cross = (cross_cursor - style.gap).max(0.0);
+    let used_height = if row { total_cross } else { main_extent };
     (children, used_height)
 }
