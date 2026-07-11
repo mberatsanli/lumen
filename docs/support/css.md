@@ -128,7 +128,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `linear-gradient()` | ⚠️ | ✅ | ✅ | ✅ | angles + to-side/corner, %-positioned stops; no repeating, no interpolation hints |
 | `radial-gradient()` / `conic-gradient()` | ⚠️ | ✅ | ✅ | ✅ | both centered (preludes ignored); conic exact in raster, radial fallback in SVG; deg stop positions supported |
 | position/size/repeat/attachment/clip | ⚠️ | ✅ | ✅ | ✅ | position (keywords/lengths/%), size (auto/cover/contain/lengths), repeat/no-repeat/-x/-y; no attachment/clip |
-| Multiple backgrounds | ❌ | ✅ | ✅ | ✅ | |
+| Multiple backgrounds | ⚠️ | ✅ | ✅ | ✅ | image/position/size/repeat lists (cycling); one fetched url() image per element shared across its url layers |
 
 ## Typography
 

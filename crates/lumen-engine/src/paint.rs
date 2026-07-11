@@ -6,7 +6,7 @@
 use crate::geometry::{Corners, EdgeSizes, Rect};
 use crate::image::{ImageMap, RasterImage};
 use crate::layout::{BoxType, LayoutBox, LayoutKind};
-use crate::style::{BackgroundImage, BackgroundSize, BorderStyle, Overflow};
+use crate::style::{BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, Overflow};
 use lumen_css::Color;
 use std::sync::Arc;
 
@@ -212,60 +212,63 @@ fn paint_box(
         }
     }
 
-    // The background image layer paints over the color. Gradients render
-    // directly; url() images stretch over the border box when their bytes
-    // were fetched (keyed by this node in the image map).
+    // Background layers paint over the color, last layer first (the
+    // first of the list sits on top). Gradients render directly; url()
+    // images follow their layer's position/size/repeat (all url layers
+    // share the one fetched image per element).
     if !anonymous && visible {
-        match &layout.style.background_image {
-            Some(BackgroundImage::LinearGradient(gradient)) => {
-                commands.push(DisplayCommand::FillGradient {
-                    rect: border_box,
-                    radius,
-                    angle_degrees: gradient.angle_degrees,
-                    stops: gradient
-                        .stops
-                        .iter()
-                        .map(|(color, position)| (fade(*color), *position))
-                        .collect(),
-                    kind: GradientKind::Linear,
-                });
-            }
-            Some(BackgroundImage::RadialGradient(stops)) => {
-                commands.push(DisplayCommand::FillGradient {
-                    rect: border_box,
-                    radius,
-                    angle_degrees: 0.0,
-                    stops: stops
-                        .iter()
-                        .map(|(color, position)| (fade(*color), *position))
-                        .collect(),
-                    kind: GradientKind::Radial,
-                });
-            }
-            Some(BackgroundImage::ConicGradient(stops)) => {
-                commands.push(DisplayCommand::FillGradient {
-                    rect: border_box,
-                    radius,
-                    angle_degrees: 0.0,
-                    stops: stops
-                        .iter()
-                        .map(|(color, position)| (fade(*color), *position))
-                        .collect(),
-                    kind: GradientKind::Conic,
-                });
-            }
-            Some(BackgroundImage::Url(_)) if layout.box_type != BoxType::Replaced => {
-                if let Some(image) = images.get(&layout.node_id) {
-                    paint_background_image(
-                        &layout.style,
-                        border_box,
-                        image,
-                        (opacity * 255.0) as u8,
-                        commands,
-                    );
+        for layer in layout.style.background_layers.iter().rev() {
+            match &layer.image {
+                BackgroundImage::LinearGradient(gradient) => {
+                    commands.push(DisplayCommand::FillGradient {
+                        rect: border_box,
+                        radius,
+                        angle_degrees: gradient.angle_degrees,
+                        stops: gradient
+                            .stops
+                            .iter()
+                            .map(|(color, position)| (fade(*color), *position))
+                            .collect(),
+                        kind: GradientKind::Linear,
+                    });
                 }
+                BackgroundImage::RadialGradient(stops) => {
+                    commands.push(DisplayCommand::FillGradient {
+                        rect: border_box,
+                        radius,
+                        angle_degrees: 0.0,
+                        stops: stops
+                            .iter()
+                            .map(|(color, position)| (fade(*color), *position))
+                            .collect(),
+                        kind: GradientKind::Radial,
+                    });
+                }
+                BackgroundImage::ConicGradient(stops) => {
+                    commands.push(DisplayCommand::FillGradient {
+                        rect: border_box,
+                        radius,
+                        angle_degrees: 0.0,
+                        stops: stops
+                            .iter()
+                            .map(|(color, position)| (fade(*color), *position))
+                            .collect(),
+                        kind: GradientKind::Conic,
+                    });
+                }
+                BackgroundImage::Url(_) if layout.box_type != BoxType::Replaced => {
+                    if let Some(image) = images.get(&layout.node_id) {
+                        paint_background_image(
+                            layer,
+                            border_box,
+                            image,
+                            (opacity * 255.0) as u8,
+                            commands,
+                        );
+                    }
+                }
+                BackgroundImage::Url(_) => {}
             }
-            _ => {}
         }
     }
 
@@ -410,7 +413,7 @@ fn paint_box(
 /// `background-position` (percents place the image per CSS), and
 /// `background-repeat` tiles it across the clipped border box.
 fn paint_background_image(
-    style: &crate::style::ComputedStyle,
+    layer: &BackgroundLayer,
     border_box: Rect,
     image: &Arc<RasterImage>,
     alpha: u8,
@@ -421,7 +424,7 @@ fn paint_background_image(
     }
     let intrinsic = (image.width as f32, image.height as f32);
     let viewport = crate::geometry::Size::default(); // vw/vh unsupported here
-    let (tile_width, tile_height) = match style.background_size {
+    let (tile_width, tile_height) = match layer.size {
         BackgroundSize::Auto => intrinsic,
         BackgroundSize::Cover => {
             let scale = (border_box.width / intrinsic.0).max(border_box.height / intrinsic.1);
@@ -453,10 +456,9 @@ fn paint_background_image(
             }
             other => other.resolve(box_extent, viewport).unwrap_or(0.0),
         };
-    let anchor_x = border_box.x + offset(style.background_position.0, border_box.width, tile_width);
-    let anchor_y =
-        border_box.y + offset(style.background_position.1, border_box.height, tile_height);
-    let (repeat_x, repeat_y) = style.background_repeat;
+    let anchor_x = border_box.x + offset(layer.position.0, border_box.width, tile_width);
+    let anchor_y = border_box.y + offset(layer.position.1, border_box.height, tile_height);
+    let (repeat_x, repeat_y) = layer.repeat;
 
     // Tile from the first tile at/before each edge to past the far edge.
     let mut tiles: Vec<(f32, f32)> = Vec::new();
@@ -761,15 +763,15 @@ mod tests {
         use std::sync::Arc;
         // A 10x10 image positioned at -20px -30px in a no-repeat box:
         // exactly one DrawImage, anchored at box - offset, clipped.
-        let mut style = crate::style::ComputedStyle {
-            background_image: Some(crate::style::BackgroundImage::Url("s.png".to_string())),
-            background_repeat: (false, false),
-            ..Default::default()
+        let layer = BackgroundLayer {
+            image: crate::style::BackgroundImage::Url("s.png".to_string()),
+            position: (
+                crate::style::Dimension::Px(-20.0),
+                crate::style::Dimension::Px(-30.0),
+            ),
+            size: BackgroundSize::Auto,
+            repeat: (false, false),
         };
-        style.background_position = (
-            crate::style::Dimension::Px(-20.0),
-            crate::style::Dimension::Px(-30.0),
-        );
         let image = Arc::new(RasterImage {
             width: 10,
             height: 10,
@@ -779,7 +781,7 @@ mod tests {
         });
         let mut commands = Vec::new();
         paint_background_image(
-            &style,
+            &layer,
             Rect {
                 x: 100.0,
                 y: 50.0,
@@ -811,9 +813,14 @@ mod tests {
     fn repeating_backgrounds_tile_across_the_box() {
         use crate::image::RasterImage;
         use std::sync::Arc;
-        let style = crate::style::ComputedStyle {
-            background_image: Some(crate::style::BackgroundImage::Url("t.png".to_string())),
-            ..Default::default()
+        let layer = BackgroundLayer {
+            image: crate::style::BackgroundImage::Url("t.png".to_string()),
+            position: (
+                crate::style::Dimension::Px(0.0),
+                crate::style::Dimension::Px(0.0),
+            ),
+            size: BackgroundSize::Auto,
+            repeat: (true, true),
         };
         let image = Arc::new(RasterImage {
             width: 10,
@@ -824,7 +831,7 @@ mod tests {
         });
         let mut commands = Vec::new();
         paint_background_image(
-            &style,
+            &layer,
             Rect {
                 x: 0.0,
                 y: 0.0,

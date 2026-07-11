@@ -197,6 +197,87 @@ fn parse_rule_list(
     }
 }
 
+/// Expands the `background` shorthand at raw level, layer by layer
+/// (top-level commas). Each layer contributes its image, repeat and
+/// position; the color may appear on any layer (CSS allows it only on
+/// the last). Unsupported parts (attachment, origin/clip keywords) are
+/// ignored.
+fn expand_background_shorthand(source: &str, output: &mut Vec<Declaration>, important: bool) {
+    let mut images: Vec<String> = Vec::new();
+    let mut repeats: Vec<String> = Vec::new();
+    let mut positions: Vec<String> = Vec::new();
+    let mut color: Option<CssValue> = None;
+    let mut depth = 0usize;
+    let mut layers: Vec<&str> = Vec::new();
+    let mut layer_start = 0;
+    for (index, character) in source.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                layers.push(&source[layer_start..index]);
+                layer_start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    layers.push(&source[layer_start..]);
+
+    for layer in &layers {
+        let mut image = String::from("none");
+        let mut repeat = String::from("repeat");
+        let mut position_parts: Vec<String> = Vec::new();
+        for component in split_components(layer) {
+            match CssValue::parse_component(&component) {
+                Some(CssValue::Url(_) | CssValue::Function(..)) => image = component.clone(),
+                Some(CssValue::Color(parsed)) => color = Some(CssValue::Color(parsed)),
+                Some(CssValue::Keyword(keyword)) => match keyword.as_str() {
+                    "repeat" | "no-repeat" | "repeat-x" | "repeat-y" => repeat = keyword,
+                    "left" | "right" | "top" | "bottom" | "center" if position_parts.len() < 2 => {
+                        position_parts.push(keyword);
+                    }
+                    "transparent" | "none" => {
+                        if keyword == "transparent" {
+                            color = Some(CssValue::Keyword("transparent".to_string()));
+                        }
+                    }
+                    _ => {}
+                },
+                Some(CssValue::Length(..)) if position_parts.len() < 2 => {
+                    position_parts.push(component.clone());
+                }
+                _ => {}
+            }
+        }
+        images.push(image);
+        repeats.push(repeat);
+        positions.push(if position_parts.is_empty() {
+            "0px 0px".to_string()
+        } else {
+            position_parts.join(" ")
+        });
+    }
+
+    let mut push = |name: &str, value: CssValue| {
+        output.push(Declaration {
+            name: name.to_string(),
+            value,
+            important,
+        });
+    };
+    if let Some(color) = color {
+        push("background-color", color);
+    }
+    if images.iter().any(|image| image != "none") {
+        push("background-image", CssValue::String(images.join(", ")));
+        push("background-repeat", CssValue::String(repeats.join(", ")));
+        push(
+            "background-position",
+            CssValue::String(positions.join(", ")),
+        );
+    }
+}
+
 /// Expands the `font` shorthand: [style] [weight] size[/line-height]
 /// family... Unsupported system-font keywords drop the declaration.
 fn expand_font_shorthand(source: &str, output: &mut Vec<Declaration>, important: bool) {
@@ -343,7 +424,20 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
         }
         // aspect-ratio and box-shadow keep their raw text ("16 / 9" and
         // shadow commas would not survive component parsing).
-        if name == "aspect-ratio" || name == "box-shadow" || name == "text-shadow" {
+        if name == "background" {
+            expand_background_shorthand(value, &mut declarations, important);
+            continue;
+        }
+        if matches!(
+            name.as_str(),
+            "aspect-ratio"
+                | "box-shadow"
+                | "text-shadow"
+                | "background-image"
+                | "background-position"
+                | "background-size"
+                | "background-repeat"
+        ) {
             declarations.push(Declaration {
                 name,
                 value: CssValue::Keyword(value.trim().to_string()),
@@ -391,78 +485,6 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
 /// `background` to `background-color`; every other property keeps its first
 /// component (multi-value forms of other properties are unsupported).
 fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Vec<Declaration>) {
-    if name == "background" {
-        // Supported parts of the shorthand: the first color (or
-        // `transparent`/`none`) and the first image (url()/gradient).
-        let color = components.iter().find_map(|component| match component {
-            CssValue::Color(_) => Some(component.clone()),
-            CssValue::Keyword(keyword) if keyword == "transparent" || keyword == "none" => {
-                Some(CssValue::Keyword("transparent".to_string()))
-            }
-            _ => None,
-        });
-        if let Some(value) = color {
-            output.push(Declaration {
-                important: false,
-                name: "background-color".to_string(),
-                value,
-            });
-        }
-        let image = components
-            .iter()
-            .find(|component| matches!(component, CssValue::Url(_) | CssValue::Function(..)));
-        if let Some(value) = image {
-            output.push(Declaration {
-                important: false,
-                name: "background-image".to_string(),
-                value: value.clone(),
-            });
-        }
-        // Repeat keywords and position components also survive: without
-        // them a sprite sheet would tile at its default position.
-        let repeat = components.iter().find_map(|component| match component {
-            CssValue::Keyword(keyword)
-                if matches!(
-                    keyword.as_str(),
-                    "repeat" | "no-repeat" | "repeat-x" | "repeat-y"
-                ) =>
-            {
-                Some(keyword.clone())
-            }
-            _ => None,
-        });
-        if let Some(repeat) = repeat {
-            output.push(Declaration {
-                important: false,
-                name: "background-repeat".to_string(),
-                value: CssValue::Keyword(repeat),
-            });
-        }
-        let position: Vec<String> = components
-            .iter()
-            .filter_map(|component| match component {
-                CssValue::Length(..) => Some(component.to_string()),
-                CssValue::Keyword(keyword)
-                    if matches!(
-                        keyword.as_str(),
-                        "left" | "right" | "top" | "bottom" | "center"
-                    ) =>
-                {
-                    Some(keyword.clone())
-                }
-                _ => None,
-            })
-            .take(2)
-            .collect();
-        if !position.is_empty() {
-            output.push(Declaration {
-                important: false,
-                name: "background-position".to_string(),
-                value: CssValue::Keyword(position.join(" ")),
-            });
-        }
-        return;
-    }
     let expand_edges = |suffix_for: &dyn Fn(&str) -> String,
                         components: &[CssValue],
                         output: &mut Vec<Declaration>| {
@@ -990,29 +1012,36 @@ mod tests {
 
     #[test]
     fn background_shorthand_keeps_color_and_image() {
+        // Color-only: placement without an image is dropped.
         let declarations = parse_declarations("background: #fdfcff left top no-repeat");
-        assert_eq!(declarations.len(), 3);
+        assert_eq!(declarations.len(), 1);
         assert_eq!(declarations[0].name, "background-color");
         assert_eq!(
             declarations[0].value,
             CssValue::Color(Color::rgb(0xfd, 0xfc, 0xff))
         );
-        assert_eq!(declarations[1].name, "background-repeat");
+        // Layered: images/repeats/positions expand as comma lists.
+        let layered = parse_declarations("background: url(a.png) no-repeat left top, url(b.png)");
+        let names: Vec<&str> = layered
+            .iter()
+            .map(|declaration| declaration.name.as_str())
+            .collect();
         assert_eq!(
-            declarations[1].value,
-            CssValue::Keyword("no-repeat".to_string())
+            names,
+            vec![
+                "background-image",
+                "background-repeat",
+                "background-position"
+            ]
         );
-        assert_eq!(declarations[2].name, "background-position");
         assert_eq!(
-            declarations[2].value,
-            CssValue::Keyword("left top".to_string())
+            layered[0].value,
+            CssValue::String("url(a.png), url(b.png)".to_string())
         );
-        let none = parse_declarations("background: none");
-        assert_eq!(none[0].value, CssValue::Keyword("transparent".to_string()));
-        let image = parse_declarations("background: url(x.png)");
-        assert_eq!(image.len(), 1);
-        assert_eq!(image[0].name, "background-image");
-        assert_eq!(image[0].value, CssValue::Url("x.png".to_string()));
+        assert_eq!(
+            layered[1].value,
+            CssValue::String("no-repeat, repeat".to_string())
+        );
     }
 
     #[test]

@@ -364,6 +364,16 @@ pub enum CssValue {
 }
 
 impl CssValue {
+    /// The raw text of string-ish values (String/Keyword without quotes);
+    /// other values through their Display form.
+    #[must_use]
+    pub fn raw_text(&self) -> String {
+        match self {
+            Self::String(text) | Self::Keyword(text) | Self::Unresolved(text) => text.clone(),
+            other => other.to_string(),
+        }
+    }
+
     /// Parses one whitespace-delimited value component.
     ///
     /// Returns `None` for components the engine cannot represent (which the

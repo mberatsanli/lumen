@@ -353,9 +353,14 @@ impl<L: ResourceLoader> Session<L> {
         let mut backgrounds: Vec<(NodeId, String)> = styles
             .by_node
             .iter()
-            .filter_map(|(node, style)| match &style.background_image {
-                Some(lumen_engine::BackgroundImage::Url(src)) => Some((*node, src.clone())),
-                _ => None,
+            .filter_map(|(node, style)| {
+                style
+                    .background_layers
+                    .iter()
+                    .find_map(|layer| match &layer.image {
+                        lumen_engine::BackgroundImage::Url(src) => Some((*node, src.clone())),
+                        _ => None,
+                    })
             })
             .collect();
         backgrounds.sort_unstable();

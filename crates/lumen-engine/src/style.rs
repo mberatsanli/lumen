@@ -192,13 +192,8 @@ pub struct ComputedStyle {
     pub display: Display,
     pub color: Color,
     pub background_color: Option<Color>,
-    pub background_image: Option<BackgroundImage>,
-    /// Offset of the image inside the box; percents position the image
-    /// per CSS (0% = flush left/top, 100% = flush right/bottom).
-    pub background_position: (Dimension, Dimension),
-    pub background_size: BackgroundSize,
-    /// Tiling along x / y.
-    pub background_repeat: (bool, bool),
+    /// Background layers, first = topmost (painted last to first).
+    pub background_layers: Vec<BackgroundLayer>,
     /// `visibility` (inherited): hidden boxes keep their space unpainted.
     pub visible: bool,
     pub box_shadows: Vec<BoxShadow>,
@@ -344,6 +339,17 @@ pub struct TextShadow {
     pub offset_y: f32,
     pub blur: f32,
     pub color: Color,
+}
+
+/// One background layer (image + placement). Lists cycle per CSS when
+/// shorter than the image list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackgroundLayer {
+    pub image: BackgroundImage,
+    pub position: (Dimension, Dimension),
+    pub size: BackgroundSize,
+    /// Tiling along x / y.
+    pub repeat: (bool, bool),
 }
 
 /// `background-size` subset.
@@ -506,10 +512,7 @@ impl Default for ComputedStyle {
             display: Display::Inline,
             color: DEFAULT_COLOR,
             background_color: None,
-            background_image: None,
-            background_position: (Dimension::Px(0.0), Dimension::Px(0.0)),
-            background_size: BackgroundSize::Auto,
-            background_repeat: (true, true),
+            background_layers: Vec::new(),
             visible: true,
             box_shadows: Vec::new(),
             outline_width: 0.0,
@@ -1730,7 +1733,7 @@ fn to_computed(
     };
 
     // text-decoration: joined multi-value (lines, style, color mix).
-    if let Some(text) = raw.get("text-decoration").map(ToString::to_string) {
+    if let Some(text) = raw.get("text-decoration").map(CssValue::raw_text) {
         for piece in text.split_whitespace() {
             match piece {
                 "underline" => style.underline = true,
@@ -1771,87 +1774,125 @@ fn to_computed(
         Some("italic" | "oblique")
     );
 
-    style.background_image = match raw.get("background-image") {
-        Some(CssValue::Url(url)) => Some(BackgroundImage::Url(url.clone())),
-        Some(CssValue::Function(name, arguments)) if name == "linear-gradient" => {
-            parse_linear_gradient(arguments).map(BackgroundImage::LinearGradient)
-        }
-        Some(CssValue::Function(name, arguments))
-            if name == "radial-gradient" || name == "conic-gradient" =>
-        {
-            let parts = split_top_level_commas(arguments);
-            // An optional shape/position/from prelude is skipped (always
-            // rendered centered).
-            let start = usize::from(
-                Color::parse(parts[0].split_whitespace().next().unwrap_or("")).is_none(),
-            );
-            let stops = parse_gradient_stops(&parts[start..]);
-            if name == "radial-gradient" {
-                stops.map(BackgroundImage::RadialGradient)
-            } else {
-                stops.map(BackgroundImage::ConicGradient)
+    // Background layers: the image list defines the layer count; the
+    // position/size/repeat lists cycle when shorter. Gradients keep their
+    // internal commas (top-level splitting is paren-aware).
+    {
+        let list = |name: &str| -> Vec<String> {
+            raw.get(name)
+                .map(|value| {
+                    split_top_level_commas(&value.raw_text())
+                        .iter()
+                        .map(|part| part.trim().to_string())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let images = list("background-image");
+        let positions = list("background-position");
+        let sizes = list("background-size");
+        let repeats = list("background-repeat");
+
+        let position_component = |value: &str| -> Option<Dimension> {
+            match value {
+                "left" | "top" => Some(Dimension::Px(0.0)),
+                "center" => Some(Dimension::Percent(50.0)),
+                "right" | "bottom" => Some(Dimension::Percent(100.0)),
+                other => Dimension::from_value(&CssValue::parse_component(other)?, style.font_size),
             }
-        }
-        _ => None,
-    };
-
-    // background-position: two values (keywords or lengths); one value
-    // centers the other axis.
-    let position_component = |value: &str| -> Option<Dimension> {
-        match value {
-            "left" | "top" => Some(Dimension::Px(0.0)),
-            "center" => Some(Dimension::Percent(50.0)),
-            "right" | "bottom" => Some(Dimension::Percent(100.0)),
-            other => Dimension::from_value(&CssValue::parse_component(other)?, style.font_size),
-        }
-    };
-    if let Some(value) = raw.get("background-position") {
-        let text = value.to_string();
-        let mut pieces = text.split_whitespace();
-        let x = pieces.next().and_then(position_component);
-        let y = pieces.next().and_then(position_component);
-        style.background_position = (
-            x.unwrap_or(Dimension::Px(0.0)),
-            y.or(x.map(|_| Dimension::Percent(50.0)))
-                .unwrap_or(Dimension::Px(0.0)),
-        );
-    }
-
-    style.background_size = match raw.get("background-size") {
-        Some(CssValue::Keyword(keyword)) if keyword == "cover" => BackgroundSize::Cover,
-        Some(CssValue::Keyword(keyword)) if keyword == "contain" => BackgroundSize::Contain,
-        Some(value) => {
-            let text = value.to_string();
+        };
+        let parse_position = |text: &str| -> (Dimension, Dimension) {
             let mut pieces = text.split_whitespace();
-            let width = pieces
-                .next()
-                .and_then(CssValue::parse_component)
-                .and_then(|piece| Dimension::from_value(&piece, style.font_size));
-            match width {
-                Some(width) => {
-                    let height = pieces
+            let x = pieces.next().and_then(position_component);
+            let y = pieces.next().and_then(position_component);
+            (
+                x.unwrap_or(Dimension::Px(0.0)),
+                y.or(x.map(|_| Dimension::Percent(50.0)))
+                    .unwrap_or(Dimension::Px(0.0)),
+            )
+        };
+        let parse_size = |text: &str| -> BackgroundSize {
+            match text {
+                "cover" => BackgroundSize::Cover,
+                "contain" => BackgroundSize::Contain,
+                other => {
+                    let mut pieces = other.split_whitespace();
+                    match pieces
                         .next()
                         .and_then(CssValue::parse_component)
                         .and_then(|piece| Dimension::from_value(&piece, style.font_size))
-                        .unwrap_or(Dimension::Auto);
-                    BackgroundSize::Explicit(width, height)
+                    {
+                        Some(width) => {
+                            let height = pieces
+                                .next()
+                                .and_then(CssValue::parse_component)
+                                .and_then(|piece| Dimension::from_value(&piece, style.font_size))
+                                .unwrap_or(Dimension::Auto);
+                            BackgroundSize::Explicit(width, height)
+                        }
+                        None => BackgroundSize::Auto,
+                    }
                 }
-                None => BackgroundSize::Auto,
             }
-        }
-        None => BackgroundSize::Auto,
-    };
+        };
+        let parse_repeat = |text: &str| -> (bool, bool) {
+            match text {
+                "no-repeat" => (false, false),
+                "repeat-x" => (true, false),
+                "repeat-y" => (false, true),
+                _ => (true, true),
+            }
+        };
+        let parse_image = |text: &str| -> Option<BackgroundImage> {
+            match CssValue::parse_component(text)? {
+                CssValue::Url(url) => Some(BackgroundImage::Url(url)),
+                CssValue::Function(name, arguments) if name == "linear-gradient" => {
+                    parse_linear_gradient(&arguments).map(BackgroundImage::LinearGradient)
+                }
+                CssValue::Function(name, arguments)
+                    if name == "radial-gradient" || name == "conic-gradient" =>
+                {
+                    let parts = split_top_level_commas(&arguments);
+                    let start = usize::from(
+                        Color::parse(parts[0].split_whitespace().next().unwrap_or("")).is_none(),
+                    );
+                    let stops = parse_gradient_stops(&parts[start..]);
+                    if name == "radial-gradient" {
+                        stops.map(BackgroundImage::RadialGradient)
+                    } else {
+                        stops.map(BackgroundImage::ConicGradient)
+                    }
+                }
+                _ => None,
+            }
+        };
 
-    style.background_repeat = match raw.get("background-repeat").and_then(CssValue::as_keyword) {
-        Some("no-repeat") => (false, false),
-        Some("repeat-x") => (true, false),
-        Some("repeat-y") => (false, true),
-        _ => (true, true),
-    };
+        style.background_layers = images
+            .iter()
+            .enumerate()
+            .filter_map(|(index, text)| {
+                let image = parse_image(text)?;
+                let pick = |values: &[String], fallback: &str| -> String {
+                    if values.is_empty() {
+                        fallback.to_string()
+                    } else {
+                        values[index % values.len()].clone()
+                    }
+                };
+                Some(BackgroundLayer {
+                    image,
+                    position: parse_position(&pick(&positions, "0px 0px")),
+                    size: parse_size(&pick(&sizes, "auto")),
+                    repeat: parse_repeat(&pick(&repeats, "repeat")),
+                })
+            })
+            .collect();
+    }
 
     style.aspect_ratio = raw
         .get("aspect-ratio")
-        .and_then(CssValue::as_keyword)
+        .map(CssValue::raw_text)
+        .as_deref()
         .and_then(|text| {
             let mut pieces = text.split('/').map(str::trim);
             let width: f32 = pieces.next()?.parse().ok()?;
@@ -1871,7 +1912,7 @@ fn to_computed(
     style.box_shadows = raw
         .get("box-shadow")
         .map(|value| {
-            let text = value.to_string();
+            let text = value.raw_text();
             text.split(',')
                 .filter_map(|shadow| {
                     let mut lengths: Vec<f32> = Vec::new();
@@ -1910,7 +1951,7 @@ fn to_computed(
     style.text_shadows = raw
         .get("text-shadow")
         .map(|value| {
-            let text = value.to_string();
+            let text = value.raw_text();
             text.split(',')
                 .filter_map(|shadow| {
                     let mut lengths: Vec<f32> = Vec::new();
@@ -2550,16 +2591,16 @@ mod tests {
                     p { background: linear-gradient(45deg, #000000 20%, #ffffff 80%); }</style>\
              <div>x</div><p>y</p>",
         );
-        let Some(BackgroundImage::LinearGradient(gradient)) =
-            &style_of(&document, &styles, "div").background_image
+        let BackgroundImage::LinearGradient(gradient) =
+            &style_of(&document, &styles, "div").background_layers[0].image
         else {
             panic!("expected a gradient");
         };
         assert_eq!(gradient.angle_degrees, 90.0);
         assert_eq!(gradient.stops[0], (Color::rgb(0xff, 0, 0), 0.0));
         assert_eq!(gradient.stops[1], (Color::rgb(0, 0, 0xff), 1.0));
-        let Some(BackgroundImage::LinearGradient(gradient)) =
-            &style_of(&document, &styles, "p").background_image
+        let BackgroundImage::LinearGradient(gradient) =
+            &style_of(&document, &styles, "p").background_layers[0].image
         else {
             panic!("expected a gradient from the shorthand");
         };
@@ -2571,27 +2612,48 @@ mod tests {
     #[test]
     fn background_placement_properties_parse() {
         let (document, styles) = styles_for(
-            "<style>div { background-position: right center; background-size: cover; \
-                          background-repeat: no-repeat; }\
-                    p { background-position: 10px 20px; background-size: 50px auto; }\
+            "<style>div { background-image: url(a.png); background-position: right center; \
+                          background-size: cover; background-repeat: no-repeat; }\
+                    p { background-image: url(b.png); background-position: 10px 20px; \
+                        background-size: 50px auto; }\
              </style><div>x</div><p>y</p>",
         );
-        let div = style_of(&document, &styles, "div");
+        let div = &style_of(&document, &styles, "div").background_layers[0];
         assert_eq!(
-            div.background_position,
+            div.position,
             (Dimension::Percent(100.0), Dimension::Percent(50.0))
         );
-        assert_eq!(div.background_size, BackgroundSize::Cover);
-        assert_eq!(div.background_repeat, (false, false));
-        let p = style_of(&document, &styles, "p");
+        assert_eq!(div.size, BackgroundSize::Cover);
+        assert_eq!(div.repeat, (false, false));
+        let p = &style_of(&document, &styles, "p").background_layers[0];
+        assert_eq!(p.position, (Dimension::Px(10.0), Dimension::Px(20.0)));
         assert_eq!(
-            p.background_position,
-            (Dimension::Px(10.0), Dimension::Px(20.0))
-        );
-        assert_eq!(
-            p.background_size,
+            p.size,
             BackgroundSize::Explicit(Dimension::Px(50.0), Dimension::Auto)
         );
+    }
+
+    #[test]
+    fn background_layers_split_and_cycle() {
+        let (document, styles) = styles_for(
+            "<style>div { background-image: linear-gradient(red, blue), url(tile.png); \
+                          background-repeat: no-repeat, repeat-x; \
+                          background-position: center; }</style><div>x</div>",
+        );
+        let layers = &style_of(&document, &styles, "div").background_layers;
+        assert_eq!(layers.len(), 2);
+        assert!(matches!(
+            layers[0].image,
+            BackgroundImage::LinearGradient(_)
+        ));
+        assert_eq!(layers[0].repeat, (false, false));
+        assert_eq!(
+            layers[1].image,
+            BackgroundImage::Url("tile.png".to_string())
+        );
+        assert_eq!(layers[1].repeat, (true, false));
+        // The single position cycles onto both layers.
+        assert_eq!(layers[1].position.0, Dimension::Percent(50.0));
     }
 
     #[test]
@@ -2600,8 +2662,8 @@ mod tests {
             "<style>div { background-image: radial-gradient(circle at center, #ff0000, #0000ff); }\
              </style><div>x</div>",
         );
-        let Some(BackgroundImage::RadialGradient(stops)) =
-            &style_of(&document, &styles, "div").background_image
+        let BackgroundImage::RadialGradient(stops) =
+            &style_of(&document, &styles, "div").background_layers[0].image
         else {
             panic!("expected radial gradient");
         };
@@ -2614,8 +2676,8 @@ mod tests {
         let (document, styles) =
             styles_for("<style>div { background-image: url('bg.png'); }</style><div>x</div>");
         assert_eq!(
-            style_of(&document, &styles, "div").background_image,
-            Some(BackgroundImage::Url("bg.png".to_string()))
+            style_of(&document, &styles, "div").background_layers[0].image,
+            BackgroundImage::Url("bg.png".to_string())
         );
     }
 
