@@ -53,7 +53,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 |---|:-:|:-:|:-:|:-:|---|
 | `px` | ✅ | ✅ | ✅ | ✅ | |
 | `em` | ✅ | ✅ | ✅ | ✅ | incl. font-size vs parent |
-| `%` | ⚠️ | ✅ | ✅ | ✅ | widths/margins/paddings; % heights = auto |
+| `%` | ⚠️ | ✅ | ✅ | ✅ | widths/margins/paddings; % heights resolve against explicit-height parents (else auto) |
 | `vw` / `vh` | ✅ | ✅ | ✅ | ✅ | |
 | Unitless `0` | ✅ | ✅ | ✅ | ✅ | |
 | Unitless numbers | ✅ | ✅ | ✅ | ✅ | line-height, font-weight |
@@ -114,7 +114,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `vertical-align` | ❌ | ✅ | ✅ | ✅ | |
 | `direction: rtl` / writing modes | ❌ | ✅ | ✅ | ✅ | |
 | Multi-column | ❌ | ✅ | ✅ | ✅ | |
-| `aspect-ratio` | ❌ | ✅ | ✅ | ✅ | |
+| `aspect-ratio` | ⚠️ | ✅ | ✅ | ✅ | derives auto height from used width; no width-from-height |
 | `gap` | ✅ | ✅ | ✅ | ✅ | flex containers |
 
 ## Backgrounds

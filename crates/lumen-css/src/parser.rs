@@ -341,6 +341,16 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
             expand_font_shorthand(value, &mut declarations, important);
             continue;
         }
+        // aspect-ratio keeps its raw text ("16 / 9" would not survive
+        // component parsing).
+        if name == "aspect-ratio" {
+            declarations.push(Declaration {
+                name,
+                value: CssValue::Keyword(value.trim().to_string()),
+                important,
+            });
+            continue;
+        }
         // Custom properties keep their raw text (substituted into var()
         // uses later); values using var() defer parsing entirely.
         if name.starts_with("--") {

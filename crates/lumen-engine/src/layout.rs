@@ -176,6 +176,7 @@ pub fn layout_document(
             0.0,
             &mut cursor_y,
             viewport.width,
+            Some(viewport.height),
             viewport,
             measurer,
             images,
@@ -210,6 +211,7 @@ fn layout_node(
     containing_x: f32,
     cursor_y: &mut f32,
     containing_width: f32,
+    containing_height: Option<f32>,
     viewport: Size,
     measurer: &dyn TextMeasurer,
     images: &ImageMap,
@@ -231,6 +233,7 @@ fn layout_node(
             containing_x,
             cursor_y,
             containing_width,
+            containing_height,
             viewport,
             measurer,
             images,
@@ -362,8 +365,8 @@ pub(crate) fn layout_isolated_with_style(
         unreachable!("isolated boxes are always elements");
     };
     layout_element(
-        document, styles, node_id, element, style, 0.0, &mut 0.0, available, viewport, measurer,
-        images,
+        document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, viewport,
+        measurer, images,
     )
 }
 
@@ -393,6 +396,7 @@ pub(crate) fn layout_atomic_box(
             0.0,
             &mut 0.0,
             available,
+            None,
             viewport,
             measurer,
             images,
@@ -412,8 +416,8 @@ pub(crate) fn layout_atomic_box(
         style.box_sizing = BoxSizing::ContentBox;
     }
     layout_element(
-        document, styles, node_id, element, style, 0.0, &mut 0.0, available, viewport, measurer,
-        images,
+        document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, viewport,
+        measurer, images,
     )
 }
 
@@ -460,6 +464,7 @@ fn layout_element(
     containing_x: f32,
     cursor_y: &mut f32,
     containing_width: f32,
+    containing_height: Option<f32>,
     viewport: Size,
     measurer: &dyn TextMeasurer,
     images: &ImageMap,
@@ -564,6 +569,24 @@ fn layout_element(
     *cursor_y += margin.top;
     let border_box_y = *cursor_y;
     let content_y = border_box_y + border.top + padding.top;
+
+    // The resolved explicit content height (when any) is the containing
+    // height for percent-height children; percent heights resolve against
+    // it, and `auto` heights leave children unresolved (treated as auto).
+    let vertical_edges = border.top + border.bottom + padding.top + padding.bottom;
+    let explicit_content_height: Option<f32> = match style.height {
+        Dimension::Auto => None,
+        Dimension::Percent(percent) => containing_height.map(|containing| {
+            content_size(
+                containing * percent / 100.0,
+                style.box_sizing,
+                vertical_edges,
+            )
+        }),
+        explicit => explicit
+            .resolve(containing_width, viewport)
+            .map(|specified| content_size(specified, style.box_sizing, vertical_edges)),
+    };
 
     // Phase 4: children. Consecutive inline-level children (text, inline
     // elements) form runs laid out into shared line boxes inside an
@@ -840,6 +863,7 @@ fn layout_element(
                 content_x,
                 &mut child_cursor_y,
                 content_width,
+                explicit_content_height,
                 viewport,
                 measurer,
                 images,
@@ -870,24 +894,20 @@ fn layout_element(
     // Phase 5: height. Explicit heights win (border-box heights shrink by
     // vertical padding and border); auto grows from the children. Percent
     // heights are unsupported and treated as auto; vh works.
-    let content_height = match style.height {
-        Dimension::Auto | Dimension::Percent(_) => (child_cursor_y - content_y).max(0.0),
-        explicit => explicit
-            .resolve(containing_width, viewport)
-            .map(|specified| {
-                content_size(
-                    specified,
-                    style.box_sizing,
-                    border.top + border.bottom + padding.top + padding.bottom,
-                )
-            })
-            .unwrap_or_else(|| (child_cursor_y - content_y).max(0.0)),
-    };
-    // min-/max-height clamp like widths; percent constraints are ignored
-    // (they would need the containing height, which block layout does not
-    // track — same simplification as percent heights).
+    let content_height = explicit_content_height.unwrap_or_else(|| {
+        // `aspect-ratio` derives an auto height from the used width.
+        match style.aspect_ratio {
+            Some(ratio) if ratio > 0.0 => content_width / ratio,
+            _ => (child_cursor_y - content_y).max(0.0),
+        }
+    });
+    // min-/max-height clamp like widths; percent constraints resolve
+    // against the containing height when it is known, else are ignored.
     let ignore_percent = |dimension: Dimension| match dimension {
-        Dimension::Percent(_) => Dimension::Auto,
+        Dimension::Percent(percent) => match containing_height {
+            Some(containing) => Dimension::Px(containing * percent / 100.0),
+            None => Dimension::Auto,
+        },
         other => other,
     };
     let content_height = clamp_content_size(
@@ -1914,6 +1934,37 @@ mod tests {
         assert_eq!(lines[0].fragments[0].width, 4.0 * 16.0 * 0.6);
         // The long line stays a single fragment (no wrapping).
         assert_eq!(lines[1].fragments.len(), 1);
+    }
+
+    #[test]
+    fn percent_heights_resolve_against_explicit_parents() {
+        let layout = layout_of(
+            "<style>.outer { height: 200px; } .half { height: 50%; }\
+                    .auto-parent { } .orphan { height: 50%; }</style>\
+             <div class='outer'><div class='half'></div></div>\
+             <div class='auto-parent'><div class='orphan'></div></div>",
+        );
+        // 50% of the explicit 200px parent.
+        assert_eq!(layout.children[0].children[0].content_box().height, 100.0);
+        // Percent inside an auto parent stays auto (0 here).
+        assert_eq!(layout.children[1].children[0].content_box().height, 0.0);
+    }
+
+    #[test]
+    fn viewport_is_the_root_containing_height() {
+        let layout = layout_of("<style>div { height: 50%; }</style><div></div>");
+        // 50% of the 600px viewport.
+        assert_eq!(layout.children[0].content_box().height, 300.0);
+    }
+
+    #[test]
+    fn aspect_ratio_derives_height_from_width() {
+        let layout = layout_of(
+            "<style>div { width: 200px; aspect-ratio: 2 / 1; }\
+                    p { width: 90px; aspect-ratio: 3; }</style><div></div><p></p>",
+        );
+        assert_eq!(layout.children[0].content_box().height, 100.0);
+        assert_eq!(layout.children[1].content_box().height, 30.0);
     }
 
     #[test]

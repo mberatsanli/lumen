@@ -95,7 +95,8 @@ calling it again with the new size (verified by test).
   border/padding collapses with its first block child's top margin.
   Bottom parent-child collapsing and empty blocks collapsing through
   themselves are not implemented.
-- Percent heights are treated as `auto`.
+- Percent heights resolve against a parent's explicit content height
+  (the viewport at the root); under auto-height parents they stay auto.
 - Inline element box edges (margin/padding/border/background) are ignored;
   no `vertical-align`.
 - Text measurement is heuristic, not shaped; real font metrics can slot in

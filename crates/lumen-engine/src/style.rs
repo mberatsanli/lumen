@@ -204,6 +204,8 @@ pub struct ComputedStyle {
     /// `None` = currentColor.
     pub outline_color: Option<Color>,
     pub outline_style: BorderStyle,
+    /// width / height; derives an auto height from the used width.
+    pub aspect_ratio: Option<f32>,
     pub width: Dimension,
     pub height: Dimension,
     /// Size constraints; `Auto` means unconstrained.
@@ -468,6 +470,7 @@ impl Default for ComputedStyle {
             outline_width: 0.0,
             outline_color: None,
             outline_style: BorderStyle::None,
+            aspect_ratio: None,
             width: Dimension::Auto,
             height: Dimension::Auto,
             min_width: Dimension::Auto,
@@ -1618,6 +1621,19 @@ fn to_computed(
         Some("repeat-y") => (false, true),
         _ => (true, true),
     };
+
+    style.aspect_ratio = raw
+        .get("aspect-ratio")
+        .and_then(CssValue::as_keyword)
+        .and_then(|text| {
+            let mut pieces = text.split('/').map(str::trim);
+            let width: f32 = pieces.next()?.parse().ok()?;
+            let height: f32 = match pieces.next() {
+                Some(piece) => piece.parse().ok()?,
+                None => 1.0,
+            };
+            (height > 0.0 && width > 0.0).then_some(width / height)
+        });
 
     style.visible = !matches!(
         raw.get("visibility").and_then(CssValue::as_keyword),
