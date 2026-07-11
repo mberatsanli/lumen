@@ -18,7 +18,7 @@ use crate::geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
 use crate::image::ImageMap;
 use crate::inline::{FragmentContent, LineBox, layout_inline_run};
 use crate::style::{
-    BoxSizing, Clear, ComputedStyle, Dimension, Display, Float, Position, StyleMap,
+    BoxSizing, Clear, ComputedStyle, Dimension, Display, Float, Overflow, Position, StyleMap,
 };
 use crate::text::TextMeasurer;
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
@@ -150,6 +150,17 @@ impl LayoutBox {
     }
 }
 
+/// The containing block for absolutely positioned descendants: the
+/// content box of the nearest positioned ancestor (the viewport at the
+/// root). Height is known only when that ancestor's height is explicit.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AbsoluteContext {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) width: f32,
+    pub(crate) height: Option<f32>,
+}
+
 /// Lays out the whole document against a viewport. Pure function of its
 /// inputs: relayout after a viewport change is just calling it again.
 #[must_use]
@@ -177,6 +188,12 @@ pub fn layout_document(
             &mut cursor_y,
             viewport.width,
             Some(viewport.height),
+            Some(AbsoluteContext {
+                x: 0.0,
+                y: 0.0,
+                width: viewport.width,
+                height: Some(viewport.height),
+            }),
             viewport,
             measurer,
             images,
@@ -212,6 +229,7 @@ fn layout_node(
     cursor_y: &mut f32,
     containing_width: f32,
     containing_height: Option<f32>,
+    absolute_context: Option<AbsoluteContext>,
     viewport: Size,
     measurer: &dyn TextMeasurer,
     images: &ImageMap,
@@ -234,6 +252,7 @@ fn layout_node(
             cursor_y,
             containing_width,
             containing_height,
+            absolute_context,
             viewport,
             measurer,
             images,
@@ -365,7 +384,7 @@ pub(crate) fn layout_isolated_with_style(
         unreachable!("isolated boxes are always elements");
     };
     layout_element(
-        document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, viewport,
+        document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, None, viewport,
         measurer, images,
     )
 }
@@ -397,6 +416,7 @@ pub(crate) fn layout_atomic_box(
             &mut 0.0,
             available,
             None,
+            None,
             viewport,
             measurer,
             images,
@@ -416,7 +436,7 @@ pub(crate) fn layout_atomic_box(
         style.box_sizing = BoxSizing::ContentBox;
     }
     layout_element(
-        document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, viewport,
+        document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, None, viewport,
         measurer, images,
     )
 }
@@ -465,6 +485,7 @@ fn layout_element(
     cursor_y: &mut f32,
     containing_width: f32,
     containing_height: Option<f32>,
+    absolute_context: Option<AbsoluteContext>,
     viewport: Size,
     measurer: &dyn TextMeasurer,
     images: &ImageMap,
@@ -586,6 +607,19 @@ fn layout_element(
         explicit => explicit
             .resolve(containing_width, viewport)
             .map(|specified| content_size(specified, style.box_sizing, vertical_edges)),
+    };
+
+    // Positioned elements become the containing block for their
+    // absolutely positioned descendants.
+    let child_absolute_context = if style.position == Position::Static {
+        absolute_context
+    } else {
+        Some(AbsoluteContext {
+            x: content_x,
+            y: content_y,
+            width: content_width,
+            height: explicit_content_height,
+        })
     };
 
     // Phase 4: children. Consecutive inline-level children (text, inline
@@ -718,15 +752,24 @@ fn layout_element(
         }
 
         // Absolutely positioned children leave the flow entirely. The
-        // containing block is simplified to this parent's content box
-        // (fixed uses the viewport); `bottom` works only for fixed.
+        // containing block is the content box of the nearest positioned
+        // ancestor (fixed uses the viewport); `bottom` resolves whenever
+        // the containing height is known.
         if matches!(child_style.position, Position::Absolute | Position::Fixed)
             && matches!(&document.node(*child).kind, NodeKind::Element(_))
         {
             let (cb_x, cb_y, cb_width, cb_height) = if child_style.position == Position::Fixed {
                 (0.0, 0.0, viewport.width, viewport.height)
             } else {
-                (content_x, content_y, content_width, f32::NAN)
+                match child_absolute_context {
+                    Some(context) => (
+                        context.x,
+                        context.y,
+                        context.width,
+                        context.height.unwrap_or(f32::NAN),
+                    ),
+                    None => (content_x, content_y, content_width, f32::NAN),
+                }
             };
             let laid = layout_atomic_box(
                 document, styles, *child, cb_width, viewport, measurer, images,
@@ -864,6 +907,7 @@ fn layout_element(
                 &mut child_cursor_y,
                 content_width,
                 explicit_content_height,
+                child_absolute_context,
                 viewport,
                 measurer,
                 images,
@@ -873,6 +917,7 @@ fn layout_element(
             }
         }
     }
+    let blocks_before_trailing_run = children.len();
     flush_run(
         document,
         styles,
@@ -888,6 +933,22 @@ fn layout_element(
         images,
         &mut children,
     );
+    let trailing_inline = children.len() > blocks_before_trailing_run;
+
+    // Bottom parent-child collapsing: with an auto height and no bottom
+    // border/padding, the last block child's bottom margin escapes the
+    // parent and collapses with the parent's own bottom margin.
+    if !trailing_inline
+        && matches!(style.height, Dimension::Auto)
+        && border.bottom == 0.0
+        && padding.bottom == 0.0
+        && style.overflow == Overflow::Visible
+        && let Some(last_bottom) = previous_bottom_margin
+    {
+        child_cursor_y -= last_bottom;
+        margin.bottom = collapsed_margin(margin.bottom, last_bottom);
+    }
+
     // A container's auto height contains its floats (BFC-root behavior).
     child_cursor_y = child_cursor_y.max(floats.lowest_bottom());
 
@@ -944,6 +1005,24 @@ fn layout_element(
         style,
         children,
     };
+    // Empty blocks collapse through themselves: an edgeless, contentless,
+    // auto-height block joins its top and bottom margins into one
+    // (carried on the bottom edge; the box itself is invisible anyway).
+    if laid.children.is_empty()
+        && !matches!(&laid.kind, LayoutKind::Inline { .. })
+        && laid.dimensions.content.height == 0.0
+        && vertical_edges == 0.0
+        && matches!(laid.style.height, Dimension::Auto)
+        && laid.style.position == Position::Static
+    {
+        let old_top = laid.dimensions.margin.top;
+        let collapsed = collapsed_margin(old_top, laid.dimensions.margin.bottom);
+        laid.dimensions.margin.top = 0.0;
+        laid.dimensions.margin.bottom = collapsed;
+        laid.translate(0.0, -old_top);
+        *cursor_y = laid.dimensions.margin_box().y + laid.dimensions.margin_box().height;
+    }
+
     // position: relative — a pure visual offset; flow space is unchanged
     // (the cursor above already advanced from the unshifted box).
     if laid.style.position == Position::Relative {
@@ -1813,7 +1892,7 @@ mod tests {
     fn absolute_position_leaves_the_flow() {
         let layout = layout_of(
             "<style>
-                .wrap { padding: 10px; }
+                .wrap { padding: 10px; position: relative; }
                 .abs { position: absolute; top: 4px; left: 6px;
                        width: 30px; height: 8px; }
                 .flow { height: 20px; }
@@ -1840,6 +1919,68 @@ mod tests {
         );
         let abs = &layout.children[0].children[0];
         assert_eq!(abs.border_box().x, 800.0 - 50.0 - 20.0);
+    }
+
+    #[test]
+    fn absolute_uses_the_nearest_positioned_ancestor() {
+        let layout = layout_of(
+            "<style>
+                .anchor { position: relative; margin-left: 100px; width: 300px;
+                          height: 120px; }
+                .middle { padding: 20px; }
+                .abs { position: absolute; top: 10px; left: 10px;
+                       width: 30px; height: 10px; }
+                .btm { position: absolute; bottom: 10px; left: 0;
+                       width: 30px; height: 10px; }
+             </style>\
+             <div class='anchor'><div class='middle'>\
+             <div class='abs'></div><div class='btm'></div></div></div>",
+        );
+        let abs = &layout.children[0].children[0].children[0];
+        // Against the .anchor content box (x=100), not .middle's (x=120).
+        assert_eq!(abs.border_box().x, 110.0);
+        assert_eq!(abs.border_box().y, 10.0);
+        // Absolute bottom now resolves against the explicit 120px height.
+        let btm = &layout.children[0].children[0].children[1];
+        assert_eq!(btm.border_box().y, 120.0 - 10.0 - 10.0);
+    }
+
+    #[test]
+    fn unpositioned_pages_use_the_viewport_as_containing_block() {
+        let layout = layout_of(
+            "<style>.abs { position: absolute; bottom: 0; right: 0;
+                           width: 50px; height: 20px; }</style>\
+             <div><div class='abs'></div></div>",
+        );
+        let abs = &layout.children[0].children[0];
+        assert_eq!(abs.border_box().x, 800.0 - 50.0);
+        assert_eq!(abs.border_box().y, 600.0 - 20.0);
+    }
+
+    #[test]
+    fn bottom_margins_collapse_out_of_edgeless_parents() {
+        let layout = layout_of(
+            "<style>.wrap { margin-bottom: 10px; } .inner { margin-bottom: 30px; height: 5px; }\
+             </style><main><div class='wrap'><div class='inner'></div></div><p>after</p></main>",
+        );
+        let wrap = &layout.children[0].children[0];
+        // The parent's content stops at the child's border box...
+        assert_eq!(wrap.content_box().height, 5.0);
+        // ...and the collapsed 30px margin sits on the parent.
+        assert_eq!(wrap.dimensions.margin.bottom, 30.0);
+        // The following paragraph starts after exactly one collapsed margin.
+        assert_eq!(layout.children[0].children[1].border_box().y, 35.0);
+    }
+
+    #[test]
+    fn empty_blocks_collapse_through() {
+        let layout = layout_of(
+            "<style>.gap { margin-top: 20px; margin-bottom: 30px; }\
+                    .after { height: 5px; }</style>\
+             <main><div class='gap'></div><div class='after'></div></main>",
+        );
+        // One collapsed margin (30), not 20 + 30.
+        assert_eq!(layout.children[0].children[1].border_box().y, 30.0);
     }
 
     #[test]
