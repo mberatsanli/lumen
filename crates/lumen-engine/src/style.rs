@@ -868,7 +868,7 @@ fn evaluate_calc(expression: &str, font_size: f32, root_font_size: f32) -> Optio
     let mut current = String::new();
     for character in expression.chars() {
         match character {
-            '(' | ')' | '+' | '*' | '/' => {
+            '(' | ')' | '+' | '*' | '/' | ',' => {
                 if !current.trim().is_empty() {
                     tokens.push(current.trim().to_string());
                 }
@@ -905,6 +905,64 @@ fn evaluate_calc(expression: &str, font_size: f32, root_font_size: f32) -> Optio
                 return Some(value);
             }
             return None;
+        }
+        // min()/max()/clamp() nest inside expressions; arguments must
+        // share a family (all px-like or all %).
+        if matches!(token, "min" | "max" | "clamp")
+            && parser.tokens.get(parser.position) == Some(&"(")
+        {
+            parser.position += 1;
+            let mut arguments: Vec<CalcValue> = Vec::new();
+            loop {
+                arguments.push(parse_sum(parser, font_size, root_font_size)?);
+                match parser.tokens.get(parser.position) {
+                    Some(&",") => parser.position += 1,
+                    Some(&")") => {
+                        parser.position += 1;
+                        break;
+                    }
+                    _ => return None,
+                }
+            }
+            let numbers: Option<Vec<f32>> = match arguments.first()? {
+                CalcValue::Px(_) => arguments
+                    .iter()
+                    .map(|value| match value {
+                        CalcValue::Px(number) => Some(*number),
+                        _ => None,
+                    })
+                    .collect(),
+                CalcValue::Percent(_) => arguments
+                    .iter()
+                    .map(|value| match value {
+                        CalcValue::Percent(number) => Some(*number),
+                        _ => None,
+                    })
+                    .collect(),
+                CalcValue::Number(_) => arguments
+                    .iter()
+                    .map(|value| match value {
+                        CalcValue::Number(number) => Some(*number),
+                        _ => None,
+                    })
+                    .collect(),
+            };
+            let numbers = numbers?;
+            let combined = match token {
+                "min" => numbers.iter().copied().fold(f32::INFINITY, f32::min),
+                "max" => numbers.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+                _ => {
+                    if numbers.len() != 3 {
+                        return None;
+                    }
+                    numbers[1].clamp(numbers[0], numbers[2])
+                }
+            };
+            return Some(match arguments[0] {
+                CalcValue::Px(_) => CalcValue::Px(combined),
+                CalcValue::Percent(_) => CalcValue::Percent(combined),
+                CalcValue::Number(_) => CalcValue::Number(combined),
+            });
         }
         let value = lumen_css::CssValue::parse_component(token)?;
         match value {
@@ -1110,15 +1168,23 @@ fn compute_node(
     let calc_names: Vec<String> = raw
         .iter()
         .filter_map(|(name, value)| match value {
-            CssValue::Function(function, _) if function == "calc" => {
+            CssValue::Function(function, _)
+                if matches!(function.as_str(), "calc" | "min" | "max" | "clamp") =>
+            {
                 Some(name.clone().into_owned())
             }
             _ => None,
         })
         .collect();
     for name in calc_names {
-        let CssValue::Function(_, expression) = raw[name.as_str()].clone() else {
+        let CssValue::Function(function, expression) = raw[name.as_str()].clone() else {
             continue;
+        };
+        // Bare min()/max()/clamp() evaluate through the calc grammar.
+        let expression = if function == "calc" {
+            expression
+        } else {
+            format!("{function}({expression})")
         };
         match evaluate_calc(&expression, parent_font_size, root_font_size) {
             Some(value) => raw.insert(Cow::Owned(name), value),
@@ -2437,6 +2503,23 @@ mod tests {
         assert_eq!(div.margin.top, Dimension::Percent(25.0));
         // Mixed % and px cannot evaluate: the declaration drops.
         assert_eq!(div.padding.top, Dimension::Px(0.0));
+    }
+
+    #[test]
+    fn min_max_clamp_evaluate() {
+        let (document, styles) = styles_for(
+            "<style>div { width: min(300px, 12.5em); height: max(40px, 60px); \
+                          margin-top: clamp(10px, 25px, 20px); \
+                          padding-top: calc(min(100px, 200px) * 2); \
+                          margin-bottom: min(50%, 100px); }</style><div>x</div>",
+        );
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.width, Dimension::Px(200.0)); // 12.5em = 200px
+        assert_eq!(div.height, Dimension::Px(60.0));
+        assert_eq!(div.margin.top, Dimension::Px(20.0)); // clamped to max
+        assert_eq!(div.padding.top, Dimension::Px(200.0));
+        // Mixed % and px families cannot evaluate: declaration drops.
+        assert_eq!(div.margin.bottom, Dimension::Px(0.0));
     }
 
     #[test]

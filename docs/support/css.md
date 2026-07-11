@@ -43,7 +43,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `!important` | ✅ | ✅ | ✅ | ✅ | author important beats inline normal; inline important wins |
 | `inherit`/`initial`/`unset`/`revert` | ⚠️ | ✅ | ✅ | ✅ | revert behaves as initial |
 | Custom properties `--x` / `var()` | ⚠️ | ✅ | ✅ | ✅ | inherit + fallbacks; substituted before shorthand expansion; no invalid-at-computed-value handling |
-| `calc()`, `min()`, `max()`, `clamp()` | ⚠️ | ✅ | ✅ | ✅ | calc() with px/em/rem/%/numbers, + - * /, parens; px+% mixing unsupported (dropped); no min/max/clamp |
+| `calc()`, `min()`, `max()`, `clamp()` | ⚠️ | ✅ | ✅ | ✅ | full expression grammar incl. nested min/max/clamp; arguments must share a family — px+% mixing drops the declaration |
 | `@media` | ⚠️ | ✅ | ✅ | ✅ | screen/all + min-/max-width (and-combined, nesting intersects); restyles on resize; other queries skipped safely |
 | `@import`, `@font-face`, `@supports`, `@layer` | ❌ | ✅ | ✅ | ✅ | skipped safely |
 
