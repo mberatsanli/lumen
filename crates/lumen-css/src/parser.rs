@@ -521,21 +521,7 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
             expand_background_shorthand(value, &mut declarations, important);
             continue;
         }
-        if matches!(
-            name.as_str(),
-            "aspect-ratio"
-                | "box-shadow"
-                | "text-shadow"
-                | "background-image"
-                | "background-position"
-                | "background-size"
-                | "background-repeat"
-                | "grid-template-columns"
-                | "grid-column"
-                | "transform"
-                | "transform-origin"
-                | "transition"
-        ) {
+        if crate::properties::keeps_raw(&name) {
             declarations.push(Declaration {
                 name,
                 value: CssValue::Keyword(value.trim().to_string()),

@@ -6,6 +6,7 @@
 //! this crate only defines the selector model.
 
 pub mod parser;
+pub mod properties;
 pub mod selector;
 pub mod value;
 
