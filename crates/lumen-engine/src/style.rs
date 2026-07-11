@@ -176,6 +176,11 @@ pub struct ComputedStyle {
     pub background_color: Option<Color>,
     pub width: Dimension,
     pub height: Dimension,
+    /// Size constraints; `Auto` means unconstrained.
+    pub min_width: Dimension,
+    pub max_width: Dimension,
+    pub min_height: Dimension,
+    pub max_height: Dimension,
     pub margin: EdgeSizes<Dimension>,
     pub padding: EdgeSizes<Dimension>,
     pub border_width: EdgeSizes<f32>,
@@ -257,6 +262,10 @@ impl Default for ComputedStyle {
             background_color: None,
             width: Dimension::Auto,
             height: Dimension::Auto,
+            min_width: Dimension::Auto,
+            max_width: Dimension::Auto,
+            min_height: Dimension::Auto,
+            max_height: Dimension::Auto,
             margin: EdgeSizes::uniform(Dimension::Px(0.0)),
             padding: EdgeSizes::uniform(Dimension::Px(0.0)),
             border_width: EdgeSizes::uniform(0.0),
@@ -610,6 +619,10 @@ fn to_computed(
 
     style.width = dimension(raw, "width", style.font_size);
     style.height = dimension(raw, "height", style.font_size);
+    style.min_width = dimension(raw, "min-width", style.font_size);
+    style.max_width = dimension(raw, "max-width", style.font_size);
+    style.min_height = dimension(raw, "min-height", style.font_size);
+    style.max_height = dimension(raw, "max-height", style.font_size);
     style.margin = edge_dimensions(raw, "margin", Dimension::Px(0.0), style.font_size);
     style.padding = edge_dimensions(raw, "padding", Dimension::Px(0.0), style.font_size);
 

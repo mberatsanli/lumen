@@ -404,6 +404,32 @@ pub(crate) fn layout_atomic_box(
     )
 }
 
+/// Clamps a used content-box size by min/max constraints (`Auto` =
+/// unconstrained, min wins over max). Constraints name the same box as
+/// `width`/`height`, so with border-box sizing they shrink by `edges`.
+fn clamp_content_size(
+    size: f32,
+    min: Dimension,
+    max: Dimension,
+    containing: f32,
+    viewport: Size,
+    edges: f32,
+    box_sizing: BoxSizing,
+) -> f32 {
+    let adjust = |value: f32| match box_sizing {
+        BoxSizing::ContentBox => value,
+        BoxSizing::BorderBox => (value - edges).max(0.0),
+    };
+    let mut clamped = size;
+    if let Some(max) = max.resolve(containing, viewport) {
+        clamped = clamped.min(adjust(max));
+    }
+    if let Some(min) = min.resolve(containing, viewport) {
+        clamped = clamped.max(adjust(min));
+    }
+    clamped
+}
+
 #[allow(clippy::too_many_arguments)]
 fn layout_element(
     document: &Document,
@@ -457,9 +483,25 @@ fn layout_element(
                 .max(0.0)
         });
 
-    // With an explicit width, auto margins absorb the leftover space:
-    // both auto centers the box, one auto pushes it to the other side.
-    if !matches!(style.width, Dimension::Auto) {
+    // min-/max-width clamp the used width (min wins over max). They name
+    // the same box as `width`, so border-box sizes shrink by the edges.
+    let horizontal_edges = border.left + border.right + padding.left + padding.right;
+    let content_width = clamp_content_size(
+        content_width,
+        style.min_width,
+        style.max_width,
+        containing_width,
+        viewport,
+        horizontal_edges,
+        style.box_sizing,
+    );
+    let width_constrained =
+        content_width < (containing_width - margin.left - margin.right - horizontal_edges).max(0.0);
+
+    // With an explicit or constrained width, auto margins absorb the
+    // leftover space: both auto centers the box, one auto pushes it to the
+    // other side.
+    if !matches!(style.width, Dimension::Auto) || width_constrained {
         let leftover = (containing_width
             - content_width
             - border.left
@@ -819,6 +861,22 @@ fn layout_element(
             })
             .unwrap_or_else(|| (child_cursor_y - content_y).max(0.0)),
     };
+    // min-/max-height clamp like widths; percent constraints are ignored
+    // (they would need the containing height, which block layout does not
+    // track — same simplification as percent heights).
+    let ignore_percent = |dimension: Dimension| match dimension {
+        Dimension::Percent(_) => Dimension::Auto,
+        other => other,
+    };
+    let content_height = clamp_content_size(
+        content_height,
+        ignore_percent(style.min_height),
+        ignore_percent(style.max_height),
+        containing_width,
+        viewport,
+        border.top + border.bottom + padding.top + padding.bottom,
+        style.box_sizing,
+    );
 
     let dimensions = Dimensions {
         content: Rect {
@@ -1808,6 +1866,40 @@ mod tests {
         assert_eq!(lines[0].fragments[0].width, 4.0 * 16.0 * 0.6);
         // The long line stays a single fragment (no wrapping).
         assert_eq!(lines[1].fragments.len(), 1);
+    }
+
+    #[test]
+    fn max_width_clamps_and_auto_margins_center() {
+        let layout = layout_of(
+            "<style>div { max-width: 400px; margin-left: auto; margin-right: auto; \
+                          height: 10px; }</style><div></div>",
+        );
+        let div = &layout.children[0];
+        assert_eq!(div.content_box().width, 400.0);
+        // (800 - 400) / 2 on each side.
+        assert_eq!(div.content_box().x, 200.0);
+    }
+
+    #[test]
+    fn min_width_wins_over_max_width() {
+        let layout = layout_of(
+            "<style>div { width: 100px; max-width: 50px; min-width: 200px; height: 5px; }\
+             </style><div></div>",
+        );
+        assert_eq!(layout.children[0].content_box().width, 200.0);
+    }
+
+    #[test]
+    fn min_and_max_height_clamp_the_used_height() {
+        let layout = layout_of(
+            "<style>.short { min-height: 50px; } .tall { max-height: 20px; }</style>\
+             <div class='short'></div>\
+             <div class='tall'><div style='height: 100px;'></div></div>",
+        );
+        assert_eq!(layout.children[0].content_box().height, 50.0);
+        assert_eq!(layout.children[1].content_box().height, 20.0);
+        // The clamped box still stacks flow at its used height.
+        assert_eq!(layout.children[1].content_box().y, 50.0);
     }
 
     #[test]

@@ -79,7 +79,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
 | `width` / `height` | ✅ | ✅ | ✅ | ✅ | |
-| `min-/max-width/height` | ❌ | ✅ | ✅ | ✅ | parsed, ignored by layout |
+| `min-/max-width/height` | ⚠️ | ✅ | ✅ | ✅ | clamp used size (min wins); % min/max-height ignored; not applied to flex base sizes |
 | `margin` + longhands (1–4 values) | ✅ | ✅ | ✅ | ✅ | |
 | `margin: auto` centering | ✅ | ✅ | ✅ | ✅ | horizontal only |
 | `padding` + longhands | ✅ | ✅ | ✅ | ✅ | |
