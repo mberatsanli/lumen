@@ -29,8 +29,8 @@ pub use selection::{
     selected_text,
 };
 pub use style::{
-    BackgroundImage, ComputedStyle, Dimension, Display, FontWeight, LinearGradient, StyleMap,
-    TextAlign, compute_styles, compute_styles_hovered,
+    BackgroundImage, ComputedStyle, Dimension, Display, FontWeight, HoverImpact, LinearGradient,
+    StyleMap, TextAlign, compute_styles, compute_styles_hovered, hover_impact,
 };
 pub use svg::render_svg;
 pub use text::{HeuristicMeasurer, TextMeasurer, TextMetrics, TextStyle};
@@ -130,6 +130,44 @@ fn apply_generated_content(document: &mut Document, styles: &mut StyleMap) {
     for pseudo in std::mem::take(&mut styles.pseudo_texts) {
         let node = document.upsert_generated_text(pseudo.element, pseudo.leading, &pseudo.text);
         styles.by_node.insert(node, pseudo.style);
+    }
+}
+
+/// Restyles and repaints a page for a hover change WITHOUT relayout —
+/// valid only when hover rules are paint-only (see [`hover_impact`]):
+/// geometry is untouched, so the existing layout tree just gets its
+/// computed styles swapped before the display list rebuilds.
+pub fn repaint_page_for_hover(page: &mut Page, hovered: Option<lumen_html::NodeId>) {
+    let effective = page.stylesheet.for_width(page.viewport.width);
+    let mut styles = compute_styles_hovered(&page.document, &effective, hovered);
+    apply_generated_content(&mut page.document, &mut styles);
+    patch_layout_styles(&mut page.layout, &styles);
+    page.display_list = build_display_list(&page.layout, &page.images);
+    page.styles = styles;
+}
+
+/// Replaces the computed styles stored in a laid-out tree (boxes and text
+/// fragments) with freshly computed ones, keeping all geometry.
+fn patch_layout_styles(layout: &mut LayoutBox, styles: &StyleMap) {
+    if let Some(style) = styles.by_node.get(&layout.node_id) {
+        layout.style = style.clone();
+    }
+    if let layout::LayoutKind::Inline { lines } = &mut layout.kind {
+        for line in lines {
+            for fragment in &mut line.fragments {
+                match &mut fragment.content {
+                    inline::FragmentContent::Text { style, .. } => {
+                        if let Some(new_style) = styles.by_node.get(&fragment.node_id) {
+                            **style = new_style.clone();
+                        }
+                    }
+                    inline::FragmentContent::Box(laid) => patch_layout_styles(laid, styles),
+                }
+            }
+        }
+    }
+    for child in &mut layout.children {
+        patch_layout_styles(child, styles);
     }
 }
 

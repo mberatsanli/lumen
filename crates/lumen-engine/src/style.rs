@@ -432,6 +432,88 @@ impl Default for ComputedStyle {
     }
 }
 
+/// How `:hover` rules in a stylesheet can affect the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoverImpact {
+    /// No `:hover` rules at all: hover changes need no work.
+    Nothing,
+    /// Hover rules only touch paint-level properties: restyle + repaint,
+    /// no relayout.
+    PaintOnly,
+    /// At least one hover rule can change geometry: full relayout.
+    Layout,
+}
+
+/// Properties that can change geometry (post-shorthand-expansion names).
+/// Everything else — colors, decorations, opacity, cursor, unsupported
+/// properties — only affects painting.
+fn affects_layout(property: &str) -> bool {
+    const LAYOUT_PREFIXES: [&str; 9] = [
+        "margin", "padding", "border-", "flex", "min-", "max-", "align", "justify", "grid",
+    ];
+    const LAYOUT_PROPERTIES: [&str; 20] = [
+        "width",
+        "height",
+        "display",
+        "position",
+        "top",
+        "right",
+        "bottom",
+        "left",
+        "float",
+        "clear",
+        "gap",
+        "font-size",
+        "font-family",
+        "line-height",
+        "white-space",
+        "text-align",
+        "box-sizing",
+        "content",
+        "vertical-align",
+        "order",
+    ];
+    // Border colors/styles are paint-only; border widths are not.
+    if property.starts_with("border-") {
+        return property.ends_with("-width");
+    }
+    LAYOUT_PROPERTIES.contains(&property)
+        || LAYOUT_PREFIXES
+            .iter()
+            .any(|prefix| property.starts_with(prefix))
+}
+
+fn uses_hover(compound: &CompoundSelector) -> bool {
+    compound.pseudo_classes.iter().any(|pseudo| match pseudo {
+        PseudoClass::Hover => true,
+        PseudoClass::Not(inner) => uses_hover(inner),
+        _ => false,
+    })
+}
+
+/// Classifies a stylesheet's hover rules (media conditions ignored —
+/// conservative for any viewport).
+#[must_use]
+pub fn hover_impact(sheet: &Stylesheet) -> HoverImpact {
+    let mut impact = HoverImpact::Nothing;
+    for rule in &sheet.rules {
+        if !rule
+            .selectors
+            .iter()
+            .any(|selector| selector.compounds.iter().any(uses_hover))
+        {
+            continue;
+        }
+        for declaration in &rule.declarations {
+            if affects_layout(&declaration.name) {
+                return HoverImpact::Layout;
+            }
+        }
+        impact = HoverImpact::PaintOnly;
+    }
+    impact
+}
+
 /// Computed styles for every node, keyed by [`NodeId`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleMap {
@@ -1872,6 +1954,23 @@ mod tests {
             style_of(&document, &styles, "div").width,
             Dimension::Px(300.0)
         );
+    }
+
+    #[test]
+    fn hover_impact_classifies_stylesheets() {
+        let none = lumen_css::parse_stylesheet("p { color: red; } .x { padding: 4px; }");
+        assert_eq!(hover_impact(&none), HoverImpact::Nothing);
+        let paint = lumen_css::parse_stylesheet(
+            "a:hover { color: red; background-color: #eee; border-color: blue; \
+                       text-decoration: underline; opacity: 0.8; }",
+        );
+        assert_eq!(hover_impact(&paint), HoverImpact::PaintOnly);
+        let layout = lumen_css::parse_stylesheet("a:hover { padding: 2px; }");
+        assert_eq!(hover_impact(&layout), HoverImpact::Layout);
+        let hidden_hover = lumen_css::parse_stylesheet(".x:not(:hover) { font-size: 2em; }");
+        assert_eq!(hover_impact(&hidden_hover), HoverImpact::Layout);
+        let border_width = lumen_css::parse_stylesheet("a:hover { border-top-width: 3px; }");
+        assert_eq!(hover_impact(&border_width), HoverImpact::Layout);
     }
 
     #[test]

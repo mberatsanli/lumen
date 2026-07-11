@@ -35,6 +35,9 @@ pub struct Session<L: ResourceLoader> {
     images: Arc<ImageMap>,
     /// Node currently under the pointer, for `:hover` styling.
     hovered: Option<NodeId>,
+    /// How the current stylesheet's hover rules can affect the page —
+    /// picks the cheapest reaction to hover changes.
+    hover_impact: lumen_engine::HoverImpact,
 }
 
 impl<L: ResourceLoader> Session<L> {
@@ -51,6 +54,7 @@ impl<L: ResourceLoader> Session<L> {
             author: Arc::new(lumen_css::Stylesheet::default()),
             images: Arc::new(ImageMap::new()),
             hovered: None,
+            hover_impact: lumen_engine::HoverImpact::Nothing,
         }
     }
 
@@ -126,8 +130,23 @@ impl<L: ResourceLoader> Session<L> {
             return false;
         }
         self.hovered = node;
-        self.relayout();
-        true
+        match self.hover_impact {
+            // No hover rules: styles cannot change, nothing to redraw.
+            lumen_engine::HoverImpact::Nothing => false,
+            // Paint-only hover rules: swap styles + rebuild the display
+            // list on the existing layout — no relayout.
+            lumen_engine::HoverImpact::PaintOnly => match &mut self.page {
+                Some(page) => {
+                    lumen_engine::repaint_page_for_hover(page, self.hovered);
+                    true
+                }
+                None => false,
+            },
+            lumen_engine::HoverImpact::Layout => {
+                self.relayout();
+                true
+            }
+        }
     }
 
     /// The nearest `<a href>` at or above `node`, for link hit testing.
@@ -234,6 +253,7 @@ impl<L: ResourceLoader> Session<L> {
                 .map(|response| response.text())
         });
         self.author = Arc::new(lumen_css::parse_stylesheet(&author_css));
+        self.hover_impact = lumen_engine::hover_impact(&self.author);
 
         // Images: fetched once per page; failures leave a placeholder box.
         // Capped so image-heavy pages cannot stall navigation for minutes.
@@ -574,6 +594,59 @@ mod tests {
         });
         session.set_hovered(Some(1));
         assert_eq!(session.loader.loads.borrow().len(), 2);
+    }
+
+    #[test]
+    fn paint_only_hover_repaints_without_relayout() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>p { color: #111111; } p:hover { color: #ff0000; }</style>\
+                 <p>hover target</p>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let paragraph = session
+            .page()
+            .unwrap()
+            .document
+            .descendants(session.page().unwrap().document.root())
+            .find(|id| {
+                session
+                    .page()
+                    .unwrap()
+                    .document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "p")
+            })
+            .unwrap();
+        let layout_before = session.page().unwrap().layout.clone();
+        assert!(session.set_hovered(Some(paragraph)));
+        let page = session.page().unwrap();
+        // Geometry identical (styles inside differ, boxes do not move).
+        assert_eq!(
+            page.layout.children[0].border_box(),
+            layout_before.children[0].border_box()
+        );
+        // The repaint shows the hover color.
+        let hovered_text = page.display_list.iter().find_map(|command| match command {
+            lumen_engine::DisplayCommand::DrawText { color, .. } => Some(color.to_string()),
+            _ => None,
+        });
+        assert_eq!(hovered_text.as_deref(), Some("#ff0000"));
+    }
+
+    #[test]
+    fn hover_without_hover_rules_is_free() {
+        let mut session = Session::new(
+            FakeLoader::new(&[("https://a.test/", "<p>plain</p>")]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let node = session.page().unwrap().layout.children[0].node_id;
+        // Reports "nothing changed": no restyle, no repaint needed.
+        assert!(!session.set_hovered(Some(node)));
     }
 
     #[test]

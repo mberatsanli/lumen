@@ -101,6 +101,16 @@ calling it again with the new size (verified by test).
 - Text measurement is heuristic, not shaped; real font metrics can slot in
   behind `TextMeasurer` without layout changes.
 
+## Hover invalidation
+
+Hover changes pick the cheapest reaction, decided once per page by
+classifying the stylesheet's `:hover` rules (`hover_impact`): no hover
+rules → nothing happens; paint-only rules (colors, decorations, opacity —
+anything that cannot move geometry) → the existing layout tree keeps its
+geometry and only swaps computed styles before the display list rebuilds
+(`repaint_page_for_hover`); geometry-affecting rules → full restyle +
+relayout, correctness first.
+
 ## Painting
 
 `paint.rs` flattens the tree in paint order per box: background fill
