@@ -1031,6 +1031,10 @@ name = "lumen-html"
 version = "0.1.0"
 
 [[package]]
+name = "lumen-js"
+version = "0.1.0"
+
+[[package]]
 name = "lumen-platform"
 version = "0.1.0"
 dependencies = [

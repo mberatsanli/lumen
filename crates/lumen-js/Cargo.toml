@@ -1,0 +1,13 @@
+[package]
+name = "lumen-js"
+description = "A small JavaScript interpreter for the Lumen browser: lexer, parser and tree-walking evaluator over a practical language subset"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

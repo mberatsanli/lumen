@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/lumen-html",
   "crates/lumen-css",
+  "crates/lumen-js",
   "crates/lumen-engine",
   "crates/lumen-browser",
   "crates/lumen-platform",
