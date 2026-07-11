@@ -208,6 +208,11 @@ pub struct ComputedStyle {
     pub grid_columns: Vec<GridTrack>,
     /// `grid-column: span N` on grid items.
     pub grid_span: usize,
+    /// Paint-time 2D transform about `transform_origin`.
+    pub transform: Option<Transform2D>,
+    /// Origin as (x, y); percents resolve against the border box.
+    pub transform_origin: (Dimension, Dimension),
+    pub transitions: Vec<TransitionSpec>,
     pub width: Dimension,
     pub height: Dimension,
     /// Size constraints; `Auto` means unconstrained.
@@ -344,6 +349,172 @@ pub struct TextShadow {
     pub offset_y: f32,
     pub blur: f32,
     pub color: Color,
+}
+
+/// A 2D affine transform (column-major CSS matrix(a, b, c, d, e, f)):
+/// x' = a·x + c·y + e, y' = b·x + d·y + f.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Transform2D {
+    pub a: f32,
+    pub b: f32,
+    pub c: f32,
+    pub d: f32,
+    pub e: f32,
+    pub f: f32,
+}
+
+impl Transform2D {
+    pub const IDENTITY: Self = Self {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        e: 0.0,
+        f: 0.0,
+    };
+
+    #[must_use]
+    pub fn multiply(self, other: Self) -> Self {
+        Self {
+            a: self.a * other.a + self.c * other.b,
+            b: self.b * other.a + self.d * other.b,
+            c: self.a * other.c + self.c * other.d,
+            d: self.b * other.c + self.d * other.d,
+            e: self.a * other.e + self.c * other.f + self.e,
+            f: self.b * other.e + self.d * other.f + self.f,
+        }
+    }
+
+    #[must_use]
+    pub fn translate(x: f32, y: f32) -> Self {
+        Self {
+            e: x,
+            f: y,
+            ..Self::IDENTITY
+        }
+    }
+
+    #[must_use]
+    pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
+        (
+            self.a * x + self.c * y + self.e,
+            self.b * x + self.d * y + self.f,
+        )
+    }
+
+    /// Whether the transform keeps rectangles axis-aligned.
+    #[must_use]
+    pub fn is_axis_aligned(&self) -> bool {
+        self.b.abs() < 1e-6 && self.c.abs() < 1e-6
+    }
+
+    #[must_use]
+    pub fn is_identity(&self) -> bool {
+        *self == Self::IDENTITY
+    }
+
+    /// Component-wise interpolation (matches CSS for translate/scale).
+    #[must_use]
+    pub fn lerp(from: Self, to: Self, t: f32) -> Self {
+        let mix = |a: f32, b: f32| a + (b - a) * t;
+        Self {
+            a: mix(from.a, to.a),
+            b: mix(from.b, to.b),
+            c: mix(from.c, to.c),
+            d: mix(from.d, to.d),
+            e: mix(from.e, to.e),
+            f: mix(from.f, to.f),
+        }
+    }
+}
+
+/// Parses a transform list: translate/translateX/translateY (px/%/em),
+/// scale/scaleX/scaleY, rotate(deg) and matrix(); composed left to right.
+fn parse_transform(source: &str, font_size: f32) -> Option<Transform2D> {
+    let mut matrix = Transform2D::IDENTITY;
+    let mut rest = source.trim();
+    if rest == "none" {
+        return None;
+    }
+    while !rest.is_empty() {
+        let open = rest.find('(')?;
+        let name = rest[..open].trim().to_ascii_lowercase();
+        let after = &rest[open + 1..];
+        let close = find_balanced_paren(after)?;
+        let arguments: Vec<f32> = after[..close]
+            .split(',')
+            .filter_map(|argument| {
+                let argument = argument.trim();
+                if let Some(number) = argument.strip_suffix("deg") {
+                    return number.trim().parse().ok();
+                }
+                match CssValue::parse_component(argument)? {
+                    CssValue::Length(px, lumen_css::Unit::Px) => Some(px),
+                    CssValue::Length(em, lumen_css::Unit::Em) => Some(em * font_size),
+                    CssValue::Length(percent, lumen_css::Unit::Percent) => Some(percent),
+                    CssValue::Number(number) => Some(number),
+                    _ => None,
+                }
+            })
+            .collect();
+        let step = match name.as_str() {
+            "translate" => Transform2D::translate(
+                *arguments.first()?,
+                arguments.get(1).copied().unwrap_or(0.0),
+            ),
+            "translatex" => Transform2D::translate(*arguments.first()?, 0.0),
+            "translatey" => Transform2D::translate(0.0, *arguments.first()?),
+            "scale" => {
+                let sx = *arguments.first()?;
+                let sy = arguments.get(1).copied().unwrap_or(sx);
+                Transform2D {
+                    a: sx,
+                    d: sy,
+                    ..Transform2D::IDENTITY
+                }
+            }
+            "scalex" => Transform2D {
+                a: *arguments.first()?,
+                ..Transform2D::IDENTITY
+            },
+            "scaley" => Transform2D {
+                d: *arguments.first()?,
+                ..Transform2D::IDENTITY
+            },
+            "rotate" => {
+                let radians = arguments.first()?.to_radians();
+                Transform2D {
+                    a: radians.cos(),
+                    b: radians.sin(),
+                    c: -radians.sin(),
+                    d: radians.cos(),
+                    ..Transform2D::IDENTITY
+                }
+            }
+            "matrix" if arguments.len() == 6 => Transform2D {
+                a: arguments[0],
+                b: arguments[1],
+                c: arguments[2],
+                d: arguments[3],
+                e: arguments[4],
+                f: arguments[5],
+            },
+            _ => return None,
+        };
+        matrix = matrix.multiply(step);
+        rest = after[close + 1..].trim_start();
+    }
+    Some(matrix)
+}
+
+/// One transition: property (or "all"), duration and delay in seconds,
+/// plus whether the ease timing curve applies (else linear).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransitionSpec {
+    pub property: String,
+    pub duration: f32,
+    pub delay: f32,
+    pub ease: bool,
 }
 
 /// One grid column track.
@@ -610,6 +781,9 @@ impl Default for ComputedStyle {
             aspect_ratio: None,
             grid_columns: Vec::new(),
             grid_span: 1,
+            transform: None,
+            transform_origin: (Dimension::Percent(50.0), Dimension::Percent(50.0)),
+            transitions: Vec::new(),
             width: Dimension::Auto,
             height: Dimension::Auto,
             min_width: Dimension::Auto,
@@ -856,9 +1030,10 @@ pub struct PseudoText {
 /// painting*; treating it as inherited approximates that.)
 /// (`user-select` and `::selection` styling are treated as inherited —
 /// an approximation that matches how they behave in practice.)
-const INHERITED_PROPERTIES: [&str; 24] = [
+const INHERITED_PROPERTIES: [&str; 25] = [
     "color",
     "text-shadow",
+    "transition",
     "text-decoration-color",
     "text-decoration-style",
     "visibility",
@@ -2014,6 +2189,73 @@ fn to_computed(
         })
         .filter(|span| *span >= 1)
         .unwrap_or(1);
+
+    style.transform = raw
+        .get("transform")
+        .map(CssValue::raw_text)
+        .as_deref()
+        .and_then(|text| parse_transform(text, style.font_size))
+        .filter(|matrix| !matrix.is_identity());
+
+    if let Some(text) = raw.get("transform-origin").map(CssValue::raw_text) {
+        let component = |value: &str| -> Option<Dimension> {
+            match value {
+                "left" | "top" => Some(Dimension::Percent(0.0)),
+                "center" => Some(Dimension::Percent(50.0)),
+                "right" | "bottom" => Some(Dimension::Percent(100.0)),
+                other => Dimension::from_value(&CssValue::parse_component(other)?, style.font_size),
+            }
+        };
+        let mut pieces = text.split_whitespace();
+        if let Some(x) = pieces.next().and_then(component) {
+            let y = pieces
+                .next()
+                .and_then(component)
+                .unwrap_or(Dimension::Percent(50.0));
+            style.transform_origin = (x, y);
+        }
+    }
+
+    // transition: property duration [timing] [delay], comma-separated.
+    style.transitions = raw
+        .get("transition")
+        .map(CssValue::raw_text)
+        .map(|text| {
+            text.split(',')
+                .filter_map(|entry| {
+                    let mut property = String::from("all");
+                    let mut times: Vec<f32> = Vec::new();
+                    let mut ease = true;
+                    for piece in entry.split_whitespace() {
+                        if let Some(seconds) = piece.strip_suffix("ms") {
+                            if let Ok(value) = seconds.parse::<f32>() {
+                                times.push(value / 1000.0);
+                            }
+                        } else if let Some(seconds) = piece.strip_suffix('s') {
+                            if let Ok(value) = seconds.parse::<f32>() {
+                                times.push(value);
+                            }
+                        } else if piece == "linear" {
+                            ease = false;
+                        } else if matches!(piece, "ease" | "ease-in" | "ease-out" | "ease-in-out")
+                            || piece.starts_with("cubic-bezier")
+                        {
+                            ease = true;
+                        } else {
+                            property = piece.to_string();
+                        }
+                    }
+                    let duration = *times.first()?;
+                    (duration > 0.0).then_some(TransitionSpec {
+                        property,
+                        duration,
+                        delay: times.get(1).copied().unwrap_or(0.0),
+                        ease,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     style.visible = !matches!(
         raw.get("visibility").and_then(CssValue::as_keyword),

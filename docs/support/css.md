@@ -158,7 +158,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 |---|:-:|:-:|:-:|:-:|---|
 | `opacity` | ⚠️ | ✅ | ✅ | ✅ | per-command alpha multiply (approximation of group compositing; overlapping children double-blend) |
 | `visibility: hidden` | ❌ | ✅ | ✅ | ✅ | |
-| `transform` | ❌ | ✅ | ✅ | ✅ | |
+| `transform` | ⚠️ | ✅ | ✅ | ✅ | translate/scale/rotate/matrix + transform-origin, paint-only; SVG exact, raster exact for translate/scale (rotation → bounding box, text stays upright) |
 | `filter` / `backdrop-filter` | ❌ | ✅ | ✅ | ✅ | |
 | `clip-path` / `mask` | ❌ | ✅ | ✅ | ✅ | |
 | `transition` | ❌ | ✅ | ✅ | ✅ | |

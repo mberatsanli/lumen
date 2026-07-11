@@ -136,6 +136,16 @@ pub fn render_svg(page: &Page) -> String {
             DisplayCommand::PopClip => {
                 svg.push_str("</g>\n");
             }
+            DisplayCommand::PushTransform { matrix } => {
+                let _ = writeln!(
+                    svg,
+                    "<g transform=\"matrix({} {} {} {} {} {})\">",
+                    matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f
+                );
+            }
+            DisplayCommand::PopTransform => {
+                svg.push_str("</g>\n");
+            }
             DisplayCommand::FillRect {
                 rect,
                 color,

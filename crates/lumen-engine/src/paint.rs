@@ -6,7 +6,7 @@
 use crate::geometry::{Corners, EdgeSizes, Rect};
 use crate::image::{ImageMap, RasterImage};
 use crate::layout::{BoxType, LayoutBox, LayoutKind};
-use crate::style::{BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle};
+use crate::style::{BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, Transform2D};
 use lumen_css::Color;
 use std::sync::Arc;
 
@@ -75,6 +75,12 @@ pub enum DisplayCommand {
         /// The gradient geometry; the angle only applies to `Linear`.
         kind: GradientKind,
     },
+    /// Apply a 2D affine transform to every command until the matching
+    /// [`Self::PopTransform`] (composed with enclosing transforms).
+    PushTransform {
+        matrix: Transform2D,
+    },
+    PopTransform,
     /// A box shadow with a Gaussian falloff. `rect` is the shadow's own
     /// box (offset and spread already applied); `blur` is the CSS blur
     /// radius (≈ 2σ). Inset shadows shade inward from `rect` instead.
@@ -173,6 +179,37 @@ fn paint_box(
     }
     let fade = |color: lumen_css::Color| color.with_alpha_factor(opacity);
     let border_box = place(layout.border_box());
+
+    // Paint-time transform about the element's origin: the whole subtree
+    // (background through children) renders inside the transform.
+    let transformed = if anonymous {
+        None
+    } else {
+        layout.style.transform
+    };
+    if let Some(matrix) = transformed {
+        let viewport = crate::geometry::Size::default();
+        let origin_x = border_box.x
+            + layout
+                .style
+                .transform_origin
+                .0
+                .resolve(border_box.width, viewport)
+                .unwrap_or(border_box.width / 2.0);
+        let origin_y = border_box.y
+            + layout
+                .style
+                .transform_origin
+                .1
+                .resolve(border_box.height, viewport)
+                .unwrap_or(border_box.height / 2.0);
+        let about_origin = Transform2D::translate(origin_x, origin_y)
+            .multiply(matrix)
+            .multiply(Transform2D::translate(-origin_x, -origin_y));
+        commands.push(DisplayCommand::PushTransform {
+            matrix: about_origin,
+        });
+    }
     // `visibility: hidden` skips this box's own painting; children still
     // paint (they can set visibility: visible).
     let visible = layout.style.visible;
@@ -444,6 +481,9 @@ fn paint_box(
     if clips {
         commands.push(DisplayCommand::PopClip);
     }
+    if transformed.is_some() {
+        commands.push(DisplayCommand::PopTransform);
+    }
 }
 
 /// Emits a background image with position/size/repeat semantics: the
@@ -634,6 +674,16 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
             DisplayCommand::PopClip => {
                 let _ = writeln!(output, "PopClip");
             }
+            DisplayCommand::PushTransform { matrix } => {
+                let _ = writeln!(
+                    output,
+                    "PushTransform matrix({}, {}, {}, {}, {}, {})",
+                    matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f
+                );
+            }
+            DisplayCommand::PopTransform => {
+                let _ = writeln!(output, "PopTransform");
+            }
             DisplayCommand::DrawShadow {
                 rect,
                 blur,
@@ -733,6 +783,8 @@ mod tests {
                 DisplayCommand::PopClip => "pop-clip",
                 DisplayCommand::FillGradient { .. } => "gradient",
                 DisplayCommand::DrawShadow { .. } => "shadow",
+                DisplayCommand::PushTransform { .. } => "push-transform",
+                DisplayCommand::PopTransform => "pop-transform",
             })
             .collect();
         assert_eq!(kinds, vec!["fill", "stroke", "text"]);
@@ -886,6 +938,39 @@ mod tests {
             .count();
         // 4 columns x 2 rows.
         assert_eq!(images, 8);
+    }
+
+    #[test]
+    fn transforms_wrap_the_subtree_in_matrix_commands() {
+        let list = commands(
+            "<style>div { transform: translate(10px, 20px) scale(2); \
+                          width: 50px; height: 20px; background-color: #ff0000; }</style>\
+             <div>t</div>",
+        );
+        let Some(DisplayCommand::PushTransform { matrix }) = list
+            .iter()
+            .find(|command| matches!(command, DisplayCommand::PushTransform { .. }))
+        else {
+            panic!("no PushTransform in {list:?}");
+        };
+        // scale(2) about the border-box center, translated by (10, 20).
+        assert_eq!(matrix.a, 2.0);
+        assert_eq!(matrix.d, 2.0);
+        assert!(
+            list.iter()
+                .any(|command| matches!(command, DisplayCommand::PopTransform))
+        );
+        let push = list
+            .iter()
+            .position(|command| matches!(command, DisplayCommand::PushTransform { .. }))
+            .unwrap();
+        let fill = list
+            .iter()
+            .position(|command| {
+                matches!(command, DisplayCommand::FillRect { color, .. } if color.r == 255)
+            })
+            .unwrap();
+        assert!(push < fill, "background paints inside the transform");
     }
 
     #[test]

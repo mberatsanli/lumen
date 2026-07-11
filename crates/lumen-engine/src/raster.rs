@@ -9,6 +9,7 @@
 use crate::font::SystemFont;
 use crate::geometry::{Corners, Rect};
 use crate::paint::{DisplayCommand, GradientKind};
+use crate::style::Transform2D;
 use font8x8::UnicodeFonts;
 use lumen_css::Color;
 
@@ -178,7 +179,44 @@ fn rasterize_clipped(
     region: Option<(u32, u32, u32, u32)>,
 ) {
     let framebuffer = &mut *framebuffer;
-    let shift = |rect: &Rect| Rect {
+    // Active transform composition (page coordinates). Axis-aligned
+    // transforms map exactly; rotations fall back to the bounding box
+    // (the SVG backend renders rotation exactly).
+    let mut transforms: Vec<Transform2D> = Vec::new();
+    let map_rect = |rect: &Rect, transform: Option<Transform2D>| -> Rect {
+        let Some(matrix) = transform else {
+            return *rect;
+        };
+        let corners = [
+            matrix.apply(rect.x, rect.y),
+            matrix.apply(rect.x + rect.width, rect.y),
+            matrix.apply(rect.x, rect.y + rect.height),
+            matrix.apply(rect.x + rect.width, rect.y + rect.height),
+        ];
+        let min_x = corners
+            .iter()
+            .map(|(x, _)| *x)
+            .fold(f32::INFINITY, f32::min);
+        let min_y = corners
+            .iter()
+            .map(|(_, y)| *y)
+            .fold(f32::INFINITY, f32::min);
+        let max_x = corners
+            .iter()
+            .map(|(x, _)| *x)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let max_y = corners
+            .iter()
+            .map(|(_, y)| *y)
+            .fold(f32::NEG_INFINITY, f32::max);
+        Rect {
+            x: min_x,
+            y: min_y,
+            width: max_x - min_x,
+            height: max_y - min_y,
+        }
+    };
+    let device = |rect: Rect| Rect {
         x: rect.x * scale,
         y: (rect.y - scroll_y) * scale,
         width: rect.width * scale,
@@ -191,7 +229,21 @@ fn rasterize_clipped(
     framebuffer.clip = clips.last().copied();
 
     for command in commands {
+        let current = transforms.last().copied();
+        let shift = |rect: &Rect| device(map_rect(rect, current));
         match command {
+            DisplayCommand::PushTransform { matrix } => {
+                let composed = match current {
+                    Some(outer) => outer.multiply(*matrix),
+                    None => *matrix,
+                };
+                transforms.push(composed);
+                continue;
+            }
+            DisplayCommand::PopTransform => {
+                transforms.pop();
+                continue;
+            }
             DisplayCommand::PushClip { rect } => {
                 let rect = shift(rect);
                 let x0 = rect.x.max(0.0) as u32;
@@ -354,8 +406,20 @@ fn rasterize_clipped(
                 decoration_color,
                 decoration_style,
             } => {
-                let (x, y, font_size) = (x * scale, (y - scroll_y) * scale, font_size * scale);
-                let letter_spacing = letter_spacing * scale;
+                let (page_x, page_y) = match current {
+                    Some(matrix) => matrix.apply(*x, *y),
+                    None => (*x, *y),
+                };
+                let text_scale = match current {
+                    Some(matrix) => (matrix.a.abs() + matrix.d.abs()) / 2.0,
+                    None => 1.0,
+                };
+                let (x, y, font_size) = (
+                    page_x * scale,
+                    (page_y - scroll_y) * scale,
+                    font_size * text_scale * scale,
+                );
+                let letter_spacing = letter_spacing * text_scale * scale;
                 let packed = pack(*color);
                 let text_alpha = color.a;
                 let shear = if *italic { 0.21 } else { 0.0 };

@@ -532,6 +532,9 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
                 | "background-repeat"
                 | "grid-template-columns"
                 | "grid-column"
+                | "transform"
+                | "transform-origin"
+                | "transition"
         ) {
             declarations.push(Declaration {
                 name,

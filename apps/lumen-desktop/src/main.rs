@@ -378,6 +378,8 @@ struct App {
     find_index: usize,
     /// Damage tracking: bumped whenever the page raster could change.
     page_generation: u64,
+    /// Monotonic clock origin for animation ticks.
+    started: Instant,
     /// Debug HUD (F12 / Cmd+D): FPS, memory, frame + page stats.
     debug_hud: bool,
     /// Recent frames: (when it finished, how long it took).
@@ -429,6 +431,7 @@ impl App {
             find_matches: Vec::new(),
             find_index: 0,
             page_generation: 0,
+            started: Instant::now(),
             debug_hud: false,
             frame_times: VecDeque::new(),
             last_frame_kind: "full",
@@ -1225,6 +1228,14 @@ impl App {
 
     fn redraw(&mut self) {
         let frame_started = Instant::now();
+        // Step running CSS transitions; keep redrawing while any are live.
+        let now_ms = self.started.elapsed().as_secs_f64() * 1000.0;
+        if let SessionState::Ready(session) = &mut self.state
+            && session.tick(now_ms)
+        {
+            self.invalidate_page();
+            self.request_redraw();
+        }
         let scale = self.scale();
         let chrome = self.chrome_commands();
         let Some(size) = self.window.as_ref().map(|window| window.inner_size()) else {

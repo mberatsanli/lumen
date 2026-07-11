@@ -148,6 +148,16 @@
     .sel-title + p { font-style: italic; }
     a[href^="https"] { color: #7a3d9e; }
 
+    /* --- transform & transition ------------------------------------------- */
+    .tilted { transform: rotate(-3deg); background-color: #f2dfdf; padding: 8px;
+              width: 260px; }
+    .grown { transform: translate(20px, 0) scale(1.1); background-color: #dfe7f2;
+             padding: 8px; width: 260px; }
+    .fade-btn { display: inline-block; background-color: #2266aa; color: #ffffff;
+                padding: 8px 16px; border-radius: 6px;
+                transition: background-color 300ms ease; }
+    .fade-btn:hover { background-color: #b3261e; }
+
     /* --- grid ------------------------------------------------------------ */
     .grid-demo { display: grid; grid-template-columns: 120px repeat(2, 1fr); gap: 8px; }
     .grid-demo div { background-color: #dfe7f2; padding: 6px; }
@@ -326,6 +336,13 @@
     </div>
     <p>Secure links go purple: <a href="https://example.com">https link</a>
        vs <a href="http://example.com">http link</a>.</p>
+  </div>
+
+  <div class="section">
+    <h2>Transform &amp; transition</h2>
+    <div class="tilted"><p>rotate(-3deg)</p></div>
+    <div class="grown"><p>translate + scale(1.1)</p></div>
+    <p><span class="fade-btn">hover me — 300ms color fade</span></p>
   </div>
 
   <div class="section">

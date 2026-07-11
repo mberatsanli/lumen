@@ -39,6 +39,10 @@ pub struct Session<L: ResourceLoader> {
     active: Option<NodeId>,
     /// Focused node (`:focus`) — the shell decides what focus means.
     focused: Option<NodeId>,
+    /// Running property transitions, stepped by [`Session::tick`].
+    transitions: Vec<ActiveTransition>,
+    /// Whether the current stylesheet declares any `transition` at all.
+    has_transitions: bool,
     /// Per-element inner scroll offsets (`overflow: scroll/auto`).
     scroll_offsets: std::collections::HashMap<NodeId, f32>,
     /// First usable `@font-face` font of the page (TTF/OTF only —
@@ -47,6 +51,38 @@ pub struct Session<L: ResourceLoader> {
     /// How the current stylesheet's hover rules can affect the page —
     /// picks the cheapest reaction to hover changes.
     hover_impact: lumen_engine::HoverImpact,
+}
+
+/// One value being animated.
+#[derive(Debug, Clone, Copy)]
+enum AnimatedValue {
+    Number(f32),
+    Color(lumen_css::Color),
+    Transform(lumen_engine::Transform2D),
+}
+
+/// A property transition in flight.
+#[derive(Debug, Clone)]
+struct ActiveTransition {
+    node: NodeId,
+    property: &'static str,
+    from: AnimatedValue,
+    to: AnimatedValue,
+    /// Set on the first tick.
+    start_ms: Option<f64>,
+    duration_ms: f64,
+    delay_ms: f64,
+    ease: bool,
+}
+
+fn lerp_color(from: lumen_css::Color, to: lumen_css::Color, t: f32) -> lumen_css::Color {
+    let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t) as u8;
+    lumen_css::Color {
+        r: mix(from.r, to.r),
+        g: mix(from.g, to.g),
+        b: mix(from.b, to.b),
+        a: mix(from.a, to.a),
+    }
 }
 
 impl<L: ResourceLoader> Session<L> {
@@ -65,6 +101,8 @@ impl<L: ResourceLoader> Session<L> {
             hovered: None,
             active: None,
             focused: None,
+            transitions: Vec::new(),
+            has_transitions: false,
             scroll_offsets: std::collections::HashMap::new(),
             web_font: None,
             hover_impact: lumen_engine::HoverImpact::Nothing,
@@ -220,7 +258,12 @@ impl<L: ResourceLoader> Session<L> {
         if !affects {
             return false;
         }
-        match self.hover_impact {
+        let snapshot = if self.has_transitions {
+            self.page.as_ref().map(|page| page.styles.by_node.clone())
+        } else {
+            None
+        };
+        let changed = match self.hover_impact {
             lumen_engine::HoverImpact::Nothing => false,
             lumen_engine::HoverImpact::PaintOnly => {
                 let Some(interaction) = self.interaction() else {
@@ -238,7 +281,150 @@ impl<L: ResourceLoader> Session<L> {
                 self.relayout();
                 true
             }
+        };
+        if changed && let Some(old_styles) = snapshot {
+            self.spawn_transitions(&old_styles);
         }
+        changed
+    }
+
+    /// Compares pre/post-restyle styles and spawns transitions for the
+    /// animatable paint-only properties (opacity, colors, transform)
+    /// covered by each node's `transition` declarations.
+    fn spawn_transitions(
+        &mut self,
+        old_styles: &std::collections::HashMap<NodeId, lumen_engine::ComputedStyle>,
+    ) {
+        let Some(page) = self.page.as_ref() else {
+            return;
+        };
+        let mut spawned: Vec<ActiveTransition> = Vec::new();
+        for (node, new_style) in &page.styles.by_node {
+            let Some(old_style) = old_styles.get(node) else {
+                continue;
+            };
+            for spec in &new_style.transitions {
+                let wants = |name: &str| spec.property == "all" || spec.property == name;
+                let mut push = |property: &'static str, from: AnimatedValue, to: AnimatedValue| {
+                    spawned.push(ActiveTransition {
+                        node: *node,
+                        property,
+                        from,
+                        to,
+                        start_ms: None,
+                        duration_ms: f64::from(spec.duration) * 1000.0,
+                        delay_ms: f64::from(spec.delay) * 1000.0,
+                        ease: spec.ease,
+                    });
+                };
+                if wants("opacity") && (old_style.opacity - new_style.opacity).abs() > f32::EPSILON
+                {
+                    push(
+                        "opacity",
+                        AnimatedValue::Number(old_style.opacity),
+                        AnimatedValue::Number(new_style.opacity),
+                    );
+                }
+                if wants("color") && old_style.color != new_style.color {
+                    push(
+                        "color",
+                        AnimatedValue::Color(old_style.color),
+                        AnimatedValue::Color(new_style.color),
+                    );
+                }
+                if wants("background-color") {
+                    let transparent = lumen_css::Color::rgba(0, 0, 0, 0);
+                    let from = old_style.background_color.unwrap_or(transparent);
+                    let to = new_style.background_color.unwrap_or(transparent);
+                    if from != to {
+                        push(
+                            "background-color",
+                            AnimatedValue::Color(from),
+                            AnimatedValue::Color(to),
+                        );
+                    }
+                }
+                if wants("transform") {
+                    let from = old_style
+                        .transform
+                        .unwrap_or(lumen_engine::Transform2D::IDENTITY);
+                    let to = new_style
+                        .transform
+                        .unwrap_or(lumen_engine::Transform2D::IDENTITY);
+                    if from != to {
+                        push(
+                            "transform",
+                            AnimatedValue::Transform(from),
+                            AnimatedValue::Transform(to),
+                        );
+                    }
+                }
+            }
+        }
+        // A new transition on the same node+property replaces the old one.
+        for transition in spawned {
+            self.transitions.retain(|existing| {
+                !(existing.node == transition.node && existing.property == transition.property)
+            });
+            self.transitions.push(transition);
+        }
+    }
+
+    /// Steps running transitions to `now_ms` (any monotonic clock),
+    /// patching styles and repainting. Returns whether animation frames
+    /// are still needed.
+    pub fn tick(&mut self, now_ms: f64) -> bool {
+        if self.transitions.is_empty() {
+            return false;
+        }
+        let Some(page) = self.page.as_mut() else {
+            self.transitions.clear();
+            return false;
+        };
+        let mut any_active = false;
+        for transition in &mut self.transitions {
+            let start = *transition.start_ms.get_or_insert(now_ms);
+            let progress = if transition.duration_ms <= 0.0 {
+                1.0
+            } else {
+                (((now_ms - start - transition.delay_ms) / transition.duration_ms).clamp(0.0, 1.0))
+                    as f32
+            };
+            let eased = if transition.ease {
+                progress * progress * (3.0 - 2.0 * progress) // smoothstep ≈ ease
+            } else {
+                progress
+            };
+            if let Some(style) = page.styles.by_node.get_mut(&transition.node) {
+                match (transition.from, transition.to) {
+                    (AnimatedValue::Number(from), AnimatedValue::Number(to)) => {
+                        style.opacity = from + (to - from) * eased;
+                    }
+                    (AnimatedValue::Color(from), AnimatedValue::Color(to)) => {
+                        let value = lerp_color(from, to, eased);
+                        match transition.property {
+                            "color" => style.color = value,
+                            _ => style.background_color = (value.a > 0).then_some(value),
+                        }
+                    }
+                    (AnimatedValue::Transform(from), AnimatedValue::Transform(to)) => {
+                        let value = lumen_engine::Transform2D::lerp(from, to, eased);
+                        style.transform = (!value.is_identity()).then_some(value);
+                    }
+                    _ => {}
+                }
+            }
+            if progress < 1.0 {
+                any_active = true;
+            }
+        }
+        lumen_engine::refresh_paint(page);
+        self.transitions.retain(|transition| {
+            transition.start_ms.is_none_or(|start| {
+                ((now_ms - start - transition.delay_ms) / transition.duration_ms.max(0.001)) < 1.0
+            })
+        });
+        any_active
     }
 
     /// The nearest `<a href>` at or above `node`, for link hit testing.
@@ -398,6 +584,12 @@ impl<L: ResourceLoader> Session<L> {
         });
         self.author = Arc::new(lumen_css::parse_stylesheet(&author_css));
         self.hover_impact = lumen_engine::hover_impact(&self.author);
+        self.transitions.clear();
+        self.has_transitions = self.author.rules.iter().any(|rule| {
+            rule.declarations
+                .iter()
+                .any(|declaration| declaration.name == "transition")
+        });
 
         // @font-face: fetch the first source fontdue can parse (ttf/otf;
         // woff/woff2 are skipped) and use it as the document font.
@@ -808,6 +1000,51 @@ mod tests {
             .find_by_node(anchor)
             .map(|laid| laid.dimensions.padding.top);
         assert_eq!(hovered_width, Some(8.0));
+    }
+
+    #[test]
+    fn transitions_interpolate_hover_colors_over_time() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>a { color: #000000; transition: color 1s linear; }\
+                 a:hover { color: #ffffff; }</style><a href='/x'>fade</a>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let anchor = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "a")
+            })
+            .unwrap();
+        let text_red = |session: &Session<FakeLoader>| {
+            session
+                .page()
+                .unwrap()
+                .display_list
+                .iter()
+                .find_map(|command| match command {
+                    lumen_engine::DisplayCommand::DrawText { color, .. } => Some(color.r),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert!(session.set_hovered(Some(anchor)));
+        // First tick anchors the clock at the old value...
+        assert!(session.tick(0.0));
+        assert_eq!(text_red(&session), 0);
+        // ...halfway through it is mid-gray...
+        assert!(session.tick(500.0));
+        let mid = text_red(&session);
+        assert!((100..=155).contains(&mid), "midpoint: {mid}");
+        // ...and it finishes at white with no frames left.
+        assert!(!session.tick(1100.0));
+        assert_eq!(text_red(&session), 255);
     }
 
     #[test]

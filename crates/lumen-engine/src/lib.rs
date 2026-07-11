@@ -33,7 +33,7 @@ pub use selection::{
 pub use style::{
     BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, ComputedStyle, Dimension,
     Display, FontWeight, HoverImpact, InteractionState, LinearGradient, StyleMap, TextAlign,
-    compute_styles, compute_styles_hovered, compute_styles_interactive, hover_impact,
+    Transform2D, compute_styles, compute_styles_hovered, compute_styles_interactive, hover_impact,
     hover_styles_may_change, interaction_styles_may_change,
 };
 pub use svg::render_svg;
@@ -235,6 +235,14 @@ fn patch_layout_styles(layout: &mut LayoutBox, styles: &StyleMap) {
     for child in &mut layout.children {
         patch_layout_styles(child, styles);
     }
+}
+
+/// Re-applies the page's computed styles to its layout tree and rebuilds
+/// the display list — for animation ticks that mutate `page.styles`
+/// without relayout (paint-only properties).
+pub fn refresh_paint(page: &mut Page) {
+    patch_layout_styles(&mut page.layout, &page.styles);
+    page.display_list = build_display_list(&page.layout, &page.images);
 }
 
 /// Collects author CSS in document order: `<style>` contents inline, and
