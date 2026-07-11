@@ -76,11 +76,12 @@ items.
 
 Positioning (simplified): `relative` translates the finished box without
 affecting flow; `absolute`/`fixed` leave the flow, size shrink-to-fit for
-auto widths, and resolve `top/left/right` against a containing block
-simplified to the parent's content box (`fixed` uses the viewport, where
-`bottom` also works; absolute `bottom` is unsupported). `z-index` sorts
-sibling paint and hit-test order (stable; no real stacking contexts).
-Fixed boxes scroll with the page — the paint pipeline has no layers yet.
+auto widths, and resolve offsets against the content box of the nearest
+positioned ancestor (the viewport at the root; `fixed` always uses the
+viewport). `bottom` resolves whenever the containing height is known.
+`z-index` sorts sibling paint and hit-test order (stable; no full
+stacking contexts). Fixed boxes scroll with the page — the paint
+pipeline has no layers yet.
 
 The flex algorithm lives in `flex.rs` and float tracking in `float.rs`;
 `layout.rs` owns the block/inline flow.
@@ -90,11 +91,10 @@ calling it again with the new size (verified by test).
 
 ## Deliberate limitations
 
-- **Margin collapsing is partial** — adjacent in-flow block siblings
-  collapse (max of positives + min of negatives) and a parent with no top
-  border/padding collapses with its first block child's top margin.
-  Bottom parent-child collapsing and empty blocks collapsing through
-  themselves are not implemented.
+- **Margin collapsing** covers adjacent in-flow block siblings, parent/
+  first-child tops, parent/last-child bottoms (edgeless auto-height
+  parents) and empty blocks collapsing through themselves — but not at
+  the root flow (children of `#document`).
 - Percent heights resolve against a parent's explicit content height
   (the viewport at the root); under auto-height parents they stay auto.
 - Inline element box edges (margin/padding/border/background) are ignored;
