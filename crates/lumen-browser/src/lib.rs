@@ -13,6 +13,7 @@ use lumen_html::NodeId;
 use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, Url, resolve};
 
 pub use editor::{EditOp, EditOverlay, EditResult, Motion, TextBuffer};
+pub use scripting::PageScripts;
 use std::sync::Arc;
 
 mod editor;
@@ -59,10 +60,6 @@ pub struct Session<L: ResourceLoader> {
     pub(crate) scroll_offsets: std::collections::HashMap<NodeId, f32>,
     /// Editing state of the focused text control.
     pub(crate) editor: Option<editor::TextEdit>,
-    /// The page's script world, when it has any `<script>`s.
-    pub(crate) scripts: Option<lumen_js::Runtime>,
-    /// xorshift state behind `Math.random()`.
-    pub(crate) rand_state: u64,
     /// First usable `@font-face` font of the page (TTF/OTF only —
     /// fontdue cannot parse WOFF), used as the document font.
     web_font: Option<Arc<lumen_engine::SystemFont>>,
@@ -126,8 +123,6 @@ impl<L: ResourceLoader> Session<L> {
             has_transitions: false,
             scroll_offsets: std::collections::HashMap::new(),
             editor: None,
-            scripts: None,
-            rand_state: 0x9E37_79B9_7F4A_7C15,
             web_font: None,
             hover_impact: lumen_engine::HoverImpact::Nothing,
         }
@@ -748,7 +743,6 @@ impl<L: ResourceLoader> Session<L> {
         self.active = None;
         self.focused = None;
         self.editor = None;
-        self.scripts = None;
         self.transitions.clear();
         self.scroll_offsets.clear();
         self.form_values.clear();
@@ -768,8 +762,6 @@ impl<L: ResourceLoader> Session<L> {
             &interaction,
         ));
         self.source = Some(source);
-        // Scripts run once the page exists (they see the rendered DOM).
-        self.run_page_scripts(&response.final_url);
         Ok(response.final_url)
     }
 }
@@ -1285,11 +1277,11 @@ mod tests {
         let mut session = Session::new(
             FakeLoader::new(&[(
                 "https://a.test/",
-                "<button id='b'>Artır</button><p id='out'>0</p>\
+                "<button id='b'>Art\u{131}r</button><p id='out'>0</p>\
                  <script>\
                  let n = 0;\
                  const out = document.getElementById('out');\
-                 out.textContent = 'hazır';\
+                 out.textContent = 'haz\u{131}r';\
                  document.getElementById('b').addEventListener('click', () => {\
                    n++; out.textContent = 'n=' + n;\
                  });\
@@ -1299,39 +1291,37 @@ mod tests {
             VIEWPORT,
         );
         session.load(url("https://a.test/")).unwrap();
-        let text = |session: &Session<FakeLoader>| {
+        // The shell builds the script world after navigation.
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let by_id = |session: &Session<FakeLoader>, id: &str| {
             let document = &session.page().unwrap().document;
-            let out = document
+            document
                 .descendants(document.root())
-                .find(|id| {
+                .find(|node| {
                     document
-                        .element(*id)
-                        .is_some_and(|element| element.attributes.get("id") == Some("out"))
+                        .element(*node)
+                        .is_some_and(|element| element.attributes.get("id") == Some(id))
                 })
-                .unwrap();
-            document.text_content(out)
+                .unwrap()
+        };
+        let text = |session: &Session<FakeLoader>| {
+            let out = by_id(session, "out");
+            session.page().unwrap().document.text_content(out)
         };
         // The load-time script already ran.
-        assert_eq!(text(&session), "hazır");
+        assert_eq!(text(&session), "haz\u{131}r");
         // Click dispatch reaches the listener and the page re-renders.
-        let document = &session.page().unwrap().document;
-        let button = document
-            .descendants(document.root())
-            .find(|id| {
-                document
-                    .element(*id)
-                    .is_some_and(|element| element.attributes.get("id") == Some("b"))
-            })
-            .unwrap();
-        assert!(session.dispatch_dom_event(button, "click"));
-        assert!(session.dispatch_dom_event(button, "click"));
+        let button = by_id(&session, "b");
+        assert!(scripts.has_listener(button, "click"));
+        assert!(scripts.dispatch(&mut session, button, "click"));
+        assert!(scripts.dispatch(&mut session, button, "click"));
         assert_eq!(text(&session), "n=2");
         // Timers fire on tick.
-        assert!(session.has_script_timers());
-        assert!(!session.tick_scripts(50.0));
-        assert!(session.tick_scripts(150.0));
+        assert!(scripts.has_timers());
+        assert!(!scripts.tick(&mut session, 50.0));
+        assert!(scripts.tick(&mut session, 150.0));
         assert_eq!(text(&session), "n=2!");
-        assert!(!session.has_script_timers());
+        assert!(!scripts.has_timers());
     }
 
     #[test]

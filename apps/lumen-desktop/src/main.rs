@@ -279,6 +279,9 @@ struct App {
     select_popup: Option<SelectPopup>,
     /// Open color-input palette.
     color_popup: Option<ColorPopup>,
+    /// The current page's JavaScript world (main-thread only: Boa's GC
+    /// handles cannot cross the loader thread).
+    page_scripts: Option<lumen_browser::PageScripts>,
     /// Range input being dragged, while the button is held.
     range_drag: Option<usize>,
     find_matches: Vec<Selection>,
@@ -338,6 +341,7 @@ impl App {
             input_drag: false,
             select_popup: None,
             color_popup: None,
+            page_scripts: None,
             range_drag: None,
             find_matches: Vec::new(),
             find_index: 0,
@@ -429,6 +433,7 @@ impl App {
         self.select_anchor = None;
         self.select_popup = None;
         self.color_popup = None;
+        self.page_scripts = None;
         self.range_drag = None;
         let SessionState::Ready(mut session) =
             std::mem::replace(&mut self.state, SessionState::Loading { target })
@@ -906,8 +911,9 @@ impl App {
         });
         // Script listeners see the click first, bubbling to ancestors.
         if let Some(node) = node
-            && let SessionState::Ready(session) = &mut self.state
-            && session.dispatch_dom_event(node, "click")
+            && let (Some(scripts), SessionState::Ready(session)) =
+                (&mut self.page_scripts, &mut self.state)
+            && scripts.dispatch(session, node, "click")
         {
             self.invalidate_page();
             self.request_redraw();
@@ -1130,6 +1136,18 @@ impl App {
         }
         self.invalidate_page();
         self.request_redraw();
+    }
+
+    /// Dispatches a DOM event to the page's scripts, repainting if a
+    /// handler ran.
+    fn dispatch_script_event(&mut self, node: usize, event: &str) {
+        if let (Some(scripts), SessionState::Ready(session)) =
+            (&mut self.page_scripts, &mut self.state)
+            && scripts.dispatch(session, node, event)
+        {
+            self.invalidate_page();
+            self.request_redraw();
+        }
     }
 
     /// Ends in-page editing (the session restores the display).
@@ -1457,11 +1475,18 @@ impl App {
         let now_ms = self.started.elapsed().as_secs_f64() * 1000.0;
         if let SessionState::Ready(session) = &mut self.state {
             let transitioned = session.tick(now_ms);
-            let scripted = session.tick_scripts(now_ms);
+            let scripted = self
+                .page_scripts
+                .as_mut()
+                .is_some_and(|scripts| scripts.tick(session, now_ms));
             if transitioned || scripted {
                 self.invalidate_page();
                 self.request_redraw();
-            } else if session.has_script_timers() {
+            } else if self
+                .page_scripts
+                .as_ref()
+                .is_some_and(lumen_browser::PageScripts::has_timers)
+            {
                 // A timer is pending: keep frames coming so it fires.
                 self.request_redraw();
             }
@@ -1934,6 +1959,7 @@ impl App {
                 SessionState::Loading { .. } => None,
             };
             if stepped.is_some() {
+                self.dispatch_script_event(control, "input");
                 self.invalidate_page();
                 self.request_redraw();
             }
@@ -1952,6 +1978,7 @@ impl App {
                     if let SessionState::Ready(session) = &mut self.state {
                         session.edit(EditOp::Insert("\n".to_string()));
                     }
+                    self.dispatch_script_event(control, "input");
                     self.invalidate_page();
                     self.request_redraw();
                 } else {
@@ -1984,6 +2011,7 @@ impl App {
                     if let SessionState::Ready(session) = &mut self.state {
                         session.edit(EditOp::DeleteForward);
                     }
+                    self.dispatch_script_event(control, "input");
                     self.invalidate_page();
                     self.request_redraw();
                 }
@@ -1993,6 +2021,7 @@ impl App {
                     if let SessionState::Ready(session) = &mut self.state {
                         session.edit(EditOp::Insert(pasted.replace(['\n', '\r'], " ")));
                     }
+                    self.dispatch_script_event(control, "input");
                     self.invalidate_page();
                     self.request_redraw();
                 }
@@ -2002,6 +2031,10 @@ impl App {
                     SessionState::Ready(session) => session.edit(op),
                     SessionState::Loading { .. } => lumen_browser::EditResult::Ignored,
                 };
+                if result == lumen_browser::EditResult::Edited {
+                    // Scripts hear about typing like real browsers.
+                    self.dispatch_script_event(control, "input");
+                }
                 if result != lumen_browser::EditResult::Ignored {
                     self.invalidate_page();
                     self.request_redraw();
@@ -2138,6 +2171,8 @@ impl ApplicationHandler<NavDone> for App {
         let mut session = done.session;
         // The window may have resized while the session was away.
         session.set_viewport(self.viewport());
+        // The page's <script>s run here, on the main thread.
+        self.page_scripts = lumen_browser::PageScripts::new(&mut session);
         self.state = SessionState::Ready(session);
         self.invalidate_page();
         self.scroll_to_fragment();

@@ -28,6 +28,8 @@ fn read_input(input: &str) -> Result<String, Box<dyn std::error::Error>> {
 fn load_page(input: &str) -> Result<Session<DefaultLoader>, Box<dyn std::error::Error>> {
     let mut session = Session::new(DefaultLoader, VIEWPORT);
     session.load(url_from_user_input(input)?)?;
+    // Load-time scripts mutate the DOM before we dump/render it.
+    let _scripts = lumen_browser::PageScripts::new(&mut session);
     Ok(session)
 }
 
