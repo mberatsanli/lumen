@@ -418,6 +418,49 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
                 value: value.clone(),
             });
         }
+        // Repeat keywords and position components also survive: without
+        // them a sprite sheet would tile at its default position.
+        let repeat = components.iter().find_map(|component| match component {
+            CssValue::Keyword(keyword)
+                if matches!(
+                    keyword.as_str(),
+                    "repeat" | "no-repeat" | "repeat-x" | "repeat-y"
+                ) =>
+            {
+                Some(keyword.clone())
+            }
+            _ => None,
+        });
+        if let Some(repeat) = repeat {
+            output.push(Declaration {
+                important: false,
+                name: "background-repeat".to_string(),
+                value: CssValue::Keyword(repeat),
+            });
+        }
+        let position: Vec<String> = components
+            .iter()
+            .filter_map(|component| match component {
+                CssValue::Length(..) => Some(component.to_string()),
+                CssValue::Keyword(keyword)
+                    if matches!(
+                        keyword.as_str(),
+                        "left" | "right" | "top" | "bottom" | "center"
+                    ) =>
+                {
+                    Some(keyword.clone())
+                }
+                _ => None,
+            })
+            .take(2)
+            .collect();
+        if !position.is_empty() {
+            output.push(Declaration {
+                important: false,
+                name: "background-position".to_string(),
+                value: CssValue::Keyword(position.join(" ")),
+            });
+        }
         return;
     }
     let expand_edges = |suffix_for: &dyn Fn(&str) -> String,
@@ -948,11 +991,21 @@ mod tests {
     #[test]
     fn background_shorthand_keeps_color_and_image() {
         let declarations = parse_declarations("background: #fdfcff left top no-repeat");
-        assert_eq!(declarations.len(), 1);
+        assert_eq!(declarations.len(), 3);
         assert_eq!(declarations[0].name, "background-color");
         assert_eq!(
             declarations[0].value,
             CssValue::Color(Color::rgb(0xfd, 0xfc, 0xff))
+        );
+        assert_eq!(declarations[1].name, "background-repeat");
+        assert_eq!(
+            declarations[1].value,
+            CssValue::Keyword("no-repeat".to_string())
+        );
+        assert_eq!(declarations[2].name, "background-position");
+        assert_eq!(
+            declarations[2].value,
+            CssValue::Keyword("left top".to_string())
         );
         let none = parse_declarations("background: none");
         assert_eq!(none[0].value, CssValue::Keyword("transparent".to_string()));
