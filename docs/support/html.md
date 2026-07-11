@@ -82,7 +82,7 @@ interaction) — not just a DOM node.
 | `<progress>` / `<meter>` / range | ⚠️ | ✅ | ✅ | ✅ | vector value bars (range with a click-to-set thumb; no drag) |
 | `<input>` (all types) | ⚠️ | ✅ | ✅ | ✅ | text inputs editable (caret/selection/clipboard, click-to-position), checkbox/radio toggle, submit buttons submit; date/file/color etc render as text boxes |
 | `<textarea> <select> <button>` | ⚠️ | ✅ | ✅ | ✅ | select opens a shell-drawn dropdown, textarea edits multiline (Enter = newline), button submits; label clicks focus their control |
-| `<label> <fieldset> <progress> <meter>` | ❌ | ✅ | ✅ | ✅ | |
+| `<label> <fieldset> <progress> <meter>` | ⚠️ | ✅ | ✅ | ✅ | label click focuses its control; fieldset/legend framed; progress/meter as vector bars |
 | Focus / validation | ❌ | ✅ | ✅ | ✅ | |
 
 ## Scripting-related elements
