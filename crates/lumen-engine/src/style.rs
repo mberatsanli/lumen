@@ -1131,7 +1131,8 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             sup { vertical-align: super; font-size: 0.8em; }
             input, select, textarea, button { border: 1px solid #767676; border-radius: 3px;
                 background-color: #ffffff; padding: 3px 8px; font-size: 13px; margin: 2px; }
-            input { width: 170px; min-height: 1.1em; }
+            input { width: 170px; min-height: 1.1em; white-space: nowrap;
+                overflow: hidden; }
             input[type=submit], input[type=button], button { background-color: #ebebeb;
                 width: auto; padding: 3px 12px; }
             input[type=checkbox], input[type=radio] { width: 13px; height: 13px; padding: 0;
@@ -1141,7 +1142,7 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
                 background-color: #ffffff; font-size: 13px; min-height: 1.1em;
                 --lumen-mark: arrow; }
             option { display: none; }
-            textarea { white-space: pre; overflow: hidden; }
+            textarea { white-space: pre; overflow: auto; }
             fieldset { border: 1px solid #b9b2a2; border-radius: 4px;
                 padding: 8px 12px; margin-top: 8px; margin-bottom: 8px; }
             legend { font-weight: 700; font-size: 0.9em; }
@@ -2485,7 +2486,8 @@ fn to_computed(
         Some("monospace")
     );
 
-    style.overflow = match raw.get("overflow").and_then(CssValue::as_keyword) {
+    // `auto` parses as CssValue::Auto (not a keyword), so match raw text.
+    style.overflow = match raw.get("overflow").map(CssValue::raw_text).as_deref() {
         Some("hidden" | "clip") => Overflow::Hidden,
         Some("scroll" | "auto") => Overflow::Scroll,
         _ => Overflow::Visible,
@@ -2756,6 +2758,17 @@ mod tests {
     #[test]
     fn ua_stylesheet_parses() {
         assert!(!user_agent_stylesheet().rules.is_empty());
+    }
+
+    #[test]
+    fn overflow_auto_clips_and_scrolls() {
+        // `auto` parses as CssValue::Auto, not a keyword — the overflow
+        // match must still see it.
+        let (document, styles) =
+            styles_for("<style>div { overflow: auto; }</style><body><div>x</div></body>");
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.overflow, Overflow::Scroll);
+        assert!(div.overflow.clips());
     }
 
     #[test]

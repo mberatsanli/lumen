@@ -510,6 +510,9 @@ struct App {
     find_input: Option<TextInput>,
     /// In-page text input being edited: (input element node, edit state).
     page_input: Option<(usize, TextInput)>,
+    /// Chars scrolled off the left edge of the edited single-line input
+    /// (the display window keeps the caret visible).
+    input_window: usize,
     /// Open select dropdown: (select node, options, page-coords rect of
     /// the list, index under the pointer).
     select_popup: Option<SelectPopup>,
@@ -572,6 +575,7 @@ impl App {
             modifiers: Modifiers::default(),
             find_input: None,
             page_input: None,
+            input_window: 0,
             select_popup: None,
             color_popup: None,
             range_drag: None,
@@ -660,6 +664,7 @@ impl App {
             return;
         }
         let target = nav.label();
+        self.close_page_input();
         self.selection = None;
         self.select_anchor = None;
         self.select_popup = None;
@@ -1181,6 +1186,7 @@ impl App {
                         .session()
                         .map(|session| session.form_value(control))
                         .unwrap_or_default();
+                    self.close_page_input();
                     let mut input = TextInput::with_all_selected(value);
                     input.move_to(usize::MAX, false);
                     self.page_input = Some((control, input));
@@ -1190,7 +1196,7 @@ impl App {
                 }
                 "button" => {
                     if kind == "submit" {
-                        self.page_input = None;
+                        self.close_page_input();
                         self.start_nav(Nav::Submit(control));
                     }
                     return;
@@ -1227,7 +1233,7 @@ impl App {
                     return;
                 }
                 "submit" => {
-                    self.page_input = None;
+                    self.close_page_input();
                     self.start_nav(Nav::Submit(control));
                     return;
                 }
@@ -1242,8 +1248,10 @@ impl App {
                             .unwrap_or_default();
                         // Position the caret at the click (or select all on
                         // a fresh focus of another control).
+                        let index = self.caret_index_in_control(control);
+                        self.close_page_input();
                         let mut input = TextInput::with_all_selected(value);
-                        if let Some(index) = self.caret_index_in_control(control) {
+                        if let Some(index) = index {
                             input.move_to(index, false);
                         }
                         self.page_input = Some((control, input));
@@ -1254,7 +1262,7 @@ impl App {
                 }
             }
         }
-        self.page_input = None;
+        self.close_page_input();
         let Some(node) = node else { return };
         if let Some(href) = self.session().and_then(|session| session.link_target(node)) {
             self.start_nav(Nav::Follow(href));
@@ -1367,6 +1375,151 @@ impl App {
         self.request_redraw();
     }
 
+    /// Ends in-page editing, restoring the full (head-clipped) value text
+    /// when the display was windowed.
+    fn close_page_input(&mut self) {
+        if let Some((control, input)) = self.page_input.take() {
+            if self.input_window != 0 {
+                let value = input.text;
+                if let SessionState::Ready(session) = &mut self.state {
+                    session.set_form_value(control, &value);
+                }
+                self.invalidate_page();
+            }
+            self.input_window = 0;
+        }
+    }
+
+    /// Pushes the edited value into the page. Single-line inputs keep the
+    /// caret visible by rendering a windowed tail of the value; textareas
+    /// scroll their inner offset to the caret's line instead.
+    fn sync_input_display(&mut self, control: usize, text_changed: bool) {
+        let Some((_, input)) = &self.page_input else {
+            return;
+        };
+        let caret = input.caret;
+        let value = input.text.clone();
+        let is_textarea = self
+            .session()
+            .is_some_and(|session| session.is_textarea(control));
+        if is_textarea {
+            if text_changed
+                && let SessionState::Ready(session) = &mut self.state
+            {
+                session.set_form_value(control, &value);
+            }
+            self.follow_textarea_caret(control);
+            self.invalidate_page();
+            self.request_redraw();
+            return;
+        }
+        if value.is_empty() {
+            self.input_window = 0;
+            if text_changed {
+                if let SessionState::Ready(session) = &mut self.state {
+                    session.set_form_value(control, "");
+                }
+                self.invalidate_page();
+            }
+            self.request_redraw();
+            return;
+        }
+        let display_full = self.control_display_text(control, &value);
+        let Some(content) = self
+            .session()
+            .and_then(Session::page)
+            .and_then(|page| page.layout.find_by_node(control))
+            .map(|laid| laid.content_box())
+        else {
+            return;
+        };
+        let Some(text_style) = self
+            .session()
+            .and_then(Session::page)
+            .and_then(|page| page.styles.by_node.get(&control))
+            .map(|style| TextStyle {
+                font_size: style.font_size,
+                font_weight: style.font_weight,
+                monospace: style.monospace,
+                letter_spacing: style.letter_spacing,
+            })
+        else {
+            return;
+        };
+        let chars: Vec<char> = display_full.chars().collect();
+        let start = {
+            let measurer = self.measurer();
+            let width_of = |from: usize, to: usize| {
+                let slice: String = chars[from.min(chars.len())..to.min(chars.len())]
+                    .iter()
+                    .collect::<String>();
+                measurer.measure(&slice, &text_style).width
+            };
+            // Leave room for the caret line at the right edge.
+            let budget = (content.width - 4.0).max(10.0);
+            let mut start = self.input_window.min(caret);
+            while start < caret && width_of(start, caret) > budget {
+                start += 1;
+            }
+            // Refill from the left when deletions free up room.
+            while start > 0 && width_of(start - 1, chars.len()) <= budget {
+                start -= 1;
+            }
+            start
+        };
+        if text_changed || start != self.input_window {
+            self.input_window = start;
+            let display: String = chars[start..].iter().collect();
+            if let SessionState::Ready(session) = &mut self.state {
+                session.set_form_value_display(control, &value, &display);
+            }
+            self.invalidate_page();
+        }
+        self.request_redraw();
+    }
+
+    /// Scrolls a textarea's inner offset so the caret's line stays inside
+    /// the visible box.
+    fn follow_textarea_caret(&mut self, control: usize) {
+        let Some((_, input)) = &self.page_input else {
+            return;
+        };
+        let caret_line = input
+            .text
+            .chars()
+            .take(input.caret)
+            .filter(|character| *character == '\n')
+            .count();
+        let Some((line_height, content_height, offset)) =
+            self.session().and_then(|session| {
+                let page = session.page()?;
+                let laid = page.layout.find_by_node(control)?;
+                let style = page.styles.by_node.get(&control)?;
+                let offset = session
+                    .scroll_offsets()
+                    .get(&control)
+                    .copied()
+                    .unwrap_or(0.0);
+                Some((style.line_height, laid.content_box().height, offset))
+            })
+        else {
+            return;
+        };
+        let caret_top = caret_line as f32 * line_height;
+        let delta = if caret_top < offset {
+            caret_top - offset
+        } else if caret_top + line_height > offset + content_height {
+            caret_top + line_height - (offset + content_height)
+        } else {
+            0.0
+        };
+        if delta != 0.0
+            && let SessionState::Ready(session) = &mut self.state
+        {
+            session.scroll_inner(control, delta);
+        }
+    }
+
     /// The nearest form control at or above a hit node; labels resolve
     /// to their target control (for= id, else a wrapped control).
     fn form_control_at(&self, node: usize) -> Option<usize> {
@@ -1408,7 +1561,17 @@ impl App {
         let page = session.page()?;
         let laid = page.layout.find_by_node(control)?;
         let content = laid.content_box();
-        let value = self.control_display_text(control, &session.form_value(control));
+        // When this control is mid-edit its rendered text is a windowed
+        // tail; measure what is displayed and map back to value indices.
+        let window = match &self.page_input {
+            Some((editing, _)) if *editing == control => self.input_window,
+            _ => 0,
+        };
+        let value: String = self
+            .control_display_text(control, &session.form_value(control))
+            .chars()
+            .skip(window)
+            .collect();
         let style = page.styles.by_node.get(&control)?;
         let text_style = TextStyle {
             font_size: style.font_size,
@@ -1426,7 +1589,7 @@ impl App {
                 break;
             }
         }
-        Some(best)
+        Some(window + best)
     }
 
     fn chrome_click(&mut self, x: f32) {
@@ -1854,7 +2017,13 @@ impl App {
                     letter_spacing: style.letter_spacing,
                 };
                 let measurer = self.measurer();
-                let display = self.control_display_text(*control, &input.text);
+                let display_all = self.control_display_text(*control, &input.text);
+                // Single-line inputs render a windowed tail of the value;
+                // the overlay must window its indices the same way.
+                let multiline = display_all.contains('\n');
+                let window = if multiline { 0 } else { self.input_window };
+                let display: String = display_all.chars().skip(window).collect();
+                let caret_index = input.caret.saturating_sub(window);
                 let width_to = |index: usize| {
                     let prefix: String = display.chars().take(index).collect();
                     measurer.measure(&prefix, &text_style).width
@@ -1865,25 +2034,31 @@ impl App {
                     width: w * scale,
                     height: h * scale,
                 };
-                // Multiline (textarea) caret: place on its line; the
-                // selection highlight only renders for single-line values.
+                // Multiline (textarea) caret: place on its line, shifted by
+                // the box's inner scroll; the selection highlight only
+                // renders for single-line values.
+                let inner_offset = self
+                    .session()
+                    .and_then(|session| session.scroll_offsets().get(control).copied())
+                    .unwrap_or(0.0);
                 let caret_line = display
                     .chars()
-                    .take(input.caret)
+                    .take(caret_index)
                     .filter(|character| *character == '\n')
                     .count();
-                let line_offset = caret_line as f32 * style.line_height;
+                let line_offset = caret_line as f32 * style.line_height - inner_offset;
                 let last_line_start = display
                     .chars()
-                    .take(input.caret)
+                    .take(caret_index)
                     .collect::<String>()
                     .rfind('\n')
                     .map(|at| at + 1)
                     .unwrap_or(0);
                 let (start, end) = input.selection();
-                if start != end && !display.contains('\n') {
-                    let x0 = content.x + width_to(start);
-                    let x1 = content.x + width_to(end);
+                if start != end && !multiline {
+                    let (start, end) = (start.saturating_sub(window), end.saturating_sub(window));
+                    let x0 = (content.x + width_to(start)).min(content.x + content.width);
+                    let x1 = (content.x + width_to(end)).min(content.x + content.width);
                     framebuffer.blend_fill(
                         to_device(x0, content.y, x1 - x0, content.height),
                         lumen_css::Color::rgb(0xb3, 0xd4, 0xfc),
@@ -1892,22 +2067,23 @@ impl App {
                 }
                 let caret_prefix: String = display
                     .chars()
-                    .take(input.caret)
+                    .take(caret_index)
                     .collect::<String>()
                     .get(last_line_start..)
                     .unwrap_or("")
                     .to_string();
-                let caret_x = content.x + measurer.measure(&caret_prefix, &text_style).width;
-                framebuffer.blend_fill(
-                    to_device(
-                        caret_x,
-                        content.y + line_offset,
-                        1.5,
-                        style.line_height.min(content.height),
-                    ),
-                    lumen_css::Color::rgb(0x20, 0x20, 0x20),
-                    255,
-                );
+                let caret_x = (content.x + measurer.measure(&caret_prefix, &text_style).width)
+                    .min(content.x + content.width - 1.5);
+                let caret_height = style.line_height.min(content.height);
+                // Never draw the caret outside the control's box (a caret
+                // line scrolled past the edges just hides).
+                if line_offset > -0.5 && line_offset + caret_height <= content.height + 0.5 {
+                    framebuffer.blend_fill(
+                        to_device(caret_x, content.y + line_offset, 1.5, caret_height),
+                        lumen_css::Color::rgb(0x20, 0x20, 0x20),
+                        255,
+                    );
+                }
             }
         }
         // Inner scrollbars: a thin thumb on every scrollable box.
@@ -2241,9 +2417,10 @@ impl App {
             return;
         };
         let mut sync = false;
+        let mut moved = false;
         match apply_edit(input, key, command_held, shift_held, alt_held) {
             EditOutcome::Changed => sync = true,
-            EditOutcome::Moved => self.request_redraw(),
+            EditOutcome::Moved => moved = true,
             EditOutcome::Submit => {
                 // Enter inside a textarea inserts a newline instead.
                 let is_textarea = self
@@ -2255,13 +2432,13 @@ impl App {
                     }
                     sync = true;
                 } else {
-                    self.page_input = None;
+                    self.close_page_input();
                     self.start_nav(Nav::Submit(control));
                     return;
                 }
             }
             EditOutcome::Cancel => {
-                self.page_input = None;
+                self.close_page_input();
                 if let SessionState::Ready(session) = &mut self.state
                     && session.set_focused(None)
                 {
@@ -2286,13 +2463,10 @@ impl App {
             }
             EditOutcome::Ignored => {}
         }
-        if sync {
-            let value = self.page_input.as_ref().unwrap().1.text.clone();
-            if let SessionState::Ready(session) = &mut self.state {
-                session.set_form_value(control, &value);
-            }
-            self.invalidate_page();
-            self.request_redraw();
+        if sync || moved {
+            // Both cases may move the display window / inner scroll so the
+            // caret stays visible.
+            self.sync_input_display(control, sync);
         }
     }
 

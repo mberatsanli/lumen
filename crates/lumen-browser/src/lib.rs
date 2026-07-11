@@ -887,6 +887,17 @@ impl<L: ResourceLoader> Session<L> {
         self.relayout();
     }
 
+    /// [`set_form_value`] with an explicit display text: the shell's
+    /// horizontal window into a long single-line value (the caret must
+    /// stay visible, so the rendered text is a tail slice).
+    pub fn set_form_value_display(&mut self, node: NodeId, value: &str, display: &str) {
+        self.form_values.insert(node, value.to_string());
+        if let Some(page) = self.page.as_mut() {
+            page.document.upsert_generated_text(node, true, display);
+        }
+        self.relayout();
+    }
+
     fn is_textarea_document(&self, document: &lumen_html::Document, node: NodeId) -> bool {
         document
             .element(node)
