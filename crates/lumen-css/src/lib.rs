@@ -9,7 +9,9 @@ pub mod parser;
 pub mod selector;
 pub mod value;
 
-pub use parser::{Declaration, MediaQuery, Rule, Stylesheet, parse_declarations, parse_stylesheet};
+pub use parser::{
+    Declaration, FontFace, MediaQuery, Rule, Stylesheet, parse_declarations, parse_stylesheet,
+};
 pub use selector::{
     AttributeOperation, AttributeSelector, Combinator, CompoundSelector, PseudoClass, Selector,
     Specificity, parse_selector,

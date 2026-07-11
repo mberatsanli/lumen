@@ -76,9 +76,18 @@ fn parse_media_condition(source: &str) -> Option<MediaQuery> {
     Some(query)
 }
 
+/// One `@font-face` block: a family name and its source URLs in order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FontFace {
+    pub family: String,
+    /// (url, format hint if any) pairs in source order.
+    pub sources: Vec<(String, Option<String>)>,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Stylesheet {
     pub rules: Vec<Rule>,
+    pub font_faces: Vec<FontFace>,
 }
 
 impl Stylesheet {
@@ -97,6 +106,7 @@ impl Stylesheet {
                 })
                 .cloned()
                 .collect(),
+            font_faces: self.font_faces.clone(),
         }
     }
 }
@@ -111,10 +121,10 @@ impl Stylesheet {
 #[must_use]
 pub fn parse_stylesheet(source: &str) -> Stylesheet {
     let source = strip_comments(source);
-    let mut rules = Vec::new();
+    let mut sheet = Stylesheet::default();
     let mut source_order = 0;
-    parse_rule_list(&source, None, &mut rules, &mut source_order);
-    Stylesheet { rules }
+    parse_rule_list(&source, None, &mut sheet, &mut source_order);
+    sheet
 }
 
 /// Parses a run of rules, attaching `media` to each. `@media` blocks with
@@ -123,7 +133,7 @@ pub fn parse_stylesheet(source: &str) -> Stylesheet {
 fn parse_rule_list(
     source: &str,
     media: Option<MediaQuery>,
-    rules: &mut Vec<Rule>,
+    sheet: &mut Stylesheet,
     source_order: &mut usize,
 ) {
     let mut rest = source;
@@ -151,14 +161,27 @@ fn parse_rule_list(
                         ),
                     });
                     let inner = &block_start[1..block_end.saturating_sub(1)];
-                    parse_rule_list(inner, combined, rules, source_order);
+                    parse_rule_list(inner, combined, sheet, source_order);
                 }
                 rest = &after_keyword[open + block_end..];
                 continue;
             }
             break;
         }
-        // Other at-rules (`@import`, `@font-face`, ...) are unsupported:
+        if let Some(after_keyword) = rest.strip_prefix("@font-face") {
+            if let Some(open) = after_keyword.find('{') {
+                let block_start = &after_keyword[open..];
+                let block_end = balanced_block_len(block_start);
+                let inner = &block_start[1..block_end.saturating_sub(1)];
+                if let Some(face) = parse_font_face(inner) {
+                    sheet.font_faces.push(face);
+                }
+                rest = &after_keyword[open + block_end..];
+                continue;
+            }
+            break;
+        }
+        // Other at-rules (`@import`, ...) are unsupported:
         // skip the whole construct with balanced braces so nested rules
         // inside the block cannot desynchronize the parser.
         if rest.starts_with('@') {
@@ -187,7 +210,7 @@ fn parse_rule_list(
             continue;
         }
 
-        rules.push(Rule {
+        sheet.rules.push(Rule {
             selectors,
             declarations: parse_declarations(declaration_source),
             source_order: *source_order,
@@ -361,6 +384,76 @@ fn split_selector_list(source: &str) -> Vec<&str> {
     }
     parts.push(&source[start..]);
     parts
+}
+
+/// Parses an `@font-face` block: the family name and its `src` list
+/// ("url(x) format('woff2'), url(y.ttf)").
+fn parse_font_face(source: &str) -> Option<FontFace> {
+    let mut family = None;
+    let mut sources: Vec<(String, Option<String>)> = Vec::new();
+    for declaration in source.split(';') {
+        let Some((name, value)) = declaration.split_once(':') else {
+            continue;
+        };
+        match name.trim().to_ascii_lowercase().as_str() {
+            "font-family" => {
+                let value = value.trim();
+                let value = value
+                    .strip_prefix(['"', '\''])
+                    .and_then(|rest| rest.strip_suffix(['"', '\'']))
+                    .unwrap_or(value);
+                family = Some(value.to_string());
+            }
+            "src" => {
+                let mut depth = 0usize;
+                let mut start = 0;
+                let mut parts: Vec<&str> = Vec::new();
+                for (index, character) in value.char_indices() {
+                    match character {
+                        '(' => depth += 1,
+                        ')' => depth = depth.saturating_sub(1),
+                        ',' if depth == 0 => {
+                            parts.push(&value[start..index]);
+                            start = index + 1;
+                        }
+                        _ => {}
+                    }
+                }
+                parts.push(&value[start..]);
+                for part in parts {
+                    let Some(url_start) = part.find("url(") else {
+                        continue;
+                    };
+                    let after = &part[url_start + 4..];
+                    let Some(close) = after.find(')') else {
+                        continue;
+                    };
+                    let url = after[..close]
+                        .trim()
+                        .trim_matches(|character| character == '"' || character == '\'')
+                        .to_string();
+                    let format = part.find("format(").and_then(|at| {
+                        let inner = &part[at + 7..];
+                        let close = inner.find(')')?;
+                        Some(
+                            inner[..close]
+                                .trim()
+                                .trim_matches(|character: char| {
+                                    character == '"' || character == '\''
+                                })
+                                .to_ascii_lowercase(),
+                        )
+                    });
+                    sources.push((url, format));
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(FontFace {
+        family: family?,
+        sources,
+    })
 }
 
 /// Combines an inherited bound with a nested one.
@@ -947,6 +1040,26 @@ mod tests {
         assert_eq!(declarations.len(), 2);
         assert_eq!(declarations[0].name, "color");
         assert_eq!(declarations[1].name, "height");
+    }
+
+    #[test]
+    fn font_face_blocks_collect_family_and_sources() {
+        let sheet = parse_stylesheet(
+            "@font-face { font-family: 'My Font'; \
+                          src: url(a.woff2) format('woff2'), url('b.ttf') format(\"truetype\"); } \
+             p { color: red; }",
+        );
+        assert_eq!(sheet.rules.len(), 1);
+        assert_eq!(sheet.font_faces.len(), 1);
+        let face = &sheet.font_faces[0];
+        assert_eq!(face.family, "My Font");
+        assert_eq!(
+            face.sources,
+            vec![
+                ("a.woff2".to_string(), Some("woff2".to_string())),
+                ("b.ttf".to_string(), Some("truetype".to_string())),
+            ]
+        );
     }
 
     #[test]

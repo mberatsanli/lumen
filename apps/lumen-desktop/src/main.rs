@@ -437,10 +437,18 @@ impl App {
     /// The measurer that produced the current layout — selection geometry
     /// must use the same one.
     fn measurer(&self) -> Box<dyn TextMeasurer + '_> {
-        match &self.font {
-            Some(font) => Box::new(SharedFont(font.clone())),
+        match self.effective_font() {
+            Some(font) => Box::new(SharedFont(font)),
             None => Box::new(HeuristicMeasurer),
         }
+    }
+
+    /// The font frames render with: the page's @font-face font when one
+    /// loaded, else the system font.
+    fn effective_font(&self) -> Option<Arc<SystemFont>> {
+        self.session()
+            .and_then(Session::web_font)
+            .or_else(|| self.font.clone())
     }
 
     fn caret_at_cursor(&self) -> Option<Caret> {
@@ -848,7 +856,7 @@ impl App {
                     &page.display_list,
                     self.scroll_y - BAR_HEIGHT,
                     scale,
-                    self.font.as_deref(),
+                    self.effective_font().as_deref(),
                     region,
                 );
             }
@@ -1257,7 +1265,7 @@ impl App {
                             size.height,
                             self.scroll_y - BAR_HEIGHT,
                             scale,
-                            self.font.as_deref(),
+                            self.effective_font().as_deref(),
                         ),
                         None => lumen_engine::Framebuffer::new(size.width, size.height),
                     }
@@ -1350,10 +1358,22 @@ impl App {
                 120,
             );
         }
-        rasterize_over(&mut framebuffer, &chrome, 0.0, scale, self.font.as_deref());
+        rasterize_over(
+            &mut framebuffer,
+            &chrome,
+            0.0,
+            scale,
+            self.effective_font().as_deref(),
+        );
         if self.debug_hud {
             let hud = self.hud_commands();
-            rasterize_over(&mut framebuffer, &hud, 0.0, scale, self.font.as_deref());
+            rasterize_over(
+                &mut framebuffer,
+                &hud,
+                0.0,
+                scale,
+                self.effective_font().as_deref(),
+            );
         }
 
         let Some(surface) = self.surface.as_mut() else {

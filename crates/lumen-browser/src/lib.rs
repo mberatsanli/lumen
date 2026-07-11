@@ -39,6 +39,9 @@ pub struct Session<L: ResourceLoader> {
     active: Option<NodeId>,
     /// Focused node (`:focus`) — the shell decides what focus means.
     focused: Option<NodeId>,
+    /// First usable `@font-face` font of the page (TTF/OTF only —
+    /// fontdue cannot parse WOFF), used as the document font.
+    web_font: Option<Arc<lumen_engine::SystemFont>>,
     /// How the current stylesheet's hover rules can affect the page —
     /// picks the cheapest reaction to hover changes.
     hover_impact: lumen_engine::HoverImpact,
@@ -60,6 +63,7 @@ impl<L: ResourceLoader> Session<L> {
             hovered: None,
             active: None,
             focused: None,
+            web_font: None,
             hover_impact: lumen_engine::HoverImpact::Nothing,
         }
     }
@@ -269,9 +273,24 @@ impl<L: ResourceLoader> Session<L> {
             self.author.clone(),
             self.images.clone(),
             self.viewport,
-            self.measurer.as_ref(),
+            self.effective_measurer(),
             &interaction,
         ));
+    }
+
+    /// The page's own `@font-face` font, when one loaded.
+    #[must_use]
+    pub fn web_font(&self) -> Option<Arc<lumen_engine::SystemFont>> {
+        self.web_font.clone()
+    }
+
+    /// The measurer layout runs with: the web font when one loaded, else
+    /// the shell-provided measurer.
+    fn effective_measurer(&self) -> &dyn TextMeasurer {
+        match &self.web_font {
+            Some(font) => font.as_ref(),
+            None => self.measurer.as_ref(),
+        }
     }
 
     #[must_use]
@@ -342,6 +361,34 @@ impl<L: ResourceLoader> Session<L> {
         self.author = Arc::new(lumen_css::parse_stylesheet(&author_css));
         self.hover_impact = lumen_engine::hover_impact(&self.author);
 
+        // @font-face: fetch the first source fontdue can parse (ttf/otf;
+        // woff/woff2 are skipped) and use it as the document font.
+        self.web_font = None;
+        'faces: for face in &self.author.font_faces {
+            for (source, format) in &face.sources {
+                let usable = match format.as_deref() {
+                    Some("truetype" | "opentype") => true,
+                    Some(_) => false,
+                    None => {
+                        let lower = source.to_ascii_lowercase();
+                        lower.ends_with(".ttf") || lower.ends_with(".otf")
+                    }
+                };
+                if !usable {
+                    continue;
+                }
+                let Ok(url) = resolve(&base, source) else {
+                    continue;
+                };
+                if let Ok(response) = self.loader.load(&ResourceRequest { url })
+                    && let Some(font) = lumen_engine::SystemFont::from_bytes(&response.body)
+                {
+                    self.web_font = Some(Arc::new(font));
+                    break 'faces;
+                }
+            }
+        }
+
         // Images: fetched once per page; failures leave a placeholder box.
         // Capped so image-heavy pages cannot stall navigation for minutes.
         const MAX_IMAGES_PER_PAGE: usize = 32;
@@ -383,7 +430,7 @@ impl<L: ResourceLoader> Session<L> {
             self.author.clone(),
             self.images.clone(),
             self.viewport,
-            self.measurer.as_ref(),
+            self.effective_measurer(),
             None,
         ));
         self.source = Some(source);

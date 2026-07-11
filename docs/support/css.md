@@ -45,7 +45,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Custom properties `--x` / `var()` | ⚠️ | ✅ | ✅ | ✅ | inherit + fallbacks; substituted before shorthand expansion; no invalid-at-computed-value handling |
 | `calc()`, `min()`, `max()`, `clamp()` | ⚠️ | ✅ | ✅ | ✅ | full expression grammar incl. nested min/max/clamp; arguments must share a family — px+% mixing drops the declaration |
 | `@media` | ⚠️ | ✅ | ✅ | ✅ | screen/all + min-/max-width (and-combined, nesting intersects); restyles on resize; other queries skipped safely |
-| `@import`, `@font-face`, `@supports`, `@layer` | ❌ | ✅ | ✅ | ✅ | skipped safely |
+| `@import`, `@supports`, `@layer` | ❌ | ✅ | ✅ | ✅ | skipped safely (`@font-face` supported, see Typography) |
 
 ## Units
 
@@ -150,7 +150,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `word-break` / `overflow-wrap` | ⚠️ | ✅ | ✅ | ✅ | break-all/break-word/anywhere split over-wide words at any character |
 | `text-overflow: ellipsis` | ⚠️ | ✅ | ✅ | ✅ | truncates the overflowing line with …; pair with nowrap + overflow |
 | `text-shadow` | ⚠️ | ✅ | ✅ | ✅ | comma lists; blur approximated by alpha thinning (no glyph blur) |
-| Web fonts `@font-face` | ❌ | ✅ | ✅ | ✅ | |
+| Web fonts `@font-face` | ⚠️ | ✅ | ✅ | ✅ | first TTF/OTF source becomes the document font (no WOFF — fontdue; no per-family matching) |
 
 ## Visual effects & motion
 
