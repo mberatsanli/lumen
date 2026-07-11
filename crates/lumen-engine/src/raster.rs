@@ -35,6 +35,22 @@ impl Framebuffer {
         self.pixels[(y * self.width + x) as usize]
     }
 
+    /// Blends `color` over a rectangle at the given alpha — used for
+    /// translucent overlays like text-selection highlights.
+    pub fn blend_fill(&mut self, rect: Rect, color: lumen_css::Color, alpha: u8) {
+        let packed = pack(color);
+        let x0 = (rect.x.max(0.0) as u32).min(self.width);
+        let y0 = (rect.y.max(0.0) as u32).min(self.height);
+        let x1 = ((rect.x + rect.width).max(0.0) as u32).min(self.width);
+        let y1 = ((rect.y + rect.height).max(0.0) as u32).min(self.height);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let position = (y * self.width + x) as usize;
+                self.pixels[position] = blend(self.pixels[position], packed, alpha);
+            }
+        }
+    }
+
     fn fill(&mut self, rect: Rect, color: u32) {
         let x0 = (rect.x.max(0.0) as u32).min(self.width);
         let y0 = (rect.y.max(0.0) as u32).min(self.height);

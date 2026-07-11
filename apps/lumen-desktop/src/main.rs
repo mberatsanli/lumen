@@ -11,16 +11,21 @@
 //!
 //! Keys: arrows / PageUp / PageDown / Home scroll, `r` refreshes,
 //! `[` / `]` go back / forward, `l` (or clicking the bar) edits the URL,
-//! Enter navigates, Escape cancels editing.
+//! Enter navigates, Escape cancels editing. Drag over text to select it;
+//! Cmd/Ctrl+C copies the selection.
 
 use lumen_browser::Session;
-use lumen_engine::{DisplayCommand, Rect, Size, SystemFont, rasterize_over, rasterize_with};
+use lumen_engine::{
+    Caret, DisplayCommand, HeuristicMeasurer, Rect, Selection, Size, SystemFont, caret_at_point,
+    collect_text_runs, highlight_rects, rasterize_over, rasterize_with, selected_text,
+};
 use lumen_engine::{TextMeasurer, TextMetrics, TextStyle};
 use lumen_platform::{DefaultLoader, Url, url_from_user_input};
 use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
+use winit::event::Modifiers;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
@@ -110,6 +115,12 @@ struct App {
     cursor: Option<(f32, f32)>,
     /// The URL text being edited, when the address bar has focus.
     url_input: Option<String>,
+    /// Where the left button went down (CSS window coords), while held.
+    press: Option<(f32, f32)>,
+    /// Selection anchor caret while dragging.
+    select_anchor: Option<Caret>,
+    selection: Option<Selection>,
+    modifiers: Modifiers,
 }
 
 impl App {
@@ -138,6 +149,53 @@ impl App {
             scroll_y: 0.0,
             cursor: None,
             url_input: None,
+            press: None,
+            select_anchor: None,
+            selection: None,
+            modifiers: Modifiers::default(),
+        }
+    }
+
+    /// The measurer that produced the current layout — selection geometry
+    /// must use the same one.
+    fn measurer(&self) -> Box<dyn TextMeasurer + '_> {
+        match &self.font {
+            Some(font) => Box::new(SharedFont(font.clone())),
+            None => Box::new(HeuristicMeasurer),
+        }
+    }
+
+    fn caret_at_cursor(&self) -> Option<Caret> {
+        let (x, y) = self.page_cursor()?;
+        let page = self.session()?.page()?;
+        let runs = collect_text_runs(&page.layout);
+        caret_at_point(&runs, x, y, self.measurer().as_ref())
+    }
+
+    fn clear_selection(&mut self) {
+        if self.selection.take().is_some() {
+            self.request_redraw();
+        }
+        self.select_anchor = None;
+    }
+
+    fn copy_selection(&mut self) {
+        let (Some(selection), Some(session)) = (self.selection, self.session()) else {
+            return;
+        };
+        let Some(page) = session.page() else { return };
+        let runs = collect_text_runs(&page.layout);
+        let text = selected_text(&runs, &selection);
+        if text.is_empty() {
+            return;
+        }
+        match arboard::Clipboard::new() {
+            Ok(mut clipboard) => {
+                if let Err(error) = clipboard.set_text(text) {
+                    eprintln!("clipboard: {error}");
+                }
+            }
+            Err(error) => eprintln!("clipboard: {error}"),
         }
     }
 
@@ -155,6 +213,8 @@ impl App {
             return;
         }
         let target = nav.label();
+        self.selection = None;
+        self.select_anchor = None;
         let SessionState::Ready(mut session) =
             std::mem::replace(&mut self.state, SessionState::Loading { target })
         else {
@@ -320,9 +380,25 @@ impl App {
             self.session()
                 .is_some_and(|session| session.link_target(node).is_some())
         });
+        let over_text = !over_link
+            && self.caret_at_cursor().is_some_and(|_| {
+                // Only show the I-beam when actually over a text run's rect.
+                self.page_cursor().is_some_and(|(x, y)| {
+                    self.session().and_then(Session::page).is_some_and(|page| {
+                        collect_text_runs(&page.layout).iter().any(|run| {
+                            x >= run.rect.x
+                                && x < run.rect.x + run.rect.width
+                                && y >= run.rect.y
+                                && y < run.rect.y + run.rect.height
+                        })
+                    })
+                })
+            });
         if let Some(window) = &self.window {
             window.set_cursor(if over_link {
                 CursorIcon::Pointer
+            } else if over_text {
+                CursorIcon::Text
             } else {
                 CursorIcon::Default
             });
@@ -439,6 +515,31 @@ impl App {
             ),
             None => lumen_engine::Framebuffer::new(size.width, size.height),
         };
+        if let (Some(selection), Some(page)) =
+            (self.selection, self.session().and_then(Session::page))
+            && !selection.is_empty()
+        {
+            let runs = collect_text_runs(&page.layout);
+            let measurer = self.measurer();
+            for region in highlight_rects(&runs, &selection, measurer.as_ref()) {
+                // ::selection backgrounds render stronger than the default
+                // translucent blue.
+                let (color, alpha) = match region.background {
+                    Some(custom) => (custom, 150),
+                    None => (lumen_css::Color::rgb(0x33, 0x8c, 0xff), 92),
+                };
+                framebuffer.blend_fill(
+                    Rect {
+                        x: region.rect.x * scale,
+                        y: (region.rect.y - self.scroll_y + BAR_HEIGHT) * scale,
+                        width: region.rect.width * scale,
+                        height: region.rect.height * scale,
+                    },
+                    color,
+                    alpha,
+                );
+            }
+        }
         rasterize_over(&mut framebuffer, &chrome, 0.0, scale, self.font.as_deref());
 
         let Some(surface) = self.surface.as_mut() else {
@@ -495,6 +596,13 @@ impl App {
             Key::Named(NamedKey::Home) => {
                 self.scroll_y = 0.0;
                 self.request_redraw();
+            }
+            Key::Character(text)
+                if text.as_str() == "c"
+                    && (self.modifiers.state().super_key()
+                        || self.modifiers.state().control_key()) =>
+            {
+                self.copy_selection();
             }
             Key::Character(text) => match text.as_str() {
                 "r" => self.start_nav(Nav::Refresh),
@@ -588,7 +696,17 @@ impl ApplicationHandler<NavDone> for App {
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self.scale();
                 self.cursor = Some((position.x as f32 / scale, position.y as f32 / scale));
-                self.update_hover();
+                if self.press.is_some() {
+                    // Dragging: extend the selection from the anchor.
+                    if let (Some(anchor), Some(focus)) =
+                        (self.select_anchor, self.caret_at_cursor())
+                    {
+                        self.selection = Some(Selection { anchor, focus });
+                        self.request_redraw();
+                    }
+                } else {
+                    self.update_hover();
+                }
             }
             WindowEvent::CursorLeft { .. } => {
                 self.cursor = None;
@@ -602,7 +720,36 @@ impl ApplicationHandler<NavDone> for App {
                 state: ElementState::Pressed,
                 button: MouseButton::Left,
                 ..
-            } => self.click(),
+            } => {
+                self.press = self.cursor;
+                self.clear_selection();
+                if self.cursor.is_some_and(|(_, y)| y >= BAR_HEIGHT) {
+                    self.select_anchor = self.caret_at_cursor();
+                }
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+                ..
+            } => {
+                let press = self.press.take();
+                self.select_anchor = None;
+                let moved = match (press, self.cursor) {
+                    (Some((px, py)), Some((cx, cy))) => {
+                        (px - cx).abs() > 3.0 || (py - cy).abs() > 3.0
+                    }
+                    _ => false,
+                };
+                if !moved {
+                    // A stationary press is a click (links, chrome, focus).
+                    self.clear_selection();
+                    self.click();
+                }
+                self.update_hover();
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.modifiers = modifiers;
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 let amount = match delta {
                     MouseScrollDelta::LineDelta(_, lines) => -lines * SCROLL_STEP,
