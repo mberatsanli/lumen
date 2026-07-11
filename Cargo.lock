@@ -984,6 +984,7 @@ dependencies = [
  "lumen-css",
  "lumen-engine",
  "lumen-html",
+ "lumen-js",
  "lumen-platform",
 ]
 

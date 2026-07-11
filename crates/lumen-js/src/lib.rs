@@ -12,7 +12,7 @@ pub mod interp;
 pub mod lexer;
 pub mod parser;
 
-pub use interp::{DomNode, Host, Runtime, Value, to_display, to_number, truthy};
+pub use interp::{DomNode, Host, Runtime, Value, to_number, truthy};
 pub use parser::parse_program;
 
 #[cfg(test)]

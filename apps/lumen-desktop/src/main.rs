@@ -904,6 +904,14 @@ impl App {
                     .hit_test_scrolled(x, y, session_offsets(&self.state))
             })
         });
+        // Script listeners see the click first, bubbling to ancestors.
+        if let Some(node) = node
+            && let SessionState::Ready(session) = &mut self.state
+            && session.dispatch_dom_event(node, "click")
+        {
+            self.invalidate_page();
+            self.request_redraw();
+        }
         // Clicking moves :focus (cleared when clicking empty space).
         // The focus target is the nearest form control or the hit node.
         let control = node.and_then(|node| self.form_control_at(node));
@@ -1444,13 +1452,19 @@ impl App {
 
     fn redraw(&mut self) {
         let frame_started = Instant::now();
-        // Step running CSS transitions; keep redrawing while any are live.
+        // Step running CSS transitions and script timers; keep redrawing
+        // while any are live.
         let now_ms = self.started.elapsed().as_secs_f64() * 1000.0;
-        if let SessionState::Ready(session) = &mut self.state
-            && session.tick(now_ms)
-        {
-            self.invalidate_page();
-            self.request_redraw();
+        if let SessionState::Ready(session) = &mut self.state {
+            let transitioned = session.tick(now_ms);
+            let scripted = session.tick_scripts(now_ms);
+            if transitioned || scripted {
+                self.invalidate_page();
+                self.request_redraw();
+            } else if session.has_script_timers() {
+                // A timer is pending: keep frames coming so it fires.
+                self.request_redraw();
+            }
         }
         let scale = self.scale();
         let chrome = self.chrome_commands();

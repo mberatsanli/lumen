@@ -89,8 +89,8 @@ interaction) — not just a DOM node.
 
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
-| `<script>` | ⚠️ | ✅ | ✅ | ✅ | raw-text parsed, hidden, **never executed** (deliberate) |
-| `<noscript>` | ⚠️ | ✅ | ✅ | ✅ | contents render — correct for a no-JS browser |
+| `<script>` | ⚠️ | ✅ | ✅ | ✅ | inline and `src=` scripts execute via the lumen-js interpreter (see [js.md](js.md)); runs once after first render |
+| `<noscript>` | ⚠️ | ✅ | ✅ | ✅ | contents still render (no-JS fallback not yet suppressed) |
 | `<template>` | ❌ | ✅ | ✅ | ✅ | contents should be inert; currently normal children |
 | Custom elements / `<slot>` | ❌ | ✅ | ✅ | ✅ | |
 

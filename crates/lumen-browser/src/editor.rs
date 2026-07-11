@@ -332,6 +332,13 @@ impl<L: ResourceLoader> Session<L> {
             }
         };
         self.sync_edit_display(result == EditResult::Edited);
+        if result == EditResult::Edited {
+            // Scripts hear about typing like real browsers.
+            let node = self.editing();
+            if let Some(node) = node {
+                self.dispatch_dom_event(node, "input");
+            }
+        }
         result
     }
 
