@@ -914,9 +914,12 @@ impl App {
     }
 
     fn open_find_bar(&mut self) {
-        self.find_input = Some(TextInput::empty());
-        self.find_matches.clear();
-        self.find_index = 0;
+        match &mut self.find_input {
+            // Reopening keeps the query and selects it (as Chrome does), so
+            // typing replaces it and Enter reuses it.
+            Some(input) => input.select_all(),
+            None => self.find_input = Some(TextInput::empty()),
+        }
         self.request_redraw();
     }
 
