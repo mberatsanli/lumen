@@ -1301,6 +1301,47 @@ mod tests {
     }
 
     #[test]
+    fn typed_values_render_in_the_display_list() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<form><input type='text' name='q' placeholder='ara'></form>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let field = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+            .unwrap();
+        let texts = |session: &Session<FakeLoader>| -> Vec<String> {
+            session
+                .page()
+                .unwrap()
+                .display_list
+                .iter()
+                .filter_map(|command| match command {
+                    lumen_engine::DisplayCommand::DrawText { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert!(texts(&session).iter().any(|text| text.contains("ara")));
+        session.set_form_value(field, "merhaba");
+        let after = texts(&session);
+        assert!(
+            after.iter().any(|text| text.contains("merhaba")),
+            "typed value missing: {after:?}"
+        );
+        assert!(!after.iter().any(|text| text.contains("ara") && !text.contains("merhaba")));
+    }
+
+    #[test]
     fn checkables_toggle_and_radios_group() {
         let mut session = Session::new(
             FakeLoader::new(&[(

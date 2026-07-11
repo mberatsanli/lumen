@@ -138,6 +138,12 @@ impl Document {
 
     /// Inserts (or updates in place) a CSS-generated text node as the
     /// first (`leading`) or last child of `parent`. Returns its id.
+    /// The generated text node for `(parent, leading)`, if one exists.
+    #[must_use]
+    pub fn generated_text(&self, parent: NodeId, leading: bool) -> Option<NodeId> {
+        self.generated.get(&(parent, leading)).copied()
+    }
+
     pub fn upsert_generated_text(&mut self, parent: NodeId, leading: bool, text: &str) -> NodeId {
         if let Some(existing) = self.generated.get(&(parent, leading)).copied() {
             if let NodeKind::Text(current) = &mut self.nodes[existing].kind {

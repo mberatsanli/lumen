@@ -179,7 +179,11 @@ fn materialize_form_values(document: &mut Document) {
         })
         .collect();
     for (id, text) in inputs {
-        document.upsert_generated_text(id, true, &text);
+        // Live edits (a generated value node already present) win over
+        // the parsed attribute/placeholder on relayout.
+        if document.generated_text(id, true).is_none() {
+            document.upsert_generated_text(id, true, &text);
+        }
     }
 }
 
