@@ -98,6 +98,18 @@ impl LayoutBox {
         ordered
     }
 
+    /// Depth-first search for the layout box of a DOM node (anonymous
+    /// blocks share their container's node and are skipped).
+    #[must_use]
+    pub fn find_by_node(&self, node_id: NodeId) -> Option<&LayoutBox> {
+        if self.node_id == node_id && self.box_type != BoxType::AnonymousBlock {
+            return Some(self);
+        }
+        self.children
+            .iter()
+            .find_map(|child| child.find_by_node(node_id))
+    }
+
     /// The deepest box under the point (page coordinates, CSS pixels),
     /// checking topmost paint order first.
     #[must_use]

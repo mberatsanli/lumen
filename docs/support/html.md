@@ -30,7 +30,7 @@ interaction) — not just a DOM node.
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
 | `<html> <head> <body>` | ✅ | ✅ | ✅ | ✅ | when present |
-| `<title>` | ⚠️ | ✅ | ✅ | ✅ | hidden from layout; not used as window title |
+| `<title>` | ✅ | ✅ | ✅ | ✅ | shown as the desktop window title |
 | `<style>` | ✅ | ✅ | ✅ | ✅ | document-order extraction |
 | `<link rel="stylesheet">` | ✅ | ✅ | ✅ | ✅ | document order; relative hrefs vs final URL; failures skip the sheet |
 | `<meta>` | ⚠️ | ✅ | ✅ | ✅ | hidden; viewport/charset ignored |
@@ -116,5 +116,5 @@ interaction) — not just a DOM node.
 | `http(s)://` + redirects | ✅ | ✅ | ✅ | ✅ | 5s connect / 20s request timeouts |
 | Relative URL resolution | ✅ | ✅ | ✅ | ✅ | against final URL |
 | History back/forward/refresh | ⚠️ | ✅ | ✅ | ✅ | re-fetches; no cache; desktop: address bar + nav buttons, loads on background thread |
-| Fragment `#anchor` scroll | ❌ | ✅ | ✅ | ✅ | |
+| Fragment `#anchor` scroll | ⚠️ | ✅ | ✅ | ✅ | scrolls to `id` targets after navigation; no :target styling |
 | Cookies / cache / compression | ❌ | ✅ | ✅ | ✅ | |

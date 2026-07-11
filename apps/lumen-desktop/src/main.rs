@@ -12,7 +12,8 @@
 //! Keys: arrows / PageUp / PageDown / Home scroll, `r` refreshes,
 //! `[` / `]` go back / forward, `l` (or clicking the bar) edits the URL,
 //! Enter navigates, Escape cancels editing. Drag over text to select it;
-//! Cmd/Ctrl+C copies the selection.
+//! Cmd/Ctrl+C copies the selection. Cmd/Ctrl+F opens the find bar
+//! (type to search, Enter cycles matches, Escape closes).
 
 use lumen_browser::Session;
 use lumen_engine::{
@@ -121,6 +122,14 @@ struct App {
     select_anchor: Option<Caret>,
     selection: Option<Selection>,
     modifiers: Modifiers,
+    /// The find-bar query, when Ctrl/Cmd+F is active.
+    find_input: Option<String>,
+    find_matches: Vec<Selection>,
+    find_index: usize,
+    /// Damage tracking: bumped whenever the page raster could change.
+    page_generation: u64,
+    /// Cached page raster keyed by (generation, scroll, size).
+    page_frame: Option<((u64, u32, u32, u32), lumen_engine::Framebuffer)>,
 }
 
 impl App {
@@ -153,7 +162,17 @@ impl App {
             select_anchor: None,
             selection: None,
             modifiers: Modifiers::default(),
+            find_input: None,
+            find_matches: Vec::new(),
+            find_index: 0,
+            page_generation: 0,
+            page_frame: None,
         }
+    }
+
+    /// Marks the rasterized page stale (navigation, hover, resize...).
+    fn invalidate_page(&mut self) {
+        self.page_generation = self.page_generation.wrapping_add(1);
     }
 
     /// The measurer that produced the current layout — selection geometry
@@ -236,6 +255,7 @@ impl App {
                 error: result.err().map(|error| error.to_string()),
             });
         });
+        self.invalidate_page();
         self.update_title();
         self.request_redraw();
     }
@@ -354,6 +374,33 @@ impl App {
             italic: false,
             monospace: false,
         });
+        if let Some(query) = &self.find_input {
+            let bar_width = 280.0_f32.min(width - 16.0);
+            let x = width - bar_width - 8.0;
+            commands.push(DisplayCommand::FillRect {
+                rect: bar(x, BAR_HEIGHT + 4.0, bar_width, 26.0),
+                color: Color::rgb(0xfd, 0xf6, 0xd8),
+                radius: lumen_engine::Corners::uniform(5.0),
+            });
+            let status = if query.is_empty() {
+                String::new()
+            } else if self.find_matches.is_empty() {
+                "  0/0".to_string()
+            } else {
+                format!("  {}/{}", self.find_index + 1, self.find_matches.len())
+            };
+            commands.push(DisplayCommand::DrawText {
+                x: x + 8.0,
+                y: BAR_HEIGHT + 22.0,
+                text: format!("Find: {query}_{status}"),
+                color: enabled,
+                font_size: 13.0,
+                font_weight: 400,
+                underline: false,
+                italic: false,
+                monospace: false,
+            });
+        }
         commands
     }
 
@@ -409,6 +456,7 @@ impl App {
         if let SessionState::Ready(session) = &mut self.state
             && session.set_hovered(hit)
         {
+            self.invalidate_page();
             self.request_redraw();
         }
     }
@@ -472,6 +520,100 @@ impl App {
         }
     }
 
+    /// Scrolls to the element whose `id` matches the current URL fragment.
+    fn scroll_to_fragment(&mut self) {
+        let Some(target_y) = self.session().and_then(|session| {
+            let fragment = session.current_url()?.fragment()?.to_string();
+            let page = session.page()?;
+            let document = &page.document;
+            let node = document.descendants(document.root()).find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.attributes.get("id") == Some(fragment.as_str()))
+            })?;
+            Some(page.layout.find_by_node(node)?.border_box().y)
+        }) else {
+            return;
+        };
+        self.scroll_y = target_y.clamp(0.0, self.max_scroll());
+    }
+
+    /// Recomputes find matches for the current query (ASCII
+    /// case-insensitive, per text run — matches never span runs).
+    fn refresh_find_matches(&mut self) {
+        self.find_matches.clear();
+        self.find_index = 0;
+        let Some(query) = &self.find_input else {
+            return;
+        };
+        if query.is_empty() {
+            return;
+        }
+        let Some(page) = self.session().and_then(Session::page) else {
+            return;
+        };
+        let needle: Vec<char> = query.chars().map(|c| c.to_ascii_lowercase()).collect();
+        for (index, run) in collect_text_runs(&page.layout).iter().enumerate() {
+            let haystack: Vec<char> = run.text.chars().map(|c| c.to_ascii_lowercase()).collect();
+            let mut start = 0;
+            while start + needle.len() <= haystack.len() {
+                if haystack[start..start + needle.len()] == needle[..] {
+                    self.find_matches.push(Selection {
+                        anchor: Caret {
+                            run: index,
+                            offset: start,
+                        },
+                        focus: Caret {
+                            run: index,
+                            offset: start + needle.len(),
+                        },
+                    });
+                    start += needle.len();
+                } else {
+                    start += 1;
+                }
+            }
+        }
+    }
+
+    /// Scrolls the current find match into view (upper third).
+    fn scroll_to_find_match(&mut self) {
+        let region = {
+            let Some(selection) = self.find_matches.get(self.find_index).copied() else {
+                return;
+            };
+            let Some(page) = self.session().and_then(Session::page) else {
+                return;
+            };
+            let runs = collect_text_runs(&page.layout);
+            let measurer = self.measurer();
+            highlight_rects(&runs, &selection, measurer.as_ref())
+                .into_iter()
+                .next()
+        };
+        let Some(region) = region else { return };
+        let viewport_height = self.viewport().height;
+        let visible = region.rect.y >= self.scroll_y
+            && region.rect.y + region.rect.height <= self.scroll_y + viewport_height;
+        if !visible {
+            self.scroll_y = (region.rect.y - viewport_height / 3.0).clamp(0.0, self.max_scroll());
+        }
+    }
+
+    fn open_find_bar(&mut self) {
+        self.find_input = Some(String::new());
+        self.find_matches.clear();
+        self.find_index = 0;
+        self.request_redraw();
+    }
+
+    fn close_find_bar(&mut self) {
+        self.find_input = None;
+        self.find_matches.clear();
+        self.find_index = 0;
+        self.request_redraw();
+    }
+
     fn request_redraw(&self) {
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -482,12 +624,15 @@ impl App {
         if let Some(window) = &self.window {
             let label = match &self.state {
                 SessionState::Loading { target } => format!("Lumen — loading {target}"),
-                SessionState::Ready(session) => format!(
-                    "Lumen — {}",
-                    session
-                        .current_url()
-                        .map_or_else(|| self.input.clone(), ToString::to_string)
-                ),
+                SessionState::Ready(session) => match session.title() {
+                    Some(title) => format!("{title} — Lumen"),
+                    None => format!(
+                        "Lumen — {}",
+                        session
+                            .current_url()
+                            .map_or_else(|| self.input.clone(), ToString::to_string)
+                    ),
+                },
             };
             window.set_title(&label);
         }
@@ -506,17 +651,32 @@ impl App {
         };
 
         // Page first (offset below the bar via the scroll shift), then the
-        // chrome painted over it.
-        let mut framebuffer = match self.session().and_then(Session::page) {
-            Some(page) => rasterize_with(
-                &page.display_list,
-                size.width,
-                size.height,
-                self.scroll_y - BAR_HEIGHT,
-                scale,
-                self.font.as_deref(),
-            ),
-            None => lumen_engine::Framebuffer::new(size.width, size.height),
+        // chrome painted over it. The page raster is cached so overlay-only
+        // changes (selection drags, find typing, URL editing) skip the
+        // expensive repaint; navigation/hover/resize bump the generation.
+        let cache_key = (
+            self.page_generation,
+            self.scroll_y.to_bits(),
+            size.width,
+            size.height,
+        );
+        let mut framebuffer = match &self.page_frame {
+            Some((key, frame)) if *key == cache_key => frame.clone(),
+            _ => {
+                let frame = match self.session().and_then(Session::page) {
+                    Some(page) => rasterize_with(
+                        &page.display_list,
+                        size.width,
+                        size.height,
+                        self.scroll_y - BAR_HEIGHT,
+                        scale,
+                        self.font.as_deref(),
+                    ),
+                    None => lumen_engine::Framebuffer::new(size.width, size.height),
+                };
+                self.page_frame = Some((cache_key, frame.clone()));
+                frame
+            }
         };
         if let (Some(selection), Some(page)) =
             (self.selection, self.session().and_then(Session::page))
@@ -543,6 +703,52 @@ impl App {
                 );
             }
         }
+        // Find matches highlight in yellow; the current one in orange.
+        if self.find_input.is_some()
+            && !self.find_matches.is_empty()
+            && let Some(page) = self.session().and_then(Session::page)
+        {
+            let runs = collect_text_runs(&page.layout);
+            let measurer = self.measurer();
+            for (index, matched) in self.find_matches.iter().enumerate() {
+                let (color, alpha) = if index == self.find_index {
+                    (lumen_css::Color::rgb(0xff, 0x8c, 0x1a), 150)
+                } else {
+                    (lumen_css::Color::rgb(0xff, 0xd5, 0x4f), 110)
+                };
+                for region in highlight_rects(&runs, matched, measurer.as_ref()) {
+                    framebuffer.blend_fill(
+                        Rect {
+                            x: region.rect.x * scale,
+                            y: (region.rect.y - self.scroll_y + BAR_HEIGHT) * scale,
+                            width: region.rect.width * scale,
+                            height: region.rect.height * scale,
+                        },
+                        color,
+                        alpha,
+                    );
+                }
+            }
+        }
+        // Scrollbar: a proportional overlay thumb on the right edge.
+        let max_scroll = self.max_scroll();
+        if max_scroll > 0.0 {
+            let viewport = self.viewport();
+            let content_height = viewport.height + max_scroll;
+            let thumb_height = (viewport.height * viewport.height / content_height).max(24.0);
+            let thumb_y = BAR_HEIGHT
+                + (viewport.height - thumb_height) * (self.scroll_y / max_scroll).clamp(0.0, 1.0);
+            framebuffer.blend_fill(
+                Rect {
+                    x: (viewport.width - 8.0) * scale,
+                    y: thumb_y * scale,
+                    width: 5.0 * scale,
+                    height: thumb_height * scale,
+                },
+                lumen_css::Color::rgb(0x55, 0x52, 0x5c),
+                120,
+            );
+        }
         rasterize_over(&mut framebuffer, &chrome, 0.0, scale, self.font.as_deref());
 
         let Some(surface) = self.surface.as_mut() else {
@@ -559,6 +765,55 @@ impl App {
     }
 
     fn handle_key(&mut self, key: &Key) {
+        let command_held =
+            self.modifiers.state().super_key() || self.modifiers.state().control_key();
+        // Ctrl/Cmd+F toggles the find bar from anywhere.
+        if command_held && matches!(key, Key::Character(text) if text.as_str() == "f") {
+            self.open_find_bar();
+            return;
+        }
+        // Find-bar editing captures input next (Ctrl/Cmd+C still copies).
+        if self.find_input.is_some() {
+            match key {
+                Key::Named(NamedKey::Escape) => self.close_find_bar(),
+                Key::Named(NamedKey::Enter) => {
+                    if !self.find_matches.is_empty() {
+                        self.find_index = (self.find_index + 1) % self.find_matches.len();
+                        self.scroll_to_find_match();
+                        self.request_redraw();
+                    }
+                }
+                Key::Named(NamedKey::Backspace) => {
+                    if let Some(query) = &mut self.find_input {
+                        query.pop();
+                        self.refresh_find_matches();
+                        self.scroll_to_find_match();
+                        self.request_redraw();
+                    }
+                }
+                Key::Character(text) if text.as_str() == "c" && command_held => {
+                    self.copy_selection();
+                }
+                Key::Named(NamedKey::Space) => {
+                    if let Some(query) = &mut self.find_input {
+                        query.push(' ');
+                        self.refresh_find_matches();
+                        self.scroll_to_find_match();
+                        self.request_redraw();
+                    }
+                }
+                Key::Character(text) if !command_held => {
+                    if let Some(query) = &mut self.find_input {
+                        query.push_str(text);
+                        self.refresh_find_matches();
+                        self.scroll_to_find_match();
+                        self.request_redraw();
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
         // Address-bar editing captures all input first.
         if self.url_input.is_some() {
             match key {
@@ -675,6 +930,9 @@ impl ApplicationHandler<NavDone> for App {
         // The window may have resized while the session was away.
         session.set_viewport(self.viewport());
         self.state = SessionState::Ready(session);
+        self.invalidate_page();
+        self.scroll_to_fragment();
+        self.refresh_find_matches();
         self.update_title();
         self.update_hover();
         self.request_redraw();
@@ -694,6 +952,7 @@ impl ApplicationHandler<NavDone> for App {
                     session.set_viewport(viewport);
                 }
                 self.scroll_y = self.scroll_y.clamp(0.0, self.max_scroll());
+                self.invalidate_page();
                 self.request_redraw();
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -716,6 +975,7 @@ impl ApplicationHandler<NavDone> for App {
                 if let SessionState::Ready(session) = &mut self.state
                     && session.set_hovered(None)
                 {
+                    self.invalidate_page();
                     self.request_redraw();
                 }
             }

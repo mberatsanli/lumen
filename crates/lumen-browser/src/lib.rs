@@ -166,7 +166,28 @@ impl<L: ResourceLoader> Session<L> {
         self.page.as_ref()
     }
 
+    /// The text of the page's `<title>` element, when present.
     #[must_use]
+    pub fn title(&self) -> Option<String> {
+        let page = self.page()?;
+        let document = &page.document;
+        let title = document.descendants(document.root()).find(|id| {
+            document
+                .element(*id)
+                .is_some_and(|element| element.tag_name == "title")
+        })?;
+        let text: String = document
+            .children(title)
+            .iter()
+            .filter_map(|child| match &document.node(*child).kind {
+                lumen_html::NodeKind::Text(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        let text = text.trim().to_string();
+        (!text.is_empty()).then_some(text)
+    }
+
     pub fn current_url(&self) -> Option<&Url> {
         self.index.map(|index| &self.history[index])
     }
@@ -534,6 +555,19 @@ mod tests {
         });
         session.set_hovered(Some(1));
         assert_eq!(session.loader.loads.borrow().len(), 2);
+    }
+
+    #[test]
+    fn title_comes_from_the_title_element() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<html><head><title>  My Page </title></head><body>x</body></html>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        assert_eq!(session.title().as_deref(), Some("My Page"));
     }
 
     #[test]
