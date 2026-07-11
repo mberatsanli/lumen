@@ -417,6 +417,16 @@ pub(crate) fn layout_atomic_box(
     )
 }
 
+/// Resolves a specified size to its content-box value: border-box sizes
+/// shrink by the given edge total (border + padding on that axis),
+/// content-box sizes pass through.
+fn content_size(specified: f32, box_sizing: BoxSizing, edges: f32) -> f32 {
+    match box_sizing {
+        BoxSizing::ContentBox => specified,
+        BoxSizing::BorderBox => (specified - edges).max(0.0),
+    }
+}
+
 /// Clamps a used content-box size by min/max constraints (`Auto` =
 /// unconstrained, min wins over max). Constraints name the same box as
 /// `width`/`height`, so with border-box sizing they shrink by `edges`.
@@ -429,10 +439,7 @@ fn clamp_content_size(
     edges: f32,
     box_sizing: BoxSizing,
 ) -> f32 {
-    let adjust = |value: f32| match box_sizing {
-        BoxSizing::ContentBox => value,
-        BoxSizing::BorderBox => (value - edges).max(0.0),
-    };
+    let adjust = |value: f32| content_size(value, box_sizing, edges);
     let mut clamped = size;
     if let Some(max) = max.resolve(containing, viewport) {
         clamped = clamped.min(adjust(max));
@@ -479,11 +486,12 @@ fn layout_element(
     let content_width = style
         .width
         .resolve(containing_width, viewport)
-        .map(|specified| match style.box_sizing {
-            BoxSizing::ContentBox => specified,
-            BoxSizing::BorderBox => {
-                (specified - border.left - border.right - padding.left - padding.right).max(0.0)
-            }
+        .map(|specified| {
+            content_size(
+                specified,
+                style.box_sizing,
+                border.left + border.right + padding.left + padding.right,
+            )
         })
         .unwrap_or_else(|| {
             (containing_width
@@ -566,12 +574,12 @@ fn layout_element(
             Dimension::Auto | Dimension::Percent(_) => None,
             explicit => explicit
                 .resolve(containing_width, viewport)
-                .map(|specified| match style.box_sizing {
-                    BoxSizing::ContentBox => specified,
-                    BoxSizing::BorderBox => {
-                        (specified - border.top - border.bottom - padding.top - padding.bottom)
-                            .max(0.0)
-                    }
+                .map(|specified| {
+                    content_size(
+                        specified,
+                        style.box_sizing,
+                        border.top + border.bottom + padding.top + padding.bottom,
+                    )
                 }),
         };
         let (children, used_height) = layout_flex_children(
@@ -741,9 +749,12 @@ fn layout_element(
             );
             let margin_box = laid.margin_box();
             let (width, height) = (margin_box.width, margin_box.height);
-            // Find the highest y at or below the cursor where the float fits.
+            // Find the highest y at or below the cursor where the float
+            // fits. The probe is bounded so pathological float stacks
+            // cannot loop forever; real pages need only a few steps.
+            const FLOAT_PLACEMENT_ATTEMPTS: usize = 64;
             let mut y = child_cursor_y;
-            for _ in 0..64 {
+            for _ in 0..FLOAT_PLACEMENT_ATTEMPTS {
                 let (indent, available) = floats.bounds_at(content_x, content_width, y);
                 if width <= available || available >= content_width {
                     let x = match side {
@@ -854,10 +865,7 @@ fn layout_element(
         &mut children,
     );
     // A container's auto height contains its floats (BFC-root behavior).
-    child_cursor_y = child_cursor_y.max(floats.lowest_bottom().min(f32::MAX));
-    if floats.lowest_bottom() > 0.0 {
-        child_cursor_y = child_cursor_y.max(floats.lowest_bottom());
-    }
+    child_cursor_y = child_cursor_y.max(floats.lowest_bottom());
 
     // Phase 5: height. Explicit heights win (border-box heights shrink by
     // vertical padding and border); auto grows from the children. Percent
@@ -866,11 +874,12 @@ fn layout_element(
         Dimension::Auto | Dimension::Percent(_) => (child_cursor_y - content_y).max(0.0),
         explicit => explicit
             .resolve(containing_width, viewport)
-            .map(|specified| match style.box_sizing {
-                BoxSizing::ContentBox => specified,
-                BoxSizing::BorderBox => {
-                    (specified - border.top - border.bottom - padding.top - padding.bottom).max(0.0)
-                }
+            .map(|specified| {
+                content_size(
+                    specified,
+                    style.box_sizing,
+                    border.top + border.bottom + padding.top + padding.bottom,
+                )
             })
             .unwrap_or_else(|| (child_cursor_y - content_y).max(0.0)),
     };

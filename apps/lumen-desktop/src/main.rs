@@ -329,6 +329,13 @@ fn clipboard_get() -> Option<String> {
     arboard::Clipboard::new().ok()?.get_text().ok()
 }
 
+/// Which chrome text bar a key event is being routed to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EditBar {
+    Find,
+    Url,
+}
+
 struct App {
     input: String,
     state: SessionState,
@@ -355,6 +362,10 @@ struct App {
     page_generation: u64,
     /// Cached page raster keyed by (generation, scroll, size).
     page_frame: Option<((u64, u32, u32, u32), lumen_engine::Framebuffer)>,
+    /// Reused per-redraw composition buffer; overlays and chrome draw here
+    /// so the cached page raster stays pristine without a fresh allocation
+    /// on every frame.
+    compose_frame: Option<lumen_engine::Framebuffer>,
 }
 
 impl App {
@@ -392,6 +403,7 @@ impl App {
             find_index: 0,
             page_generation: 0,
             page_frame: None,
+            compose_frame: None,
         }
     }
 
@@ -436,6 +448,14 @@ impl App {
         clipboard_set(&text);
     }
 
+    /// The address to display for a ready session: the current URL, or
+    /// the original input before the first successful load.
+    fn display_url(&self, session: &Session<DefaultLoader>) -> String {
+        session
+            .current_url()
+            .map_or_else(|| self.input.clone(), ToString::to_string)
+    }
+
     fn session(&self) -> Option<&Session<DefaultLoader>> {
         match &self.state {
             SessionState::Ready(session) => Some(session),
@@ -468,10 +488,14 @@ impl App {
                 Nav::Forward => session.forward().map(|_| ()),
                 Nav::Refresh => session.refresh().map(|_| ()),
             };
-            let _ = proxy.send_event(NavDone {
+            // Failure means the event loop is gone (window closed while
+            // loading); the navigation result has nowhere to go.
+            if let Err(error) = proxy.send_event(NavDone {
                 session,
                 error: result.err().map(|error| error.to_string()),
-            });
+            }) {
+                eprintln!("note: navigation finished after shutdown: {error}");
+            }
         });
         self.invalidate_page();
         self.update_title();
@@ -587,9 +611,7 @@ impl App {
             (None, SessionState::Ready(session)) => commands.push(DisplayCommand::DrawText {
                 x: 68.0,
                 y: 24.0,
-                text: session
-                    .current_url()
-                    .map_or_else(|| self.input.clone(), ToString::to_string),
+                text: self.display_url(session),
                 color: Color::rgb(0x6a, 0x66, 0x72),
                 font_size: 14.0,
                 font_weight: 400,
@@ -865,26 +887,28 @@ impl App {
         let Some(page) = self.session().and_then(Session::page) else {
             return;
         };
-        let needle: Vec<char> = query.chars().map(|c| c.to_ascii_lowercase()).collect();
+        let needle = query.to_ascii_lowercase();
+        let needle_chars = needle.chars().count();
         for (index, run) in collect_text_runs(&page.layout).iter().enumerate() {
-            let haystack: Vec<char> = run.text.chars().map(|c| c.to_ascii_lowercase()).collect();
-            let mut start = 0;
-            while start + needle.len() <= haystack.len() {
-                if haystack[start..start + needle.len()] == needle[..] {
-                    self.find_matches.push(Selection {
-                        anchor: Caret {
-                            run: index,
-                            offset: start,
-                        },
-                        focus: Caret {
-                            run: index,
-                            offset: start + needle.len(),
-                        },
-                    });
-                    start += needle.len();
-                } else {
-                    start += 1;
-                }
+            let haystack = run.text.to_ascii_lowercase();
+            // match_indices yields byte offsets; carets use char offsets, so
+            // convert incrementally (matches come back in ascending order).
+            let mut prev_byte = 0;
+            let mut prev_char = 0;
+            for (byte_start, matched) in haystack.match_indices(&needle) {
+                prev_char += haystack[prev_byte..byte_start].chars().count();
+                self.find_matches.push(Selection {
+                    anchor: Caret {
+                        run: index,
+                        offset: prev_char,
+                    },
+                    focus: Caret {
+                        run: index,
+                        offset: prev_char + needle_chars,
+                    },
+                });
+                prev_char += needle_chars;
+                prev_byte = byte_start + matched.len();
             }
         }
     }
@@ -959,12 +983,7 @@ impl App {
                 SessionState::Loading { target } => format!("Lumen — loading {target}"),
                 SessionState::Ready(session) => match session.title() {
                     Some(title) => format!("{title} — Lumen"),
-                    None => format!(
-                        "Lumen — {}",
-                        session
-                            .current_url()
-                            .map_or_else(|| self.input.clone(), ToString::to_string)
-                    ),
+                    None => format!("Lumen — {}", self.display_url(session)),
                 },
             };
             window.set_title(&label);
@@ -993,23 +1012,37 @@ impl App {
             size.width,
             size.height,
         );
-        let mut framebuffer = match &self.page_frame {
-            Some((key, frame)) if *key == cache_key => frame.clone(),
-            _ => {
-                let frame = match self.session().and_then(Session::page) {
-                    Some(page) => rasterize_with(
-                        &page.display_list,
-                        size.width,
-                        size.height,
-                        self.scroll_y - BAR_HEIGHT,
-                        scale,
-                        self.font.as_deref(),
-                    ),
-                    None => lumen_engine::Framebuffer::new(size.width, size.height),
-                };
-                self.page_frame = Some((cache_key, frame.clone()));
+        if self
+            .page_frame
+            .as_ref()
+            .is_none_or(|(key, _)| *key != cache_key)
+        {
+            let frame = match self.session().and_then(Session::page) {
+                Some(page) => rasterize_with(
+                    &page.display_list,
+                    size.width,
+                    size.height,
+                    self.scroll_y - BAR_HEIGHT,
+                    scale,
+                    self.font.as_deref(),
+                ),
+                None => lumen_engine::Framebuffer::new(size.width, size.height),
+            };
+            self.page_frame = Some((cache_key, frame));
+        }
+        let Some((_, base)) = &self.page_frame else {
+            return;
+        };
+        // Reuse the composition buffer across redraws; only a resize forces
+        // a reallocation. The cached raster is memcpy'd in, never mutated.
+        let mut framebuffer = match self.compose_frame.take() {
+            Some(mut frame)
+                if frame.width == base.width && frame.height == base.height =>
+            {
+                frame.pixels.copy_from_slice(&base.pixels);
                 frame
             }
+            _ => base.clone(),
         };
         if let (Some(selection), Some(page)) =
             (self.selection, self.session().and_then(Session::page))
@@ -1095,6 +1128,83 @@ impl App {
         };
         buffer.copy_from_slice(&framebuffer.pixels);
         let _ = buffer.present();
+        self.compose_frame = Some(framebuffer);
+    }
+
+    /// Applies a key to one text bar. Returns false when that bar is not
+    /// active so the caller can fall through to the next input target.
+    fn handle_bar_key(
+        &mut self,
+        bar: EditBar,
+        key: &Key,
+        command_held: bool,
+        shift_held: bool,
+    ) -> bool {
+        let input = match bar {
+            EditBar::Find => self.find_input.as_mut(),
+            EditBar::Url => self.url_input.as_mut(),
+        };
+        let Some(input) = input else {
+            return false;
+        };
+        match apply_edit(input, key, command_held, shift_held) {
+            EditOutcome::Changed => match bar {
+                EditBar::Find => {
+                    self.refresh_find_matches();
+                    self.scroll_to_find_match();
+                    self.request_redraw();
+                }
+                EditBar::Url => self.request_redraw(),
+            },
+            EditOutcome::Moved => self.request_redraw(),
+            EditOutcome::Submit => match bar {
+                EditBar::Find => {
+                    if !self.find_matches.is_empty() {
+                        self.find_index = (self.find_index + 1) % self.find_matches.len();
+                        self.scroll_to_find_match();
+                        self.request_redraw();
+                    }
+                }
+                EditBar::Url => self.submit_url_bar(),
+            },
+            EditOutcome::Cancel => match bar {
+                EditBar::Find => self.close_find_bar(),
+                EditBar::Url => {
+                    self.url_input = None;
+                    self.request_redraw();
+                }
+            },
+            EditOutcome::Copy => {
+                // Copy the input selection, or the page selection when the
+                // input has none.
+                let selected = input.selected_text();
+                if selected.is_empty() {
+                    self.copy_selection();
+                } else {
+                    clipboard_set(&selected);
+                }
+            }
+            EditOutcome::Cut => {
+                clipboard_set(&input.selected_text());
+                input.delete_selection();
+                if bar == EditBar::Find {
+                    self.refresh_find_matches();
+                }
+                self.request_redraw();
+            }
+            EditOutcome::Paste => {
+                if let Some(pasted) = clipboard_get() {
+                    input.insert(pasted.replace(['\n', '\r'], " ").as_str());
+                    if bar == EditBar::Find {
+                        self.refresh_find_matches();
+                        self.scroll_to_find_match();
+                    }
+                    self.request_redraw();
+                }
+            }
+            EditOutcome::Ignored => {}
+        }
+        true
     }
 
     fn handle_key(&mut self, key: &Key) {
@@ -1106,88 +1216,13 @@ impl App {
             return;
         }
         let shift_held = self.modifiers.state().shift_key();
-        // Find-bar editing captures input next.
-        if let Some(input) = &mut self.find_input {
-            let outcome = apply_edit(input, key, command_held, shift_held);
-            match outcome {
-                EditOutcome::Changed => {
-                    self.refresh_find_matches();
-                    self.scroll_to_find_match();
-                    self.request_redraw();
-                }
-                EditOutcome::Moved => self.request_redraw(),
-                EditOutcome::Submit => {
-                    if !self.find_matches.is_empty() {
-                        self.find_index = (self.find_index + 1) % self.find_matches.len();
-                        self.scroll_to_find_match();
-                        self.request_redraw();
-                    }
-                }
-                EditOutcome::Cancel => self.close_find_bar(),
-                EditOutcome::Copy => {
-                    // Copy the input selection, or the page selection when
-                    // the input has none.
-                    let selected = self.find_input.as_ref().unwrap().selected_text();
-                    if selected.is_empty() {
-                        self.copy_selection();
-                    } else {
-                        clipboard_set(&selected);
-                    }
-                }
-                EditOutcome::Cut => {
-                    let input = self.find_input.as_mut().unwrap();
-                    clipboard_set(&input.selected_text());
-                    input.delete_selection();
-                    self.refresh_find_matches();
-                    self.request_redraw();
-                }
-                EditOutcome::Paste => {
-                    if let Some(pasted) = clipboard_get() {
-                        let input = self.find_input.as_mut().unwrap();
-                        input.insert(pasted.replace(['\n', '\r'], " ").as_str());
-                        self.refresh_find_matches();
-                        self.scroll_to_find_match();
-                        self.request_redraw();
-                    }
-                }
-                EditOutcome::Ignored => {}
+        // Bar editing captures input first: the find bar, then the address
+        // bar. Both share one handler; only Submit/Cancel and the post-edit
+        // refresh differ per bar.
+        for bar in [EditBar::Find, EditBar::Url] {
+            if self.handle_bar_key(bar, key, command_held, shift_held) {
+                return;
             }
-            return;
-        }
-        // Address-bar editing captures all input first.
-        if let Some(input) = &mut self.url_input {
-            let outcome = apply_edit(input, key, command_held, shift_held);
-            match outcome {
-                EditOutcome::Changed | EditOutcome::Moved => self.request_redraw(),
-                EditOutcome::Submit => self.submit_url_bar(),
-                EditOutcome::Cancel => {
-                    self.url_input = None;
-                    self.request_redraw();
-                }
-                EditOutcome::Copy => {
-                    let selected = self.url_input.as_ref().unwrap().selected_text();
-                    if selected.is_empty() {
-                        self.copy_selection();
-                    } else {
-                        clipboard_set(&selected);
-                    }
-                }
-                EditOutcome::Cut => {
-                    let input = self.url_input.as_mut().unwrap();
-                    clipboard_set(&input.selected_text());
-                    input.delete_selection();
-                    self.request_redraw();
-                }
-                EditOutcome::Paste => {
-                    if let Some(pasted) = clipboard_get() {
-                        let input = self.url_input.as_mut().unwrap();
-                        input.insert(pasted.replace(['\n', '\r'], " ").as_str());
-                        self.request_redraw();
-                    }
-                }
-                EditOutcome::Ignored => {}
-            }
-            return;
         }
         match key {
             Key::Named(NamedKey::ArrowDown) => self.scroll_by(SCROLL_STEP),

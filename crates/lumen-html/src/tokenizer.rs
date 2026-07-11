@@ -471,18 +471,17 @@ impl Tokenizer {
             self.tokens.push(HtmlToken::EndTag { name });
             self.state = State::Data;
         } else {
-            let enters_rawtext = RAWTEXT_ELEMENTS.contains(&name.as_str()) && !self.self_closing;
-            self.tokens.push(HtmlToken::StartTag {
-                name: name.clone(),
-                attributes: std::mem::take(&mut self.attributes),
-                self_closing: self.self_closing,
-            });
-            if enters_rawtext {
-                self.rawtext_tag = name;
+            if RAWTEXT_ELEMENTS.contains(&name.as_str()) && !self.self_closing {
+                self.rawtext_tag = name.clone();
                 self.state = State::Rawtext;
             } else {
                 self.state = State::Data;
             }
+            self.tokens.push(HtmlToken::StartTag {
+                name,
+                attributes: std::mem::take(&mut self.attributes),
+                self_closing: self.self_closing,
+            });
         }
     }
 

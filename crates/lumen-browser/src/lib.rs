@@ -28,10 +28,11 @@ pub struct Session<L: ResourceLoader> {
     /// HTML source of the current page, kept so viewport or measurer
     /// changes can relayout locally without hitting the network.
     source: Option<String>,
-    /// Author stylesheet (embedded + external), fetched once per page.
-    author: lumen_css::Stylesheet,
-    /// Decoded images, fetched once per page.
-    images: ImageMap,
+    /// Author stylesheet (embedded + external), fetched once per page and
+    /// shared with relayouts through the `Arc`.
+    author: Arc<lumen_css::Stylesheet>,
+    /// Decoded images, fetched once per page, shared the same way.
+    images: Arc<ImageMap>,
     /// Node currently under the pointer, for `:hover` styling.
     hovered: Option<NodeId>,
 }
@@ -47,8 +48,8 @@ impl<L: ResourceLoader> Session<L> {
             index: None,
             page: None,
             source: None,
-            author: lumen_css::Stylesheet::default(),
-            images: ImageMap::new(),
+            author: Arc::new(lumen_css::Stylesheet::default()),
+            images: Arc::new(ImageMap::new()),
             hovered: None,
         }
     }
@@ -226,12 +227,12 @@ impl<L: ResourceLoader> Session<L> {
                 .ok()
                 .map(|response| response.text())
         });
-        self.author = lumen_css::parse_stylesheet(&author_css);
+        self.author = Arc::new(lumen_css::parse_stylesheet(&author_css));
 
         // Images: fetched once per page; failures leave a placeholder box.
         // Capped so image-heavy pages cannot stall navigation for minutes.
         const MAX_IMAGES_PER_PAGE: usize = 32;
-        self.images = ImageMap::new();
+        let mut images = ImageMap::new();
         for (node, src) in collect_image_sources(&document)
             .into_iter()
             .take(MAX_IMAGES_PER_PAGE)
@@ -242,9 +243,10 @@ impl<L: ResourceLoader> Session<L> {
             if let Ok(response) = self.loader.load(&ResourceRequest { url })
                 && let Some(image) = RasterImage::decode(&response.body)
             {
-                self.images.insert(node, Arc::new(image));
+                images.insert(node, Arc::new(image));
             }
         }
+        self.images = Arc::new(images);
 
         self.hovered = None; // New document, new node ids.
         self.page = Some(page_from_document(

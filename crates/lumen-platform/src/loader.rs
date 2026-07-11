@@ -85,7 +85,7 @@ impl ResourceLoader for FileLoader {
         let body = std::fs::read(&path)?;
         Ok(ResourceResponse {
             final_url: request.url.clone(),
-            content_type: guess_content_type(&path),
+            content_type: guess_content_type(&path).map(str::to_string),
             body,
         })
     }
@@ -168,15 +168,14 @@ pub fn resolve(base: &Url, reference: &str) -> Result<Url, LoadError> {
         .map_err(|error| LoadError::InvalidUrl(format!("{reference}: {error}")))
 }
 
-fn guess_content_type(path: &std::path::Path) -> Option<String> {
-    let kind = match path.extension()?.to_str()? {
-        "html" | "htm" => "text/html",
-        "css" => "text/css",
-        "svg" => "image/svg+xml",
-        "txt" => "text/plain",
-        _ => return None,
-    };
-    Some(kind.to_string())
+fn guess_content_type(path: &std::path::Path) -> Option<&'static str> {
+    match path.extension()?.to_str()? {
+        "html" | "htm" => Some("text/html"),
+        "css" => Some("text/css"),
+        "svg" => Some("image/svg+xml"),
+        "txt" => Some("text/plain"),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

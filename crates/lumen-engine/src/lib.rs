@@ -41,14 +41,15 @@ use lumen_html::{Document, NodeKind};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Page {
     pub document: Document,
-    /// The author stylesheet (embedded `<style>` contents).
-    pub stylesheet: lumen_css::Stylesheet,
+    /// The author stylesheet (embedded `<style>` contents). Shared so
+    /// relayouts (hover, resize) never copy the parsed rules.
+    pub stylesheet: std::sync::Arc<lumen_css::Stylesheet>,
     pub styles: StyleMap,
     pub layout: LayoutBox,
     pub display_list: Vec<DisplayCommand>,
     pub viewport: Size,
-    /// Decoded images per `<img>` node.
-    pub images: ImageMap,
+    /// Decoded images per `<img>` node. Shared like the stylesheet.
+    pub images: std::sync::Arc<ImageMap>,
 }
 
 /// Runs the full pipeline: parse HTML, extract embedded CSS, cascade,
@@ -82,8 +83,8 @@ pub fn build_page_full(
     let stylesheet = lumen_css::parse_stylesheet(&collect_author_css(&document, |_| None));
     page_from_document(
         document,
-        stylesheet,
-        ImageMap::new(),
+        std::sync::Arc::new(stylesheet),
+        std::sync::Arc::new(ImageMap::new()),
         viewport,
         measurer,
         hovered,
@@ -96,8 +97,8 @@ pub fn build_page_full(
 #[must_use]
 pub fn page_from_document(
     document: Document,
-    stylesheet: lumen_css::Stylesheet,
-    images: ImageMap,
+    stylesheet: std::sync::Arc<lumen_css::Stylesheet>,
+    images: std::sync::Arc<ImageMap>,
     viewport: Size,
     measurer: &dyn TextMeasurer,
     hovered: Option<lumen_html::NodeId>,

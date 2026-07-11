@@ -156,6 +156,17 @@ pub struct HighlightRegion {
     pub background: Option<Color>,
 }
 
+/// The runs a selection touches, with their indices (clipped to the
+/// available runs).
+fn selected_runs(
+    runs: &[TextRun],
+    start: Caret,
+    end: Caret,
+) -> impl Iterator<Item = (usize, &TextRun)> {
+    let last = end.run.min(runs.len().saturating_sub(1));
+    runs.iter().enumerate().take(last + 1).skip(start.run)
+}
+
 /// Highlight regions (page coordinates) for a selection.
 #[must_use]
 pub fn highlight_rects(
@@ -168,8 +179,7 @@ pub fn highlight_rects(
         return Vec::new();
     }
     let mut regions = Vec::new();
-    let last = end.run.min(runs.len().saturating_sub(1));
-    for (index, run) in runs.iter().enumerate().take(last + 1).skip(start.run) {
+    for (index, run) in selected_runs(runs, start, end) {
         let from = if index == start.run {
             prefix_width(run, start.offset, measurer)
         } else {
@@ -205,14 +215,13 @@ pub fn selected_text(runs: &[TextRun], selection: &Selection) -> String {
     }
     let mut output = String::new();
     let mut previous_line_y: Option<f32> = None;
-    let last = end.run.min(runs.len().saturating_sub(1));
-    for (index, run) in runs.iter().enumerate().take(last + 1).skip(start.run) {
-        let chars: Vec<char> = run.text.chars().collect();
+    for (index, run) in selected_runs(runs, start, end) {
+        let count = run.text.chars().count();
         let from = if index == start.run { start.offset } else { 0 };
         let to = if index == end.run {
-            end.offset.min(chars.len())
+            end.offset.min(count)
         } else {
-            chars.len()
+            count
         };
         if from >= to {
             continue;
@@ -224,7 +233,7 @@ pub fn selected_text(runs: &[TextRun], selection: &Selection) -> String {
                 output.push(' ');
             }
         }
-        output.extend(&chars[from..to]);
+        output.extend(run.text.chars().skip(from).take(to - from));
         previous_line_y = Some(run.rect.y);
     }
     output

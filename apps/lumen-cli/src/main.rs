@@ -31,8 +31,8 @@ fn load_page(input: &str) -> Result<Session<DefaultLoader>, Box<dyn std::error::
     Ok(session)
 }
 
-fn page_of(session: &Session<DefaultLoader>) -> &Page {
-    session.page().expect("session was just loaded")
+fn page_of(session: &Session<DefaultLoader>) -> Result<&Page, Box<dyn std::error::Error>> {
+    session.page().ok_or_else(|| "page failed to load".into())
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -58,7 +58,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         ["dump-style", input] => {
             let session = load_page(input)?;
-            let page = page_of(&session);
+            let page = page_of(&session)?;
             print!(
                 "{}",
                 lumen_engine::style::dump_styles(&page.document, &page.styles)
@@ -66,18 +66,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         ["dump-layout", input] => {
             let session = load_page(input)?;
-            print!("{}", dump_layout(&page_of(&session).layout));
+            print!("{}", dump_layout(&page_of(&session)?.layout));
         }
         ["dump-display-list", input] => {
             let session = load_page(input)?;
             print!(
                 "{}",
-                lumen_engine::paint::dump_display_list(&page_of(&session).display_list)
+                lumen_engine::paint::dump_display_list(&page_of(&session)?.display_list)
             );
         }
         ["render", input, output] => {
             let session = load_page(input)?;
-            let svg = lumen_engine::render_svg(page_of(&session));
+            let svg = lumen_engine::render_svg(page_of(&session)?);
             if let Some(parent) = Path::new(output).parent() {
                 fs::create_dir_all(parent)?;
             }

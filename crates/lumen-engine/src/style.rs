@@ -16,8 +16,14 @@ use lumen_css::{
     Specificity, Stylesheet,
 };
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
+
+/// Declared values keyed by property name. `Cow` keys let the fixed
+/// property names (inherited copies, internal inserts) avoid per-node
+/// string allocations during the cascade.
+type RawStyle = HashMap<Cow<'static, str>, CssValue>;
 
 /// The subset of `display` the engine understands.
 ///
@@ -407,14 +413,14 @@ fn compute_node(
     document: &Document,
     node_id: NodeId,
     author: &Stylesheet,
-    parent_raw: &HashMap<String, CssValue>,
+    parent_raw: &RawStyle,
     hover_chain: &HashSet<NodeId>,
     output: &mut HashMap<NodeId, ComputedStyle>,
 ) {
-    let mut raw: HashMap<String, CssValue> = HashMap::new();
+    let mut raw = RawStyle::new();
     for property in INHERITED_PROPERTIES {
         if let Some(value) = parent_raw.get(property) {
-            raw.insert(property.to_string(), value.clone());
+            raw.insert(Cow::Borrowed(property), value.clone());
         }
     }
 
@@ -429,12 +435,12 @@ fn compute_node(
             for (name, (_, _, value)) in
                 winning_declarations(document, node_id, element, sheet, hover_chain)
             {
-                raw.insert(name, value);
+                raw.insert(Cow::Owned(name), value);
             }
         }
         if let Some(inline) = element.attributes.get("style") {
             for declaration in lumen_css::parse_declarations(inline) {
-                raw.insert(declaration.name, declaration.value);
+                raw.insert(Cow::Owned(declaration.name), declaration.value);
             }
         }
     }
@@ -447,7 +453,7 @@ fn compute_node(
     // Children inherit the *resolved* font size, so `em` chains and
     // percentages resolve against real pixels, not unresolved declarations.
     raw.insert(
-        "font-size".to_string(),
+        Cow::Borrowed("font-size"),
         CssValue::Length(computed.font_size, lumen_css::Unit::Px),
     );
     output.insert(node_id, computed);
@@ -647,7 +653,7 @@ fn complex_matches_from(
 /// Converts raw declared values into a typed [`ComputedStyle`].
 /// `parent_font_size` anchors relative font sizes (`em`, `%`).
 fn to_computed(
-    raw: &HashMap<String, CssValue>,
+    raw: &RawStyle,
     element: Option<&ElementData>,
     parent_font_size: f32,
 ) -> ComputedStyle {
@@ -708,7 +714,7 @@ fn to_computed(
     style.padding = edge_dimensions(raw, "padding", Dimension::Px(0.0), style.font_size);
 
     let border_style_of = |side: &str| match raw
-        .get(&format!("border-{side}-style"))
+        .get(format!("border-{side}-style").as_str())
         .and_then(CssValue::as_keyword)
     {
         Some("none" | "hidden") => BorderStyle::None,
@@ -748,7 +754,7 @@ fn to_computed(
     // Missing border colors (and the explicit `currentcolor` keyword)
     // fall back to the element color.
     let color_of = |side: &str| {
-        raw.get(&format!("border-{side}-color"))
+        raw.get(format!("border-{side}-color").as_str())
             .and_then(CssValue::as_color)
             .unwrap_or(style.color)
     };
@@ -904,20 +910,20 @@ fn to_computed(
     style
 }
 
-fn dimension(raw: &HashMap<String, CssValue>, name: &str, font_size: f32) -> Dimension {
+fn dimension(raw: &RawStyle, name: &str, font_size: f32) -> Dimension {
     raw.get(name)
         .and_then(|value| Dimension::from_value(value, font_size))
         .unwrap_or(Dimension::Auto)
 }
 
 fn edge_dimensions(
-    raw: &HashMap<String, CssValue>,
+    raw: &RawStyle,
     prefix: &str,
     default: Dimension,
     font_size: f32,
 ) -> EdgeSizes<Dimension> {
     let side = |name: &str| {
-        raw.get(&format!("{prefix}-{name}"))
+        raw.get(format!("{prefix}-{name}").as_str())
             .and_then(|value| Dimension::from_value(value, font_size))
             .unwrap_or(default)
     };
@@ -929,7 +935,7 @@ fn edge_dimensions(
     }
 }
 
-fn edge_px(raw: &HashMap<String, CssValue>, name: &str, font_size: f32) -> f32 {
+fn edge_px(raw: &RawStyle, name: &str, font_size: f32) -> f32 {
     match raw.get(name) {
         Some(CssValue::Length(factor, lumen_css::Unit::Em)) => factor * font_size,
         Some(value) => value.as_px().unwrap_or(0.0),

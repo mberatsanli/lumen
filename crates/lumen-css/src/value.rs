@@ -145,10 +145,9 @@ impl Color {
     /// The full CSS named color table.
     #[must_use]
     pub fn from_named(name: &str) -> Option<Self> {
-        let name = name.to_ascii_lowercase();
         NAMED_COLORS
             .iter()
-            .find(|(candidate, _)| *candidate == name)
+            .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
             .map(|(_, [r, g, b])| Self::rgb(*r, *g, *b))
     }
 }
