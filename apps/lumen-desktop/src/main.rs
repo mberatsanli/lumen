@@ -908,14 +908,20 @@ impl App {
                     .hit_test_scrolled(x, y, session_offsets(&self.state))
             })
         });
-        // Script listeners see the click first, bubbling to ancestors.
+        // Script listeners see the click first, bubbling to ancestors;
+        // preventDefault() cancels the default action entirely.
         if let Some(node) = node
             && let (Some(scripts), SessionState::Ready(session)) =
                 (&mut self.page_scripts, &mut self.state)
-            && scripts.dispatch(session, node, "click")
         {
-            self.invalidate_page();
-            self.request_redraw();
+            let outcome = scripts.dispatch(session, node, "click");
+            if outcome.handled {
+                self.invalidate_page();
+                self.request_redraw();
+            }
+            if outcome.prevented {
+                return;
+            }
         }
         // Clicking moves :focus (cleared when clicking empty space).
         // The focus target is the nearest form control or the hit node.
@@ -982,7 +988,7 @@ impl App {
                     return;
                 }
                 "button" => {
-                    if kind == "submit" && self.in_form(control) {
+                    if kind == "submit" && self.submit_allowed(control) {
                         self.end_page_edit();
                         self.start_nav(Nav::Submit(control));
                     }
@@ -1020,7 +1026,7 @@ impl App {
                     return;
                 }
                 "submit" => {
-                    if self.in_form(control) {
+                    if self.submit_allowed(control) {
                         self.end_page_edit();
                         self.start_nav(Nav::Submit(control));
                     }
@@ -1139,21 +1145,40 @@ impl App {
         self.request_redraw();
     }
 
-    /// Whether a control has an enclosing <form> (submit buttons outside
-    /// any form do nothing, like real browsers).
-    fn in_form(&self, control: usize) -> bool {
-        self.session()
-            .and_then(Session::page)
-            .is_some_and(|page| {
-                let document = &page.document;
-                std::iter::once(control)
-                    .chain(document.ancestors(control))
-                    .any(|node| {
-                        document
-                            .element(node)
-                            .is_some_and(|element| element.tag_name == "form")
-                    })
+    /// The control's enclosing <form>, if any (submit buttons outside a
+    /// form do nothing, like real browsers).
+    fn enclosing_form(&self, control: usize) -> Option<usize> {
+        let page = self.session().and_then(Session::page)?;
+        let document = &page.document;
+        std::iter::once(control)
+            .chain(document.ancestors(control))
+            .find(|node| {
+                document
+                    .element(*node)
+                    .is_some_and(|element| element.tag_name == "form")
             })
+    }
+
+    /// Fires the `submit` event on the control's form. Returns the form
+    /// when submission should proceed (a form exists and no handler
+    /// called preventDefault).
+    fn submit_allowed(&mut self, control: usize) -> bool {
+        let Some(form) = self.enclosing_form(control) else {
+            return false;
+        };
+        if let (Some(scripts), SessionState::Ready(session)) =
+            (&mut self.page_scripts, &mut self.state)
+        {
+            let outcome = scripts.dispatch(session, form, "submit");
+            if outcome.handled {
+                self.invalidate_page();
+                self.request_redraw();
+            }
+            if outcome.prevented {
+                return false;
+            }
+        }
+        true
     }
 
     /// Dispatches a DOM event to the page's scripts, repainting if a
@@ -1161,7 +1186,7 @@ impl App {
     fn dispatch_script_event(&mut self, node: usize, event: &str) {
         if let (Some(scripts), SessionState::Ready(session)) =
             (&mut self.page_scripts, &mut self.state)
-            && scripts.dispatch(session, node, event)
+            && scripts.dispatch(session, node, event).handled
         {
             self.invalidate_page();
             self.request_redraw();
@@ -1999,7 +2024,7 @@ impl App {
                     self.dispatch_script_event(control, "input");
                     self.invalidate_page();
                     self.request_redraw();
-                } else {
+                } else if self.submit_allowed(control) {
                     self.end_page_edit();
                     self.start_nav(Nav::Submit(control));
                 }

@@ -31,8 +31,14 @@ struct Bridge {
     dirty: bool,
     /// Registrations collected during the call.
     pending_listeners: Vec<(NodeId, String, JsObject)>,
-    pending_timers: Vec<(f64, Option<f64>, JsObject)>,
+    pending_timers: Vec<(u64, f64, Option<f64>, JsObject)>,
+    cleared_timers: Vec<u64>,
+    next_timer_id: u64,
     now_ms: f64,
+    /// `event.preventDefault()` was called during the dispatch.
+    prevented: bool,
+    /// `event.stopPropagation()` was called (stops the bubble walk).
+    stopped: bool,
 }
 
 thread_local! {
@@ -43,8 +49,29 @@ fn with_bridge<R>(action: impl FnOnce(&mut Bridge) -> R) -> R {
     BRIDGE.with(|bridge| action(&mut bridge.borrow_mut()))
 }
 
+/// What an event dispatch did.
+#[derive(Debug, Clone, Copy)]
+pub struct DispatchOutcome {
+    /// At least one handler ran (the page may have re-rendered).
+    pub handled: bool,
+    /// A handler called `event.preventDefault()` — skip the default
+    /// action (navigation, submit, toggle...).
+    pub prevented: bool,
+}
+
+fn prevent_default(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {
+    with_bridge(|bridge| bridge.prevented = true);
+    Ok(JsValue::undefined())
+}
+
+fn stop_propagation(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {
+    with_bridge(|bridge| bridge.stopped = true);
+    Ok(JsValue::undefined())
+}
+
 /// A pending `setTimeout`/`setInterval`.
 struct Timer {
+    id: u64,
     due_ms: f64,
     interval_ms: Option<f64>,
     callback: JsObject,
@@ -94,14 +121,13 @@ impl PageScripts {
             .any(|(target, kind, _)| *target == node && kind == event)
     }
 
-    /// Dispatches an event at `node`, bubbling to its ancestors. Returns
-    /// whether any handler ran (the page may have re-rendered).
+    /// Dispatches an event at `node`, bubbling to its ancestors.
     pub fn dispatch<L: ResourceLoader>(
         &mut self,
         session: &mut Session<L>,
         node: NodeId,
         event: &str,
-    ) -> bool {
+    ) -> DispatchOutcome {
         let mut targets: Vec<NodeId> = vec![node];
         if let Some(page) = session.page() {
             targets.extend(page.document.ancestors(node));
@@ -116,9 +142,17 @@ impl PageScripts {
                     .collect::<Vec<_>>()
             })
             .collect();
+        let mut outcome = DispatchOutcome {
+            handled: !handlers.is_empty(),
+            prevented: false,
+        };
         if handlers.is_empty() {
-            return false;
+            return outcome;
         }
+        with_bridge(|bridge| {
+            bridge.prevented = false;
+            bridge.stopped = false;
+        });
         let event_name = event.to_string();
         for (target, callback) in handlers {
             self.enter(session, |context| {
@@ -130,6 +164,16 @@ impl PageScripts {
                         Attribute::all(),
                     )
                     .property(js_string!("target"), target, Attribute::all())
+                    .function(
+                        NativeFunction::from_fn_ptr(prevent_default),
+                        js_string!("preventDefault"),
+                        0,
+                    )
+                    .function(
+                        NativeFunction::from_fn_ptr(stop_propagation),
+                        js_string!("stopPropagation"),
+                        0,
+                    )
                     .build();
                 if let Err(error) =
                     callback.call(&JsValue::undefined(), &[event_object.into()], context)
@@ -137,8 +181,13 @@ impl PageScripts {
                     eprintln!("[js] script error: {error}");
                 }
             });
+            let stopped = with_bridge(|bridge| bridge.stopped);
+            if stopped {
+                break;
+            }
         }
-        true
+        outcome.prevented = with_bridge(|bridge| bridge.prevented);
+        outcome
     }
 
     /// Runs timers due at `now_ms`. Returns whether anything ran.
@@ -152,6 +201,7 @@ impl PageScripts {
             let timer = self.timers.remove(index);
             if let Some(interval) = timer.interval_ms {
                 self.timers.push(Timer {
+                    id: timer.id,
                     due_ms: now_ms + interval,
                     interval_ms: Some(interval),
                     callback: timer.callback.clone(),
@@ -195,12 +245,16 @@ impl PageScripts {
             for (node, event, callback) in bridge.pending_listeners.drain(..) {
                 self.listeners.push((node, event, callback));
             }
-            for (delay, interval, callback) in bridge.pending_timers.drain(..) {
+            for (id, delay, interval, callback) in bridge.pending_timers.drain(..) {
                 self.timers.push(Timer {
+                    id,
                     due_ms: now_ms + delay,
                     interval_ms: interval,
                     callback,
                 });
+            }
+            for cleared in bridge.cleared_timers.drain(..) {
+                self.timers.retain(|timer| timer.id != cleared);
             }
             bridge.dirty
         });
@@ -300,6 +354,11 @@ fn install_globals(context: &mut Context) {
             NativeFunction::from_fn_ptr(set_interval),
         )
         .expect("fresh context");
+    for name in [js_string!("clearTimeout"), js_string!("clearInterval")] {
+        context
+            .register_global_builtin_callable(name, 1, NativeFunction::from_fn_ptr(clear_timer))
+            .expect("fresh context");
+    }
 }
 
 fn console_log(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
@@ -425,15 +484,25 @@ fn queue_timer(args: &[JsValue], interval: bool, context: &mut Context) -> JsRes
         .and_then(|value| value.to_number(context).ok())
         .unwrap_or(0.0)
         .max(0.0);
-    let count = with_bridge(|bridge| {
+    let id = with_bridge(|bridge| {
+        bridge.next_timer_id += 1;
+        let id = bridge.next_timer_id;
         bridge.pending_timers.push((
+            id,
             delay,
             interval.then_some(delay.max(1.0)),
             callback.clone(),
         ));
-        bridge.pending_timers.len()
+        id
     });
-    Ok(JsValue::from(count as f64))
+    Ok(JsValue::from(id as f64))
+}
+
+fn clear_timer(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    if let Some(id) = args.first().and_then(|value| value.to_number(context).ok()) {
+        with_bridge(|bridge| bridge.cleared_timers.push(id as u64));
+    }
+    Ok(JsValue::undefined())
 }
 
 fn set_timeout(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
@@ -461,6 +530,31 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
     let value_get = NativeFunction::from_fn_ptr(value_get_).to_js_function(context.realm());
     let value_set = NativeFunction::from_fn_ptr(value_set_).to_js_function(context.realm());
     let id_get = NativeFunction::from_fn_ptr(id_get_).to_js_function(context.realm());
+    let class_get = NativeFunction::from_fn_ptr(class_name_get).to_js_function(context.realm());
+    let class_set = NativeFunction::from_fn_ptr(class_name_set).to_js_function(context.realm());
+    let class_list = ObjectInitializer::new(context)
+        .property(
+            js_string!("__node"),
+            JsValue::from(node as f64),
+            Attribute::empty(),
+        )
+        .function(NativeFunction::from_fn_ptr(class_add), js_string!("add"), 1)
+        .function(
+            NativeFunction::from_fn_ptr(class_remove),
+            js_string!("remove"),
+            1,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(class_toggle),
+            js_string!("toggle"),
+            1,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(class_contains),
+            js_string!("contains"),
+            1,
+        )
+        .build();
     ObjectInitializer::new(context)
         .property(
             js_string!("__node"),
@@ -507,7 +601,121 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
             Attribute::all(),
         )
         .accessor(js_string!("id"), Some(id_get), None, Attribute::all())
+        .accessor(
+            js_string!("className"),
+            Some(class_get),
+            Some(class_set),
+            Attribute::all(),
+        )
+        .property(js_string!("classList"), class_list, Attribute::all())
         .build()
+}
+
+fn class_name_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context) else {
+        return Ok(JsValue::undefined());
+    };
+    let classes = with_bridge(|bridge| {
+        bridge
+            .page
+            .as_ref()
+            .and_then(|page| page.document.element(node))
+            .and_then(|element| element.attributes.get("class"))
+            .unwrap_or_default()
+            .to_string()
+    });
+    Ok(JsValue::from(js_string!(classes.as_str())))
+}
+
+fn class_name_set(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context) else {
+        return Ok(JsValue::undefined());
+    };
+    let classes = string_arg(args, 0, context);
+    with_bridge(|bridge| {
+        if let Some(page) = bridge.page.as_mut() {
+            page.document.set_attribute(node, "class", &classes);
+            bridge.dirty = true;
+        }
+    });
+    Ok(JsValue::undefined())
+}
+
+/// Applies one classList operation, returning the op's result value.
+fn class_list_op(
+    this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+    op: fn(&mut Vec<String>, &str) -> bool,
+) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context) else {
+        return Ok(JsValue::undefined());
+    };
+    let class = string_arg(args, 0, context);
+    let result = with_bridge(|bridge| {
+        let Some(page) = bridge.page.as_mut() else {
+            return false;
+        };
+        let mut classes: Vec<String> = page
+            .document
+            .element(node)
+            .and_then(|element| element.attributes.get("class"))
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
+        let result = op(&mut classes, &class);
+        page.document
+            .set_attribute(node, "class", &classes.join(" "));
+        bridge.dirty = true;
+        result
+    });
+    Ok(JsValue::from(result))
+}
+
+fn class_add(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    class_list_op(this, args, context, |classes, class| {
+        if !classes.iter().any(|c| c == class) {
+            classes.push(class.to_string());
+        }
+        true
+    })
+}
+
+fn class_remove(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    class_list_op(this, args, context, |classes, class| {
+        classes.retain(|c| c != class);
+        true
+    })
+}
+
+fn class_toggle(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    class_list_op(this, args, context, |classes, class| {
+        if classes.iter().any(|c| c == class) {
+            classes.retain(|c| c != class);
+            false
+        } else {
+            classes.push(class.to_string());
+            true
+        }
+    })
+}
+
+fn class_contains(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context) else {
+        return Ok(JsValue::undefined());
+    };
+    let class = string_arg(args, 0, context);
+    let found = with_bridge(|bridge| {
+        bridge
+            .page
+            .as_ref()
+            .and_then(|page| page.document.element(node))
+            .is_some_and(|element| element.attributes.get("class").is_some_and(|classes| {
+                classes.split_whitespace().any(|c| c == class)
+            }))
+    });
+    Ok(JsValue::from(found))
 }
 
 fn text_content_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {

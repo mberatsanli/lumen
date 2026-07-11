@@ -13,7 +13,7 @@ use lumen_html::NodeId;
 use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, Url, resolve};
 
 pub use editor::{EditOp, EditOverlay, EditResult, Motion, TextBuffer};
-pub use scripting::PageScripts;
+pub use scripting::{DispatchOutcome, PageScripts};
 use std::sync::Arc;
 
 mod editor;
@@ -1313,8 +1313,8 @@ mod tests {
         // Click dispatch reaches the listener and the page re-renders.
         let button = by_id(&session, "b");
         assert!(scripts.has_listener(button, "click"));
-        assert!(scripts.dispatch(&mut session, button, "click"));
-        assert!(scripts.dispatch(&mut session, button, "click"));
+        assert!(scripts.dispatch(&mut session, button, "click").handled);
+        assert!(scripts.dispatch(&mut session, button, "click").handled);
         assert_eq!(text(&session), "n=2");
         // Timers fire on tick.
         assert!(scripts.has_timers());
@@ -1322,6 +1322,32 @@ mod tests {
         assert!(scripts.tick(&mut session, 150.0));
         assert_eq!(text(&session), "n=2!");
         assert!(!scripts.has_timers());
+    }
+
+    #[test]
+    fn prevent_default_reaches_the_dispatcher() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<a id='l' href='/x'>git</a><a id='m' href='/y'>serbest</a>\
+                 <script>\
+                 document.getElementById('l').addEventListener('click', (e) => {\
+                   e.preventDefault();\
+                 });\
+                 document.getElementById('m').addEventListener('click', () => {});\
+                 </script>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let document = &session.page().unwrap().document;
+        let blocked = document.get_element_by_id("l").unwrap();
+        let free = document.get_element_by_id("m").unwrap();
+        let outcome = scripts.dispatch(&mut session, blocked, "click");
+        assert!(outcome.handled && outcome.prevented);
+        let outcome = scripts.dispatch(&mut session, free, "click");
+        assert!(outcome.handled && !outcome.prevented);
     }
 
     #[test]
