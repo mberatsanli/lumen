@@ -1126,7 +1126,7 @@ impl App {
                 width: panel_width,
                 height: panel_height,
             },
-            color: Color::rgba(0x1c, 0x1a, 0x22, 210),
+            color: Color::rgba(0x1c, 0x1a, 0x22, 245),
             radius: lumen_engine::Corners::uniform(6.0),
         }];
         for (index, line) in lines.iter().enumerate() {
