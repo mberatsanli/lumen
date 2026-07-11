@@ -20,7 +20,8 @@
 use lumen_browser::Session;
 use lumen_engine::{
     Caret, DisplayCommand, HeuristicMeasurer, Rect, Selection, Size, SystemFont, caret_at_point,
-    collect_text_runs, highlight_rects, rasterize_over, rasterize_with, selected_text,
+    collect_text_runs, highlight_rects, rasterize_over, rasterize_region, rasterize_with,
+    selected_text,
 };
 use lumen_engine::{FontWeight, TextMeasurer, TextMetrics, TextStyle};
 use lumen_platform::{DefaultLoader, Url, url_from_user_input};
@@ -746,10 +747,63 @@ impl App {
         (content - self.viewport().height).max(0.0)
     }
 
+    /// Clamps and quantizes the scroll offset to whole device pixels, so
+    /// scroll deltas map to exact row shifts of the cached frame.
+    fn set_scroll(&mut self, y: f32) {
+        let scale = self.scale();
+        self.scroll_y = ((y.clamp(0.0, self.max_scroll()) * scale).round()) / scale;
+    }
+
     fn scroll_by(&mut self, delta: f32) {
-        self.scroll_y = (self.scroll_y + delta).clamp(0.0, self.max_scroll());
+        self.set_scroll(self.scroll_y + delta);
         self.update_hover();
         self.request_redraw();
+    }
+
+    /// Scroll-only cache reuse: shifts the cached page raster by the
+    /// scroll delta and rasterizes only the exposed strip (plus the bar
+    /// rows, whose shifted pixels are stale under the chrome).
+    fn blit_scrolled(
+        &self,
+        frame: &lumen_engine::Framebuffer,
+        old_scroll: f32,
+        width: u32,
+        height: u32,
+        scale: f32,
+    ) -> Option<lumen_engine::Framebuffer> {
+        let delta = ((self.scroll_y - old_scroll) * scale).round() as i64;
+        if delta == 0 || delta.abs() >= i64::from(height) {
+            return None;
+        }
+        let page = self.session().and_then(Session::page)?;
+        let mut shifted = frame.clone();
+        let row = width as usize;
+        let kept = (i64::from(height) - delta.abs()) as usize;
+        let exposed = if delta > 0 {
+            // Scrolled down: rows move up; the bottom strip is new.
+            let from = delta as usize * row;
+            shifted.pixels.copy_within(from..from + kept * row, 0);
+            (height - delta as u32, height)
+        } else {
+            // Scrolled up: rows move down; the top strip is new.
+            let up = (-delta) as usize;
+            shifted.pixels.copy_within(0..kept * row, up * row);
+            (0, (-delta) as u32)
+        };
+        let bar_rows = ((BAR_HEIGHT * scale).ceil() as u32).min(height);
+        for region in [(0, exposed.0, width, exposed.1), (0, 0, width, bar_rows)] {
+            if region.3 > region.1 {
+                rasterize_region(
+                    &mut shifted,
+                    &page.display_list,
+                    self.scroll_y - BAR_HEIGHT,
+                    scale,
+                    self.font.as_deref(),
+                    region,
+                );
+            }
+        }
+        Some(shifted)
     }
 
     /// Hit-tests the current cursor position, updates `:hover` styling and
@@ -870,7 +924,7 @@ impl App {
         }) else {
             return;
         };
-        self.scroll_y = target_y.clamp(0.0, self.max_scroll());
+        self.set_scroll(target_y);
     }
 
     /// Recomputes find matches for the current query (ASCII
@@ -933,7 +987,7 @@ impl App {
         let visible = region.rect.y >= self.scroll_y
             && region.rect.y + region.rect.height <= self.scroll_y + viewport_height;
         if !visible {
-            self.scroll_y = (region.rect.y - viewport_height / 3.0).clamp(0.0, self.max_scroll());
+            self.set_scroll(region.rect.y - viewport_height / 3.0);
         }
     }
 
@@ -1017,16 +1071,31 @@ impl App {
             .as_ref()
             .is_none_or(|(key, _)| *key != cache_key)
         {
-            let frame = match self.session().and_then(Session::page) {
-                Some(page) => rasterize_with(
-                    &page.display_list,
-                    size.width,
-                    size.height,
-                    self.scroll_y - BAR_HEIGHT,
-                    scale,
-                    self.font.as_deref(),
-                ),
-                None => lumen_engine::Framebuffer::new(size.width, size.height),
+            // Same page, same size, different scroll: blit instead of a
+            // full re-rasterization.
+            let blitted = match &self.page_frame {
+                Some((key, frame))
+                    if key.0 == self.page_generation
+                        && key.2 == size.width
+                        && key.3 == size.height =>
+                {
+                    self.blit_scrolled(frame, f32::from_bits(key.1), size.width, size.height, scale)
+                }
+                _ => None,
+            };
+            let frame = match blitted {
+                Some(frame) => frame,
+                None => match self.session().and_then(Session::page) {
+                    Some(page) => rasterize_with(
+                        &page.display_list,
+                        size.width,
+                        size.height,
+                        self.scroll_y - BAR_HEIGHT,
+                        scale,
+                        self.font.as_deref(),
+                    ),
+                    None => lumen_engine::Framebuffer::new(size.width, size.height),
+                },
             };
             self.page_frame = Some((cache_key, frame));
         }
@@ -1230,7 +1299,7 @@ impl App {
             }
             Key::Named(NamedKey::PageUp) => self.scroll_by(-self.viewport().height * 0.9),
             Key::Named(NamedKey::Home) => {
-                self.scroll_y = 0.0;
+                self.set_scroll(0.0);
                 self.request_redraw();
             }
             Key::Character(text)
@@ -1332,7 +1401,7 @@ impl ApplicationHandler<NavDone> for App {
                 if let SessionState::Ready(session) = &mut self.state {
                     session.set_viewport(viewport);
                 }
-                self.scroll_y = self.scroll_y.clamp(0.0, self.max_scroll());
+                self.set_scroll(self.scroll_y);
                 self.invalidate_page();
                 self.request_redraw();
             }

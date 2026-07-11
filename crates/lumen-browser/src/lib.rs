@@ -129,6 +129,7 @@ impl<L: ResourceLoader> Session<L> {
         if self.hovered == node {
             return false;
         }
+        let previous = self.hovered;
         self.hovered = node;
         match self.hover_impact {
             // No hover rules: styles cannot change, nothing to redraw.
@@ -143,8 +144,19 @@ impl<L: ResourceLoader> Session<L> {
                 None => false,
             },
             lumen_engine::HoverImpact::Layout => {
-                self.relayout();
-                true
+                // Geometry-affecting hover rules force a relayout — but
+                // only when the old or new hover target actually triggers
+                // one of them.
+                let affects = self.page.as_ref().is_some_and(|page| {
+                    lumen_engine::hover_styles_may_change(&page.document, &self.author, previous)
+                        || lumen_engine::hover_styles_may_change(&page.document, &self.author, node)
+                });
+                if affects {
+                    self.relayout();
+                    true
+                } else {
+                    false
+                }
             }
         }
     }
@@ -594,6 +606,42 @@ mod tests {
         });
         session.set_hovered(Some(1));
         assert_eq!(session.loader.loads.borrow().len(), 2);
+    }
+
+    #[test]
+    fn layout_hover_rules_skip_relayout_for_unrelated_targets() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>a:hover { padding: 8px; }</style>\
+                 <p>unrelated paragraph</p><a href='/x'>link</a>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let find_tag = |tag: &str| {
+            document
+                .descendants(document.root())
+                .find(|id| {
+                    document
+                        .element(*id)
+                        .is_some_and(|element| element.tag_name == tag)
+                })
+                .unwrap()
+        };
+        let (paragraph, anchor) = (find_tag("p"), find_tag("a"));
+        // Hovering something no hover rule involves: no restyle at all.
+        assert!(!session.set_hovered(Some(paragraph)));
+        // Hovering the link: the padding rule fires, full relayout.
+        assert!(session.set_hovered(Some(anchor)));
+        let hovered_width = session
+            .page()
+            .unwrap()
+            .layout
+            .find_by_node(anchor)
+            .map(|laid| laid.dimensions.padding.top);
+        assert_eq!(hovered_width, Some(8.0));
     }
 
     #[test]

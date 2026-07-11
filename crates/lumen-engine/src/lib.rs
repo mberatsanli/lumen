@@ -23,7 +23,7 @@ pub use image::{ImageMap, RasterImage, collect_image_sources};
 pub use inline::{Fragment, LineBox};
 pub use layout::{BoxType, LayoutBox, LayoutKind, dump_layout, layout_document};
 pub use paint::{DisplayCommand, build_display_list};
-pub use raster::{Framebuffer, rasterize, rasterize_over, rasterize_with};
+pub use raster::{Framebuffer, rasterize, rasterize_over, rasterize_region, rasterize_with};
 pub use selection::{
     Caret, HighlightRegion, Selection, TextRun, caret_at_point, collect_text_runs, highlight_rects,
     selected_text,
@@ -31,6 +31,7 @@ pub use selection::{
 pub use style::{
     BackgroundImage, ComputedStyle, Dimension, Display, FontWeight, HoverImpact, LinearGradient,
     StyleMap, TextAlign, compute_styles, compute_styles_hovered, hover_impact,
+    hover_styles_may_change,
 };
 pub use svg::render_svg;
 pub use text::{HeuristicMeasurer, TextMeasurer, TextMetrics, TextStyle};

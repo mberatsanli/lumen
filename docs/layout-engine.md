@@ -108,8 +108,15 @@ classifying the stylesheet's `:hover` rules (`hover_impact`): no hover
 rules → nothing happens; paint-only rules (colors, decorations, opacity —
 anything that cannot move geometry) → the existing layout tree keeps its
 geometry and only swaps computed styles before the display list rebuilds
-(`repaint_page_for_hover`); geometry-affecting rules → full restyle +
-relayout, correctness first.
+(`repaint_page_for_hover`); geometry-affecting rules → the old and new
+hover targets are checked against the hover selectors first
+(`hover_styles_may_change`), and only a target that actually triggers
+one forces the full restyle + relayout — correctness first.
+
+The desktop shell adds scroll blitting on top: the cached page raster
+is shifted by the (device-pixel-quantized) scroll delta and only the
+exposed strip re-rasterizes (`rasterize_region`), so scrolling costs a
+strip, not a page.
 
 ## Painting
 

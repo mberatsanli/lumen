@@ -137,6 +137,42 @@ pub fn rasterize_over(
     scale: f32,
     font: Option<&SystemFont>,
 ) {
+    rasterize_clipped(framebuffer, commands, scroll_y, scale, font, None);
+}
+
+/// Like [`rasterize_over`], but restricted to a device-pixel region
+/// (x0, y0, x1, y1): pixels outside are untouched. Used for incremental
+/// repaints (e.g. the strip a scroll exposes). The region is filled white
+/// first, matching the fresh-framebuffer background.
+pub fn rasterize_region(
+    framebuffer: &mut Framebuffer,
+    commands: &[DisplayCommand],
+    scroll_y: f32,
+    scale: f32,
+    font: Option<&SystemFont>,
+    region: (u32, u32, u32, u32),
+) {
+    let (x0, y0, x1, y1) = region;
+    framebuffer.fill(
+        Rect {
+            x: x0 as f32,
+            y: y0 as f32,
+            width: x1.saturating_sub(x0) as f32,
+            height: y1.saturating_sub(y0) as f32,
+        },
+        0x00ff_ffff,
+    );
+    rasterize_clipped(framebuffer, commands, scroll_y, scale, font, Some(region));
+}
+
+fn rasterize_clipped(
+    framebuffer: &mut Framebuffer,
+    commands: &[DisplayCommand],
+    scroll_y: f32,
+    scale: f32,
+    font: Option<&SystemFont>,
+    region: Option<(u32, u32, u32, u32)>,
+) {
     let framebuffer = &mut *framebuffer;
     let shift = |rect: &Rect| Rect {
         x: rect.x * scale,
@@ -146,7 +182,9 @@ pub fn rasterize_over(
     };
 
     // Clip stack: each entry is the device-space intersection so far.
-    let mut clips: Vec<(u32, u32, u32, u32)> = Vec::new();
+    // A region seed acts as the outermost clip.
+    let mut clips: Vec<(u32, u32, u32, u32)> = region.into_iter().collect();
+    framebuffer.clip = clips.last().copied();
 
     for command in commands {
         match command {
@@ -869,6 +907,39 @@ mod tests {
         assert_eq!(framebuffer.pixel(0, 0), 0x00ff_0000);
         assert_eq!(framebuffer.pixel(9, 9), 0x00ff_0000);
         assert_eq!(framebuffer.pixel(5, 5), 0x00ff_ffff);
+    }
+
+    #[test]
+    fn region_rasterization_touches_only_the_region() {
+        let commands = vec![DisplayCommand::FillRect {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            color: Color::rgb(0xff, 0x00, 0x00),
+            radius: Corners::uniform(0.0),
+        }];
+        // Start from a green buffer so untouched pixels are detectable.
+        let mut framebuffer = Framebuffer::new(10, 10);
+        framebuffer.fill(
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            0x0000_ff00,
+        );
+        rasterize_region(&mut framebuffer, &commands, 0.0, 1.0, None, (0, 6, 10, 10));
+        assert_eq!(framebuffer.pixel(5, 7), 0x00ff_0000); // inside region
+        assert_eq!(framebuffer.pixel(5, 5), 0x0000_ff00); // untouched
+        // A scrolled region matches a full scrolled rasterization.
+        let full = rasterize(&commands, 10, 10, 4.0);
+        let mut partial = Framebuffer::new(10, 10);
+        rasterize_region(&mut partial, &commands, 4.0, 1.0, None, (0, 0, 10, 10));
+        assert_eq!(full.pixels, partial.pixels);
     }
 
     #[test]

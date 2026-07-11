@@ -514,6 +514,39 @@ pub fn hover_impact(sheet: &Stylesheet) -> HoverImpact {
     impact
 }
 
+/// Whether any `:hover` rule actually applies with the pointer on
+/// `hovered` — i.e. whether moving hover onto/off it can change styles.
+/// Used to skip relayouts for geometry-affecting hover rules that do not
+/// involve the hovered element at all.
+#[must_use]
+pub fn hover_styles_may_change(
+    document: &Document,
+    sheet: &Stylesheet,
+    hovered: Option<NodeId>,
+) -> bool {
+    let Some(node) = hovered else {
+        return false; // No pointer target: :hover matches nothing.
+    };
+    let mut chain: HashSet<NodeId> = HashSet::new();
+    chain.insert(node);
+    chain.extend(document.ancestors(node));
+    for rule in &sheet.rules {
+        for selector in &rule.selectors {
+            if !selector.compounds.iter().any(uses_hover) {
+                continue;
+            }
+            for id in document.descendants(document.root()) {
+                if let Some(element) = document.element(id)
+                    && selector_matches(document, id, element, selector, &chain)
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Computed styles for every node, keyed by [`NodeId`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleMap {
