@@ -15,6 +15,7 @@ pub mod paint;
 pub mod raster;
 pub mod selection;
 pub mod style;
+mod ua;
 pub mod svg;
 mod table;
 pub mod text;

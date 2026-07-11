@@ -18,6 +18,9 @@
 //! times, memory and page statistics. The address and find inputs support full editing: caret
 //! movement, Shift+arrows selection, Home/End, Cmd/Ctrl+A/C/X/V.
 
+mod popups;
+mod text_input;
+
 use lumen_browser::Session;
 use lumen_engine::{
     Caret, DisplayCommand, HeuristicMeasurer, Rect, Selection, Size, SystemFont, caret_at_point,
@@ -26,11 +29,16 @@ use lumen_engine::{
 };
 use lumen_engine::{FontWeight, TextMeasurer, TextMetrics, TextStyle};
 use lumen_platform::{DefaultLoader, Url, url_from_user_input};
+use popups::{
+    COLOR_SWATCHES, ColorPopup, SELECT_ROW_HEIGHT, SWATCH_COLUMNS, SWATCH_GAP, SWATCH_SIZE,
+    SelectPopup, rect_contains, swatch_rect,
+};
 use std::collections::VecDeque;
 use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use text_input::{EditOutcome, TextInput, apply_edit};
 use winit::application::ApplicationHandler;
 use winit::event::Modifiers;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
@@ -42,8 +50,6 @@ use winit::window::{Window, WindowId};
 const SCROLL_STEP: f32 = 48.0;
 /// Address-bar height in CSS pixels.
 const BAR_HEIGHT: f32 = 36.0;
-/// Row height of the shell-drawn select dropdown, CSS px.
-const SELECT_ROW_HEIGHT: f32 = 22.0;
 
 /// A navigation action executed on a background thread, so slow servers
 /// never freeze the UI.
@@ -112,309 +118,6 @@ struct SharedFont(Arc<SystemFont>);
 impl TextMeasurer for SharedFont {
     fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics {
         self.0.measure(text, style)
-    }
-}
-
-/// A single-line editable text field (address bar, find bar): a caret
-/// and selection with the usual keyboard operations. Positions are in
-/// chars.
-struct TextInput {
-    text: String,
-    caret: usize,
-    /// Selection anchor (== caret when nothing is selected).
-    anchor: usize,
-}
-
-impl TextInput {
-    fn with_all_selected(text: String) -> Self {
-        let len = text.chars().count();
-        Self {
-            text,
-            caret: len,
-            anchor: 0,
-        }
-    }
-
-    fn empty() -> Self {
-        Self {
-            text: String::new(),
-            caret: 0,
-            anchor: 0,
-        }
-    }
-
-    fn char_count(&self) -> usize {
-        self.text.chars().count()
-    }
-
-    /// Selection bounds in document order.
-    fn selection(&self) -> (usize, usize) {
-        (self.caret.min(self.anchor), self.caret.max(self.anchor))
-    }
-
-    fn has_selection(&self) -> bool {
-        self.caret != self.anchor
-    }
-
-    fn slice(&self, start: usize, end: usize) -> String {
-        self.text.chars().skip(start).take(end - start).collect()
-    }
-
-    fn selected_text(&self) -> String {
-        let (start, end) = self.selection();
-        self.slice(start, end)
-    }
-
-    fn byte_of(&self, char_index: usize) -> usize {
-        self.text
-            .char_indices()
-            .nth(char_index)
-            .map_or(self.text.len(), |(index, _)| index)
-    }
-
-    fn delete_selection(&mut self) {
-        let (start, end) = self.selection();
-        if start == end {
-            return;
-        }
-        let (from, to) = (self.byte_of(start), self.byte_of(end));
-        self.text.replace_range(from..to, "");
-        self.caret = start;
-        self.anchor = start;
-    }
-
-    fn insert(&mut self, input: &str) {
-        self.delete_selection();
-        let at = self.byte_of(self.caret);
-        self.text.insert_str(at, input);
-        self.caret += input.chars().count();
-        self.anchor = self.caret;
-    }
-
-    fn backspace(&mut self) {
-        if self.has_selection() {
-            self.delete_selection();
-            return;
-        }
-        if self.caret == 0 {
-            return;
-        }
-        let (from, to) = (self.byte_of(self.caret - 1), self.byte_of(self.caret));
-        self.text.replace_range(from..to, "");
-        self.caret -= 1;
-        self.anchor = self.caret;
-    }
-
-    fn delete_forward(&mut self) {
-        if self.has_selection() {
-            self.delete_selection();
-            return;
-        }
-        if self.caret >= self.char_count() {
-            return;
-        }
-        let (from, to) = (self.byte_of(self.caret), self.byte_of(self.caret + 1));
-        self.text.replace_range(from..to, "");
-    }
-
-    /// Moves the caret by one; without `select`, a selection collapses to
-    /// its matching edge first (as native inputs do).
-    fn step(&mut self, forward: bool, select: bool) {
-        if !select && self.has_selection() {
-            let (start, end) = self.selection();
-            self.caret = if forward { end } else { start };
-        } else if forward {
-            self.caret = (self.caret + 1).min(self.char_count());
-        } else {
-            self.caret = self.caret.saturating_sub(1);
-        }
-        if !select {
-            self.anchor = self.caret;
-        }
-    }
-
-    fn move_to(&mut self, index: usize, select: bool) {
-        self.caret = index.min(self.char_count());
-        if !select {
-            self.anchor = self.caret;
-        }
-    }
-
-    fn select_all(&mut self) {
-        self.anchor = 0;
-        self.caret = self.char_count();
-    }
-
-    /// Start of the word before the caret (Option+Left target).
-    fn previous_word(&self) -> usize {
-        let chars: Vec<char> = self.text.chars().collect();
-        let mut index = self.caret.min(chars.len());
-        while index > 0 && !chars[index - 1].is_alphanumeric() {
-            index -= 1;
-        }
-        while index > 0 && chars[index - 1].is_alphanumeric() {
-            index -= 1;
-        }
-        index
-    }
-
-    /// End of the word after the caret (Option+Right target).
-    fn next_word(&self) -> usize {
-        let chars: Vec<char> = self.text.chars().collect();
-        let mut index = self.caret.min(chars.len());
-        while index < chars.len() && !chars[index].is_alphanumeric() {
-            index += 1;
-        }
-        while index < chars.len() && chars[index].is_alphanumeric() {
-            index += 1;
-        }
-        index
-    }
-}
-
-/// An open `<select>` dropdown drawn by the shell.
-struct SelectPopup {
-    node: usize,
-    options: Vec<(String, String)>,
-    /// Page coordinates of the option list.
-    rect: Rect,
-    hovered: usize,
-    selected: usize,
-}
-
-/// An open color-input palette drawn by the shell.
-struct ColorPopup {
-    node: usize,
-    /// Page coordinates of the palette card.
-    rect: Rect,
-    hovered: Option<usize>,
-}
-
-/// The preset swatches a color input offers.
-const COLOR_SWATCHES: [&str; 24] = [
-    "#000000", "#444444", "#888888", "#cccccc", "#ffffff", "#7a1712", "#b3261e", "#e8590c",
-    "#f2b705", "#f7e26b", "#2e7d32", "#1a936f", "#7fc8a9", "#1c5288", "#2266aa", "#6aa5d8",
-    "#5e35b1", "#9b6bd3", "#d63384", "#f2a6c8", "#8d6e63", "#b9a08c", "#55524c", "#8a8272",
-];
-const SWATCH_SIZE: f32 = 22.0;
-const SWATCH_GAP: f32 = 6.0;
-const SWATCH_COLUMNS: usize = 6;
-
-/// Where swatch `index` sits inside a palette card.
-fn swatch_rect(card: Rect, index: usize) -> Rect {
-    let column = index % SWATCH_COLUMNS;
-    let row = index / SWATCH_COLUMNS;
-    Rect {
-        x: card.x + 8.0 + (SWATCH_SIZE + SWATCH_GAP) * column as f32,
-        y: card.y + 8.0 + (SWATCH_SIZE + SWATCH_GAP) * row as f32,
-        width: SWATCH_SIZE,
-        height: SWATCH_SIZE,
-    }
-}
-
-/// Whether a point falls inside a rect.
-fn rect_contains(rect: Rect, x: f32, y: f32) -> bool {
-    x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
-}
-
-/// What an editing key did to a [`TextInput`].
-enum EditOutcome {
-    /// Text changed.
-    Changed,
-    /// Only the caret/selection moved.
-    Moved,
-    Submit,
-    Cancel,
-    Copy,
-    Cut,
-    Paste,
-    Ignored,
-}
-
-/// Applies one key to a text input. Clipboard actions are reported, not
-/// performed (the caller owns the clipboard).
-fn apply_edit(
-    input: &mut TextInput,
-    key: &Key,
-    command: bool,
-    shift: bool,
-    alt: bool,
-) -> EditOutcome {
-    match key {
-        Key::Named(NamedKey::Enter) => EditOutcome::Submit,
-        Key::Named(NamedKey::Escape) => EditOutcome::Cancel,
-        Key::Named(NamedKey::Backspace) if alt => {
-            // Option+Backspace deletes the previous word.
-            if !input.has_selection() {
-                let target = input.previous_word();
-                input.anchor = input.caret;
-                input.caret = target;
-            }
-            input.delete_selection();
-            EditOutcome::Changed
-        }
-        Key::Named(NamedKey::Backspace) => {
-            input.backspace();
-            EditOutcome::Changed
-        }
-        Key::Named(NamedKey::Delete) => {
-            input.delete_forward();
-            EditOutcome::Changed
-        }
-        Key::Named(NamedKey::ArrowLeft) if command => {
-            input.move_to(0, shift);
-            EditOutcome::Moved
-        }
-        Key::Named(NamedKey::ArrowRight) if command => {
-            input.move_to(usize::MAX, shift);
-            EditOutcome::Moved
-        }
-        // Option+arrows step words (with Shift: extend the selection).
-        Key::Named(NamedKey::ArrowLeft) if alt => {
-            let target = input.previous_word();
-            input.move_to(target, shift);
-            EditOutcome::Moved
-        }
-        Key::Named(NamedKey::ArrowRight) if alt => {
-            let target = input.next_word();
-            input.move_to(target, shift);
-            EditOutcome::Moved
-        }
-        Key::Named(NamedKey::ArrowLeft) => {
-            input.step(false, shift);
-            EditOutcome::Moved
-        }
-        Key::Named(NamedKey::ArrowRight) => {
-            input.step(true, shift);
-            EditOutcome::Moved
-        }
-        Key::Named(NamedKey::Home) => {
-            input.move_to(0, shift);
-            EditOutcome::Moved
-        }
-        Key::Named(NamedKey::End) => {
-            input.move_to(usize::MAX, shift);
-            EditOutcome::Moved
-        }
-        Key::Named(NamedKey::Space) => {
-            input.insert(" ");
-            EditOutcome::Changed
-        }
-        Key::Character(text) if command => match text.as_str() {
-            "a" => {
-                input.select_all();
-                EditOutcome::Moved
-            }
-            "c" => EditOutcome::Copy,
-            "x" => EditOutcome::Cut,
-            "v" => EditOutcome::Paste,
-            _ => EditOutcome::Ignored,
-        },
-        Key::Character(text) => {
-            input.insert(text);
-            EditOutcome::Changed
-        }
-        _ => EditOutcome::Ignored,
     }
 }
 
@@ -1478,15 +1181,36 @@ impl App {
                     .collect::<String>();
                 measurer.measure(&slice, &text_style).width
             };
-            // Leave room for the caret line at the right edge.
+            // Leave room for the caret line at the right edge. Both scans
+            // binary-search a monotonic width, so long values stay cheap.
             let budget = (content.width - 4.0).max(10.0);
             let mut start = self.input_window.min(caret);
-            while start < caret && width_of(start, caret) > budget {
-                start += 1;
+            if width_of(start, caret) > budget {
+                // Slide right to the smallest start that fits ..caret.
+                let (mut low, mut high) = (start, caret);
+                while low < high {
+                    let mid = low + (high - low) / 2;
+                    if width_of(mid, caret) > budget {
+                        low = mid + 1;
+                    } else {
+                        high = mid;
+                    }
+                }
+                start = low;
             }
-            // Refill from the left when deletions free up room.
-            while start > 0 && width_of(start - 1, chars.len()) <= budget {
-                start -= 1;
+            // Refill from the left when deletions free up room: the
+            // smallest start whose tail still fits.
+            if start > 0 && width_of(start - 1, chars.len()) <= budget {
+                let (mut low, mut high) = (0usize, start - 1);
+                while low < high {
+                    let mid = low + (high - low) / 2;
+                    if width_of(mid, chars.len()) <= budget {
+                        high = mid;
+                    } else {
+                        low = mid + 1;
+                    }
+                }
+                start = low;
             }
             start
         };
@@ -1604,15 +1328,23 @@ impl App {
         };
         let measurer = self.measurer();
         let relative = (x - content.x).max(0.0);
-        let mut best = value.chars().count();
-        for index in 0..=value.chars().count() {
+        // Prefix width grows monotonically, so binary-search the first
+        // index whose prefix reaches the click (O(n log n), not O(n²)).
+        let count = value.chars().count();
+        let width_to = |index: usize| {
             let prefix: String = value.chars().take(index).collect();
-            if measurer.measure(&prefix, &text_style).width >= relative {
-                best = index;
-                break;
+            measurer.measure(&prefix, &text_style).width
+        };
+        let (mut low, mut high) = (0usize, count);
+        while low < high {
+            let mid = low + (high - low) / 2;
+            if width_to(mid) >= relative {
+                high = mid;
+            } else {
+                low = mid + 1;
             }
         }
-        Some(window + best)
+        Some(window + low)
     }
 
     fn chrome_click(&mut self, x: f32) {
