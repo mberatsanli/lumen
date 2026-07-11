@@ -252,6 +252,9 @@ fn materialize_form_values(document: &mut Document) {
                     .or_else(|| element.attributes.get("placeholder").map(str::to_string))
                     .unwrap_or_default(),
             };
+            // An empty value still needs a line box, or the control's
+            // height collapses; a lone space keeps it alive.
+            let text = if text.is_empty() { " ".to_string() } else { text };
             Some((id, text))
         })
         .collect();

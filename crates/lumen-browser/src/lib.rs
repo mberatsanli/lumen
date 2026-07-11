@@ -862,11 +862,17 @@ impl<L: ResourceLoader> Session<L> {
                 element.and_then(|element| element.attributes.get("type")) == Some("password");
             if value.is_empty() {
                 // An emptied field shows its placeholder again, like real
-                // browsers do.
-                element
+                // browsers do. Without one, a lone space keeps the line
+                // box (and the control's height) alive.
+                let placeholder = element
                     .and_then(|element| element.attributes.get("placeholder"))
                     .unwrap_or_default()
-                    .to_string()
+                    .to_string();
+                if placeholder.is_empty() {
+                    " ".to_string()
+                } else {
+                    placeholder
+                }
             } else if is_password {
                 "\u{2022}".repeat(value.chars().count())
             } else {
@@ -1722,6 +1728,45 @@ mod tests {
             !after
                 .iter()
                 .any(|text| text.contains("ara") && !text.contains("merhaba"))
+        );
+    }
+
+    #[test]
+    fn emptied_input_without_placeholder_keeps_its_height() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<form><input type='email' name='e' value='a@b.c'></form>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let field = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+            .unwrap();
+        let height = |session: &Session<FakeLoader>| {
+            session
+                .page()
+                .unwrap()
+                .layout
+                .find_by_node(field)
+                .unwrap()
+                .content_box()
+                .height
+        };
+        let before = height(&session);
+        session.set_form_value(field, "");
+        assert!(
+            (height(&session) - before).abs() < 0.5,
+            "emptied input shrank: {} -> {}",
+            before,
+            height(&session)
         );
     }
 
