@@ -148,6 +148,13 @@
     .sel-title + p { font-style: italic; }
     a[href^="https"] { color: #7a3d9e; }
 
+    /* --- units & cascade keywords ----------------------------------------- */
+    .rem-box { font-size: 1.25rem; padding: 0.5rem; background-color: #e9f0ea; }
+    .keyword-parent { color: #1a6b3c; width: 420px; background-color: #f0ede4; padding: 8px; }
+    .keyword-child { width: inherit; color: initial; background-color: #e3dfd2; }
+    .important-demo { color: #b3261e !important; }
+    #important-loser { color: #1a6b3c; }
+
     /* --- media queries ---------------------------------------------------- */
     .mq { padding: 8px; background-color: #dfe7f2; }
     .mq::after { content: " (wide viewport)"; }
@@ -282,6 +289,19 @@
     </div>
     <p>Secure links go purple: <a href="https://example.com">https link</a>
        vs <a href="http://example.com">http link</a>.</p>
+  </div>
+
+  <div class="section">
+    <h2>Units &amp; cascade keywords</h2>
+    <p class="rem-box">This box is sized in rem (1.25rem font, 0.5rem padding).</p>
+    <div class="keyword-parent">
+      <p>Parent: green text, 420px wide.</p>
+      <div class="keyword-child"><p>Child: width: inherit (420px), color: initial
+        (back to default, not green).</p></div>
+    </div>
+    <p class="important-demo" id="important-loser" style="color: #2266aa">
+      This is red: the !important class rule beats both the id rule and the
+      inline style.</p>
   </div>
 
   <div class="section">
