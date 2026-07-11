@@ -148,6 +148,10 @@
     .sel-title + p { font-style: italic; }
     a[href^="https"] { color: #7a3d9e; }
 
+    /* --- forms (visual) --------------------------------------------------- */
+    .form-row input[type=submit] { background-color: #2266aa; color: #ffffff;
+                                   border-color: #1c5288; }
+
     /* --- units & cascade keywords ----------------------------------------- */
     .rem-box { font-size: 1.25rem; padding: 0.5rem; background-color: #e9f0ea; }
     .keyword-parent { color: #1a6b3c; width: 420px; background-color: #f0ede4; padding: 8px; }
@@ -289,6 +293,18 @@
     </div>
     <p>Secure links go purple: <a href="https://example.com">https link</a>
        vs <a href="http://example.com">http link</a>.</p>
+  </div>
+
+  <div class="section">
+    <h2>Forms (visual)</h2>
+    <div class="form-row">
+      <input type="text" placeholder="Type here…">
+      <input type="password" value="secret">
+      <input type="submit" value="Styled submit">
+      <input type="checkbox"> <input type="radio">
+    </div>
+    <p class="muted">↑ non-interactive: boxes, values and placeholders render.
+      Entities: &copy; &mdash; &hellip; &rarr; &euro;</p>
   </div>
 
   <div class="section">

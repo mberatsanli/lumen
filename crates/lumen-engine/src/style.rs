@@ -608,6 +608,16 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             em, i { font-style: italic; }
             pre { white-space: pre; font-family: monospace; margin-top: 8px; margin-bottom: 8px; }
             code, kbd, samp, tt { font-family: monospace; font-size: 0.875em; }
+            center { text-align: center; }
+            input, select, textarea, button { border: 1px solid #767676; border-radius: 3px;
+                background-color: #ffffff; padding: 3px 8px; font-size: 13px; margin: 2px; }
+            input { width: 170px; }
+            input[type=submit], input[type=button], button { background-color: #ebebeb;
+                width: auto; padding: 3px 12px; }
+            input[type=checkbox], input[type=radio] { width: 12px; height: 12px; padding: 0; }
+            input[type=hidden] { display: none; }
+            select { width: auto; }
+            textarea { width: 300px; height: 64px; }
         ";
         lumen_css::parse_stylesheet(source)
     })
@@ -619,7 +629,8 @@ fn default_display(tag: &str) -> Display {
     match tag {
         "html" | "body" | "div" | "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "ul" | "ol"
         | "li" | "section" | "article" | "header" | "footer" | "main" | "nav" | "aside"
-        | "blockquote" | "pre" | "form" | "table" | "hr" => Display::Block,
+        | "blockquote" | "pre" | "form" | "table" | "hr" | "center" => Display::Block,
+        "input" | "button" | "select" | "textarea" => Display::InlineBlock,
         "head" | "style" | "script" | "title" | "meta" | "link" | "base" => Display::None,
         _ => Display::Inline,
     }

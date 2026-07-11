@@ -105,6 +105,7 @@ pub fn page_from_document(
     hovered: Option<lumen_html::NodeId>,
 ) -> Page {
     let mut document = document;
+    materialize_form_values(&mut document);
     // Media queries resolve against the viewport width here, so resizes
     // (which rebuild the page) restyle automatically.
     let effective = stylesheet.for_width(viewport.width);
@@ -121,6 +122,39 @@ pub fn page_from_document(
         display_list,
         viewport,
         images,
+    }
+}
+
+/// Gives value-carrying form controls (`<input>`) a generated text child
+/// so their label/value renders inside the control's box. Runs before
+/// style computation, so the text inherits styles naturally. Password
+/// values render as bullets; submit/button inputs fall back to a default
+/// label.
+fn materialize_form_values(document: &mut Document) {
+    let inputs: Vec<(lumen_html::NodeId, String)> = document
+        .descendants(document.root())
+        .filter_map(|id| {
+            let element = document.element(id)?;
+            if element.tag_name != "input" {
+                return None;
+            }
+            let kind = element.attributes.get("type").unwrap_or("text");
+            let value = element.attributes.get("value");
+            let text = match kind {
+                "hidden" | "checkbox" | "radio" => return None,
+                "password" => "\u{2022}".repeat(value.map_or(0, str::len)),
+                "submit" => value.unwrap_or("Submit").to_string(),
+                "button" | "reset" => value.unwrap_or("").to_string(),
+                _ => value
+                    .map(str::to_string)
+                    .or_else(|| element.attributes.get("placeholder").map(str::to_string))
+                    .unwrap_or_default(),
+            };
+            Some((id, text))
+        })
+        .collect();
+    for (id, text) in inputs {
+        document.upsert_generated_text(id, true, &text);
     }
 }
 
@@ -227,6 +261,53 @@ pub fn extract_embedded_css(document: &Document) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn form_controls_render_boxes_and_values() {
+        let page = crate::build_page(
+            "<center><input type='text' value='query here'>\
+             <input type='submit' value='Go'></center>",
+            crate::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        let texts: Vec<String> = page
+            .display_list
+            .iter()
+            .filter_map(|command| match command {
+                crate::DisplayCommand::DrawText { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        let joined = texts.join("|");
+        assert!(joined.contains("query"), "{joined}");
+        assert!(joined.contains("Go"), "{joined}");
+        // Both controls draw a border box.
+        let strokes = page
+            .display_list
+            .iter()
+            .filter(|command| matches!(command, crate::DisplayCommand::StrokeRect { .. }))
+            .count();
+        assert!(strokes >= 2, "expected control borders, got {strokes}");
+    }
+
+    #[test]
+    fn center_element_centers_its_content() {
+        let page = crate::build_page(
+            "<center><div style='width: 100px; height: 10px; \
+             background-color: #123456;'></div>x</center>",
+            crate::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        // The text inside center is centered (text-align applies); the
+        // block child is not (CSS text-align does not move blocks), but
+        // the element itself is block-level and full width.
+        let center = &page.layout.children[0];
+        assert_eq!(center.content_box().width, 800.0);
+    }
+
     #[test]
     fn before_and_after_generate_inline_text() {
         let page = crate::build_page(

@@ -16,7 +16,7 @@ interaction) — not just a DOM node.
 | Void elements | ✅ | ✅ | ✅ | ✅ | 13-element set |
 | Comments | ✅ | ✅ | ✅ | ✅ | dropped from DOM |
 | Doctype | ✅ | ✅ | ✅ | ✅ | recognized, dropped; no quirks mode |
-| Character references | ⚠️ | ✅ | ✅ | ✅ | named subset + numeric; full table missing |
+| Character references | ⚠️ | ✅ | ✅ | ✅ | ~80 common named + numeric forms; full 2200-entry table missing |
 | Raw text (`script/style/title/textarea`) | ✅ | ✅ | ✅ | ✅ | |
 | Error recovery | ✅ | ✅ | ✅ | ✅ | mismatched tags, stray `<`, EOF cases |
 | Case normalization, duplicate attrs | ✅ | ✅ | ✅ | ✅ | first attribute wins |
@@ -79,8 +79,8 @@ interaction) — not just a DOM node.
 |---|:-:|:-:|:-:|:-:|---|
 | `<table>` family | ⚠️ | ✅ | ✅ | ✅ | parses; flows as plain blocks, no table layout |
 | `<form>` submission | ❌ | ✅ | ✅ | ✅ | |
-| `<input>` (all types) | ❌ | ✅ | ✅ | ✅ | |
-| `<textarea> <select> <button>` | ❌ | ✅ | ✅ | ✅ | |
+| `<input>` (all types) | ⚠️ | ✅ | ✅ | ✅ | visual only: bordered box with value/placeholder text (password bulleted, hidden hidden, checkbox/radio as small squares); not interactive |
+| `<textarea> <select> <button>` | ⚠️ | ✅ | ✅ | ✅ | visual only: bordered boxes, button labels render; not interactive |
 | `<label> <fieldset> <progress> <meter>` | ❌ | ✅ | ✅ | ✅ | |
 | Focus / validation | ❌ | ✅ | ✅ | ✅ | |
 
