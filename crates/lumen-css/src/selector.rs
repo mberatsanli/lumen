@@ -54,6 +54,10 @@ pub enum AttributeOperation {
     EndsWith(String),
     /// `[attr*=v]`
     Contains(String),
+    /// `[attr~=v]` — whitespace-separated word match.
+    WordMatch(String),
+    /// `[attr|=v]` — exact or `v-` prefix (language ranges).
+    LangPrefix(String),
 }
 
 /// A parsed pseudo-class.
@@ -76,6 +80,15 @@ pub enum PseudoClass {
     NthLastChild(i32, i32),
     /// Negation of one compound (no combinators inside).
     Not(Box<CompoundSelector>),
+    /// Matches when any listed compound matches. `:is()` takes its most
+    /// specific argument's specificity; `:where()` contributes none.
+    Is(Vec<CompoundSelector>),
+    Where(Vec<CompoundSelector>),
+    FirstOfType,
+    LastOfType,
+    OnlyOfType,
+    NthOfType(i32, i32),
+    NthLastOfType(i32, i32),
 }
 
 /// A compound selector: simple selectors that must all match one element.
@@ -109,6 +122,15 @@ impl CompoundSelector {
                     specificity.classes += inner.classes;
                     specificity.types += inner.types;
                 }
+                // :is() takes its most specific argument; :where() none.
+                PseudoClass::Is(arguments) => {
+                    if let Some(most) = arguments.iter().map(CompoundSelector::specificity).max() {
+                        specificity.ids += most.ids;
+                        specificity.classes += most.classes;
+                        specificity.types += most.types;
+                    }
+                }
+                PseudoClass::Where(_) => {}
                 _ => specificity.classes += 1,
             }
         }
@@ -348,7 +370,7 @@ fn find_balanced(chars: &[char], open: usize, opener: char, closer: char) -> Opt
 /// `name*=v` (value optionally quoted).
 fn parse_attribute(source: &str) -> Option<AttributeSelector> {
     let source = source.trim();
-    let operator_at = source.find(['=', '^', '$', '*']);
+    let operator_at = source.find(['=', '^', '$', '*', '~', '|']);
     let Some(at) = operator_at else {
         let name = source.to_ascii_lowercase();
         return is_identifier(&name).then_some(AttributeSelector {
@@ -367,6 +389,10 @@ fn parse_attribute(source: &str) -> Option<AttributeSelector> {
         ('$', value)
     } else if let Some(value) = rest.strip_prefix("*=") {
         ('*', value)
+    } else if let Some(value) = rest.strip_prefix("~=") {
+        ('~', value)
+    } else if let Some(value) = rest.strip_prefix("|=") {
+        ('|', value)
     } else if let Some(value) = rest.strip_prefix('=') {
         ('=', value)
     } else {
@@ -387,6 +413,8 @@ fn parse_attribute(source: &str) -> Option<AttributeSelector> {
         '^' => AttributeOperation::StartsWith(value),
         '$' => AttributeOperation::EndsWith(value),
         '*' => AttributeOperation::Contains(value),
+        '~' => AttributeOperation::WordMatch(value),
+        '|' => AttributeOperation::LangPrefix(value),
         _ => AttributeOperation::Equals(value),
     };
     Some(AttributeSelector { name, operation })
@@ -406,6 +434,34 @@ fn parse_pseudo_class(name: &str, arguments: Option<&str>) -> Option<PseudoClass
         }
         ("nth-last-child", Some(arguments)) => {
             parse_nth(arguments).map(|(a, b)| PseudoClass::NthLastChild(a, b))
+        }
+        ("first-of-type", None) => Some(PseudoClass::FirstOfType),
+        ("last-of-type", None) => Some(PseudoClass::LastOfType),
+        ("only-of-type", None) => Some(PseudoClass::OnlyOfType),
+        ("nth-of-type", Some(arguments)) => {
+            parse_nth(arguments).map(|(a, b)| PseudoClass::NthOfType(a, b))
+        }
+        ("nth-last-of-type", Some(arguments)) => {
+            parse_nth(arguments).map(|(a, b)| PseudoClass::NthLastOfType(a, b))
+        }
+        ("is", Some(arguments)) | ("where", Some(arguments)) => {
+            let compounds: Option<Vec<CompoundSelector>> = arguments
+                .split(',')
+                .map(|part| parse_compound(part.trim()))
+                .collect();
+            let compounds = compounds?;
+            if compounds.is_empty()
+                || compounds
+                    .iter()
+                    .any(|compound| compound.pseudo_element.is_some())
+            {
+                return None;
+            }
+            Some(if name == "is" {
+                PseudoClass::Is(compounds)
+            } else {
+                PseudoClass::Where(compounds)
+            })
         }
         ("not", Some(arguments)) => {
             let inner = parse_compound(arguments.trim())?;
@@ -573,6 +629,37 @@ mod tests {
             parse_selector("li:nth-last-child(-n+2)").unwrap().compounds[0].pseudo_classes,
             vec![PseudoClass::NthLastChild(-1, 2)]
         );
+    }
+
+    #[test]
+    fn parses_is_where_and_of_type() {
+        let selector = parse_selector("p:is(.a, #b)").unwrap();
+        let PseudoClass::Is(arguments) = &selector.compounds[0].pseudo_classes[0] else {
+            panic!("expected :is");
+        };
+        assert_eq!(arguments.len(), 2);
+        // :is takes its most specific argument: the id.
+        assert_eq!(
+            selector.specificity(),
+            Specificity {
+                ids: 1,
+                classes: 0,
+                types: 1
+            }
+        );
+        // :where contributes nothing.
+        assert_eq!(
+            parse_selector("p:where(.a, #b)").unwrap().specificity(),
+            Specificity {
+                ids: 0,
+                classes: 0,
+                types: 1
+            }
+        );
+        assert!(parse_selector("li:first-of-type").is_some());
+        assert!(parse_selector("li:nth-of-type(2n)").is_some());
+        assert!(parse_selector("a[rel~=nofollow]").is_some());
+        assert!(parse_selector("p[lang|=en]").is_some());
     }
 
     #[test]

@@ -1134,6 +1134,32 @@ fn winning_declarations(
     winners
 }
 
+/// The same-tag element siblings of a node, plus its position among them
+/// (for the of-type pseudo-class family).
+fn typed_siblings(document: &Document, node_id: NodeId) -> (Vec<NodeId>, usize) {
+    let tag = document
+        .element(node_id)
+        .map(|element| element.tag_name.clone())
+        .unwrap_or_default();
+    let siblings: Vec<NodeId> = document.parent(node_id).map_or_else(Vec::new, |parent| {
+        document
+            .children(parent)
+            .iter()
+            .copied()
+            .filter(|child| {
+                document
+                    .element(*child)
+                    .is_some_and(|element| element.tag_name == tag)
+            })
+            .collect()
+    });
+    let position = siblings
+        .iter()
+        .position(|sibling| *sibling == node_id)
+        .unwrap_or(0);
+    (siblings, position)
+}
+
 /// The element siblings of a node (children of its parent that are
 /// elements), plus the node's position among them.
 fn element_siblings(document: &Document, node_id: NodeId) -> (Vec<NodeId>, usize) {
@@ -1195,6 +1221,15 @@ fn compound_matches(
             AttributeOperation::StartsWith(prefix) => value.starts_with(prefix.as_str()),
             AttributeOperation::EndsWith(suffix) => value.ends_with(suffix.as_str()),
             AttributeOperation::Contains(needle) => value.contains(needle.as_str()),
+            AttributeOperation::WordMatch(word) => {
+                value.split_whitespace().any(|candidate| candidate == word)
+            }
+            AttributeOperation::LangPrefix(prefix) => {
+                value == prefix
+                    || value
+                        .strip_prefix(prefix.as_str())
+                        .is_some_and(|rest| rest.starts_with('-'))
+            }
         }
     }) {
         return false;
@@ -1220,6 +1255,23 @@ fn compound_matches(
         }
         PseudoClass::Not(inner) => {
             !compound_matches(document, node_id, element, inner, hover_chain)
+        }
+        PseudoClass::Is(arguments) | PseudoClass::Where(arguments) => arguments
+            .iter()
+            .any(|inner| compound_matches(document, node_id, element, inner, hover_chain)),
+        PseudoClass::FirstOfType => typed_siblings(document, node_id).1 == 0,
+        PseudoClass::LastOfType => {
+            let (siblings, position) = typed_siblings(document, node_id);
+            position + 1 == siblings.len()
+        }
+        PseudoClass::OnlyOfType => typed_siblings(document, node_id).0.len() == 1,
+        PseudoClass::NthOfType(a, b) => {
+            let (_, position) = typed_siblings(document, node_id);
+            nth_matches(*a, *b, position as i32 + 1)
+        }
+        PseudoClass::NthLastOfType(a, b) => {
+            let (siblings, position) = typed_siblings(document, node_id);
+            nth_matches(*a, *b, (siblings.len() - position) as i32)
         }
     })
 }
@@ -1904,6 +1956,35 @@ mod tests {
         assert_eq!(styles.by_node[&items[0]].color.to_string(), "#111111");
         assert_eq!(styles.by_node[&items[1]].color.to_string(), "#333333");
         assert_eq!(styles.by_node[&items[2]].color.to_string(), "#222222");
+    }
+
+    #[test]
+    fn of_type_and_is_and_word_attributes_match() {
+        let (document, styles) = styles_for(
+            "<style>p:first-of-type { color: #ff0000; }\
+                    span:nth-of-type(2) { color: #00ff00; }\
+                    :is(.x, .y) { font-weight: 700; }\
+                    a[rel~=nofollow] { color: #0000ff; }\
+                    div[lang|=en] { color: #ff00ff; }</style>\
+             <div lang='en-US'><h1>t</h1><p>first p</p><span>s1</span>\
+             <span class='y'>s2</span><a rel='external nofollow'>l</a></div>",
+        );
+        let find = |tag: &str, nth: usize| {
+            document
+                .descendants(document.root())
+                .filter(|id| document.element(*id).is_some_and(|e| e.tag_name == tag))
+                .nth(nth)
+                .unwrap()
+        };
+        // p is not the first element child, but IS the first p.
+        assert_eq!(styles.by_node[&find("p", 0)].color.to_string(), "#ff0000");
+        assert_eq!(
+            styles.by_node[&find("span", 1)].color.to_string(),
+            "#00ff00"
+        );
+        assert_eq!(styles.by_node[&find("span", 1)].font_weight.0, 700);
+        assert_eq!(styles.by_node[&find("a", 0)].color.to_string(), "#0000ff");
+        assert_eq!(styles.by_node[&find("div", 0)].color.to_string(), "#ff00ff");
     }
 
     #[test]

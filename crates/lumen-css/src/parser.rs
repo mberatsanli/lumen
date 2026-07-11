@@ -174,9 +174,9 @@ fn parse_rule_list(
         let declaration_source = &after_open[..close];
         rest = &after_open[(close + 1).min(after_open.len())..];
 
-        let selectors: Option<Vec<Selector>> = selector_source
-            .split(',')
-            .map(str::trim)
+        let selectors: Option<Vec<Selector>> = split_selector_list(selector_source)
+            .iter()
+            .map(|selector| selector.trim())
             .filter(|selector| !selector.is_empty())
             .map(parse_selector)
             .collect();
@@ -195,6 +195,27 @@ fn parse_rule_list(
         });
         *source_order += 1;
     }
+}
+
+/// Splits a selector list at top-level commas only, so `:is(.a, .b)`
+/// stays one selector.
+fn split_selector_list(source: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+    for (index, character) in source.char_indices() {
+        match character {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(&source[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&source[start..]);
+    parts
 }
 
 /// Combines an inherited bound with a nested one.

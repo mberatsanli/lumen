@@ -19,14 +19,14 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Selector list `h1, h2` | ✅ | ✅ | ✅ | ✅ | |
 | Child `A > B` | ✅ | ✅ | ✅ | ✅ | |
 | Siblings `A + B`, `A ~ B` | ✅ | ✅ | ✅ | ✅ | |
-| Attribute `[href]`, `[type="x"]` | ✅ | ✅ | ✅ | ✅ | also `^=`, `$=`, `*=`; no `~=`, `|=`, case flags |
+| Attribute `[href]`, `[type="x"]` | ✅ | ✅ | ✅ | ✅ | `=`, `^=`, `$=`, `*=`, `~=`, `|=`; no case flags |
 | `:hover` | ✅ | ✅ | ✅ | ✅ | live hover chain in desktop shell |
 | `:root` | ✅ | ✅ | ✅ | ✅ | |
 | `:link` / `:visited` | ⚠️ | ✅ | ✅ | ✅ | always match; no visited state |
 | `:active`, `:focus*` | ❌ | ✅ | ✅ | ✅ | |
-| `:first/last/only-child` | ✅ | ✅ | ✅ | ✅ | |
-| `:nth-child()` family | ⚠️ | ✅ | ✅ | ✅ | nth-child/nth-last-child with an+b/odd/even; no `of S`, no nth-of-type |
-| `:not()`, `:is()`, `:where()` | ⚠️ | ✅ | ✅ | ✅ | `:not()` with one compound argument; no `:is()`/`:where()` |
+| `:first/last/only-child` | ✅ | ✅ | ✅ | ✅ | of-type variants too |
+| `:nth-child()` family | ⚠️ | ✅ | ✅ | ✅ | nth-child/nth-last-child + full of-type family with an+b/odd/even; no `of S` |
+| `:not()`, `:is()`, `:where()` | ⚠️ | ✅ | ✅ | ✅ | compound arguments only (no combinators inside); :is takes max specificity, :where zero |
 | `:has()` | ❌ | ✅ | ✅ | ✅ | |
 | `::before` / `::after` + `content` | ⚠️ | ✅ | ✅ | ✅ | string content only (no counters/attr()/url()); flows as unselectable inline text; both colon forms |
 | `::selection` | ⚠️ | ✅ | ✅ | ✅ | background-color works; color recorded but selected text keeps its color |
