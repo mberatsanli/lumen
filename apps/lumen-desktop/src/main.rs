@@ -14,7 +14,8 @@
 //! Enter navigates, Escape cancels editing. Drag over text to select it;
 //! Cmd/Ctrl+C copies and Cmd/Ctrl+A selects the whole page. Cmd/Ctrl+F
 //! opens the find bar (type to search, Enter cycles matches, Escape
-//! closes). The address and find inputs support full editing: caret
+//! closes). F12 (or Cmd/Ctrl+D) toggles a debug HUD with FPS, frame
+//! times, memory and page statistics. The address and find inputs support full editing: caret
 //! movement, Shift+arrows selection, Home/End, Cmd/Ctrl+A/C/X/V.
 
 use lumen_browser::Session;
@@ -25,9 +26,11 @@ use lumen_engine::{
 };
 use lumen_engine::{FontWeight, TextMeasurer, TextMetrics, TextStyle};
 use lumen_platform::{DefaultLoader, Url, url_from_user_input};
+use std::collections::VecDeque;
 use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::event::Modifiers;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
@@ -312,6 +315,10 @@ fn apply_edit(input: &mut TextInput, key: &Key, command: bool, shift: bool) -> E
     }
 }
 
+fn count_boxes(layout: &lumen_engine::LayoutBox) -> usize {
+    1 + layout.children.iter().map(count_boxes).sum::<usize>()
+}
+
 fn clipboard_set(text: &str) {
     if text.is_empty() {
         return;
@@ -361,6 +368,15 @@ struct App {
     find_index: usize,
     /// Damage tracking: bumped whenever the page raster could change.
     page_generation: u64,
+    /// Debug HUD (F12 / Cmd+D): FPS, memory, frame + page stats.
+    debug_hud: bool,
+    /// Recent frames: (when it finished, how long it took).
+    frame_times: VecDeque<(Instant, Duration)>,
+    /// How the last frame produced its page pixels.
+    last_frame_kind: &'static str,
+    /// Resident memory, refreshed at most once a second via `ps`.
+    rss_megabytes: Option<f64>,
+    rss_checked: Option<Instant>,
     /// Cached page raster keyed by (generation, scroll, size).
     page_frame: Option<((u64, u32, u32, u32), lumen_engine::Framebuffer)>,
     /// Reused per-redraw composition buffer; overlays and chrome draw here
@@ -403,6 +419,11 @@ impl App {
             find_matches: Vec::new(),
             find_index: 0,
             page_generation: 0,
+            debug_hud: false,
+            frame_times: VecDeque::new(),
+            last_frame_kind: "full",
+            rss_megabytes: None,
+            rss_checked: None,
             page_frame: None,
             compose_frame: None,
         }
@@ -1025,6 +1046,105 @@ impl App {
         self.request_redraw();
     }
 
+    /// Debug HUD paint commands: a translucent panel of live stats under
+    /// the address bar, top-right.
+    fn hud_commands(&mut self) -> Vec<DisplayCommand> {
+        use lumen_css::Color;
+        // Refresh RSS at most once a second (`ps` is not free).
+        let now = Instant::now();
+        if self
+            .rss_checked
+            .is_none_or(|checked| now - checked > Duration::from_secs(1))
+        {
+            self.rss_checked = Some(now);
+            self.rss_megabytes = std::process::Command::new("ps")
+                .args(["-o", "rss=", "-p"])
+                .arg(std::process::id().to_string())
+                .output()
+                .ok()
+                .and_then(|output| String::from_utf8(output.stdout).ok())
+                .and_then(|text| text.trim().parse::<f64>().ok())
+                .map(|kilobytes| kilobytes / 1024.0);
+        }
+
+        // Frames inside the last second → FPS; average + worst frame time.
+        let window_start = now - Duration::from_secs(1);
+        let recent: Vec<Duration> = self
+            .frame_times
+            .iter()
+            .filter(|(finished, _)| *finished >= window_start)
+            .map(|(_, took)| *took)
+            .collect();
+        let fps = recent.len();
+        let average_ms = if recent.is_empty() {
+            0.0
+        } else {
+            recent.iter().map(Duration::as_secs_f64).sum::<f64>() / recent.len() as f64 * 1000.0
+        };
+        let worst_ms = recent.iter().map(Duration::as_secs_f64).fold(0.0, f64::max) * 1000.0;
+
+        let (commands_count, boxes, nodes) = match self.session().and_then(Session::page) {
+            Some(page) => (
+                page.display_list.len(),
+                count_boxes(&page.layout),
+                page.document.nodes().len(),
+            ),
+            None => (0, 0, 0),
+        };
+
+        let viewport = self.viewport();
+        let lines = [
+            format!("fps {fps}  frame {average_ms:.1} ms (max {worst_ms:.1})"),
+            format!("last frame: {}", self.last_frame_kind),
+            format!(
+                "rss {}",
+                self.rss_megabytes
+                    .map_or_else(|| "?".to_string(), |mb| format!("{mb:.1} MB"))
+            ),
+            format!("display list {commands_count} cmds"),
+            format!("layout {boxes} boxes / dom {nodes} nodes"),
+            format!(
+                "scroll {:.0}/{:.0}  viewport {:.0}x{:.0} @{:.0}%",
+                self.scroll_y,
+                self.max_scroll(),
+                viewport.width,
+                viewport.height,
+                self.scale() * 100.0
+            ),
+            format!("generation {}", self.page_generation),
+        ];
+
+        let line_height = 16.0;
+        let panel_width = 300.0;
+        let panel_height = lines.len() as f32 * line_height + 12.0;
+        let x = (viewport.width - panel_width - 8.0).max(0.0);
+        let y = BAR_HEIGHT + 8.0;
+        let mut commands = vec![DisplayCommand::FillRect {
+            rect: Rect {
+                x,
+                y,
+                width: panel_width,
+                height: panel_height,
+            },
+            color: Color::rgba(0x1c, 0x1a, 0x22, 210),
+            radius: lumen_engine::Corners::uniform(6.0),
+        }];
+        for (index, line) in lines.iter().enumerate() {
+            commands.push(DisplayCommand::DrawText {
+                x: x + 10.0,
+                y: y + 18.0 + index as f32 * line_height,
+                text: line.clone(),
+                color: Color::rgb(0xd8, 0xf0, 0xd0),
+                font_size: 12.0,
+                font_weight: 400,
+                underline: false,
+                italic: false,
+                monospace: true,
+            });
+        }
+        commands
+    }
+
     fn request_redraw(&self) {
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -1045,6 +1165,7 @@ impl App {
     }
 
     fn redraw(&mut self) {
+        let frame_started = Instant::now();
         let scale = self.scale();
         let chrome = self.chrome_commands();
         let Some(size) = self.window.as_ref().map(|window| window.inner_size()) else {
@@ -1084,20 +1205,28 @@ impl App {
                 _ => None,
             };
             let frame = match blitted {
-                Some(frame) => frame,
-                None => match self.session().and_then(Session::page) {
-                    Some(page) => rasterize_with(
-                        &page.display_list,
-                        size.width,
-                        size.height,
-                        self.scroll_y - BAR_HEIGHT,
-                        scale,
-                        self.font.as_deref(),
-                    ),
-                    None => lumen_engine::Framebuffer::new(size.width, size.height),
-                },
+                Some(frame) => {
+                    self.last_frame_kind = "blit";
+                    frame
+                }
+                None => {
+                    self.last_frame_kind = "full";
+                    match self.session().and_then(Session::page) {
+                        Some(page) => rasterize_with(
+                            &page.display_list,
+                            size.width,
+                            size.height,
+                            self.scroll_y - BAR_HEIGHT,
+                            scale,
+                            self.font.as_deref(),
+                        ),
+                        None => lumen_engine::Framebuffer::new(size.width, size.height),
+                    }
+                }
             };
             self.page_frame = Some((cache_key, frame));
+        } else {
+            self.last_frame_kind = "cache";
         }
         let Some((_, base)) = &self.page_frame else {
             return;
@@ -1183,6 +1312,10 @@ impl App {
             );
         }
         rasterize_over(&mut framebuffer, &chrome, 0.0, scale, self.font.as_deref());
+        if self.debug_hud {
+            let hud = self.hud_commands();
+            rasterize_over(&mut framebuffer, &hud, 0.0, scale, self.font.as_deref());
+        }
 
         let Some(surface) = self.surface.as_mut() else {
             return;
@@ -1196,6 +1329,12 @@ impl App {
         buffer.copy_from_slice(&framebuffer.pixels);
         let _ = buffer.present();
         self.compose_frame = Some(framebuffer);
+
+        let now = Instant::now();
+        self.frame_times.push_back((now, now - frame_started));
+        while self.frame_times.len() > 240 {
+            self.frame_times.pop_front();
+        }
     }
 
     /// Applies a key to one text bar. Returns false when that bar is not
@@ -1280,6 +1419,14 @@ impl App {
         // Ctrl/Cmd+F toggles the find bar from anywhere.
         if command_held && matches!(key, Key::Character(text) if text.as_str() == "f") {
             self.open_find_bar();
+            return;
+        }
+        // F12 (or Ctrl/Cmd+D) toggles the debug HUD.
+        if matches!(key, Key::Named(NamedKey::F12))
+            || (command_held && matches!(key, Key::Character(text) if text.as_str() == "d"))
+        {
+            self.debug_hud = !self.debug_hud;
+            self.request_redraw();
             return;
         }
         let shift_held = self.modifiers.state().shift_key();
