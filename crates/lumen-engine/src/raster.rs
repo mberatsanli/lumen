@@ -9,7 +9,7 @@
 use crate::font::SystemFont;
 use crate::geometry::{Corners, Rect};
 use crate::paint::{DisplayCommand, GradientKind};
-use crate::style::Transform2D;
+use crate::style::{Mark, Transform2D};
 use font8x8::UnicodeFonts;
 use lumen_css::Color;
 
@@ -232,6 +232,9 @@ fn rasterize_clipped(
         let current = transforms.last().copied();
         let shift = |rect: &Rect| device(map_rect(rect, current));
         match command {
+            DisplayCommand::DrawMark { rect, color, mark } => {
+                draw_mark(framebuffer, &shift(rect), *color, *mark);
+            }
             DisplayCommand::PushTransform { matrix } => {
                 let composed = match current {
                     Some(outer) => outer.multiply(*matrix),
@@ -906,6 +909,79 @@ fn draw_shadow(
             }
             let position = (pixel_y * framebuffer.width + pixel_x) as usize;
             framebuffer.pixels[position] = blend(framebuffer.pixels[position], packed, alpha);
+        }
+    }
+}
+
+/// Anti-aliased thick line segment: coverage from the distance to the
+/// segment, with a ~1px soft edge.
+fn draw_segment(
+    framebuffer: &mut Framebuffer,
+    from: (f32, f32),
+    to: (f32, f32),
+    thickness: f32,
+    color: Color,
+) {
+    let radius = thickness / 2.0;
+    let x0 = ((from.0.min(to.0) - radius - 1.0).floor().max(0.0)) as u32;
+    let y0 = ((from.1.min(to.1) - radius - 1.0).floor().max(0.0)) as u32;
+    let x1 = (((from.0.max(to.0) + radius + 1.0).ceil()).max(0.0) as u32).min(framebuffer.width);
+    let y1 = (((from.1.max(to.1) + radius + 1.0).ceil()).max(0.0) as u32).min(framebuffer.height);
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let length_squared = (dx * dx + dy * dy).max(f32::EPSILON);
+    let packed = pack(color);
+    for pixel_y in y0..y1 {
+        for pixel_x in x0..x1 {
+            if !framebuffer.admits(pixel_x, pixel_y) {
+                continue;
+            }
+            let (px, py) = (pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
+            let t = (((px - from.0) * dx + (py - from.1) * dy) / length_squared).clamp(0.0, 1.0);
+            let (cx, cy) = (from.0 + t * dx, from.1 + t * dy);
+            let distance = ((px - cx).powi(2) + (py - cy).powi(2)).sqrt();
+            let coverage = (radius + 0.5 - distance).clamp(0.0, 1.0);
+            if coverage <= 0.0 {
+                continue;
+            }
+            let alpha = (f32::from(color.a) * coverage) as u8;
+            let position = (pixel_y * framebuffer.width + pixel_x) as usize;
+            framebuffer.pixels[position] = blend(framebuffer.pixels[position], packed, alpha);
+        }
+    }
+}
+
+/// Draws a control mark: a two-segment check tick, or a centered disc.
+fn draw_mark(framebuffer: &mut Framebuffer, rect: &Rect, color: Color, mark: Mark) {
+    match mark {
+        Mark::Check => {
+            // Classic tick: 25%→45% down-stroke, 45%→78% up-stroke.
+            let point = |fx: f32, fy: f32| (rect.x + rect.width * fx, rect.y + rect.height * fy);
+            let thickness = (rect.width.min(rect.height) * 0.16).max(1.4);
+            draw_segment(
+                framebuffer,
+                point(0.24, 0.55),
+                point(0.43, 0.74),
+                thickness,
+                color,
+            );
+            draw_segment(
+                framebuffer,
+                point(0.43, 0.74),
+                point(0.78, 0.3),
+                thickness,
+                color,
+            );
+        }
+        Mark::Dot => {
+            let inset = rect.width * 0.3;
+            let disc = Rect {
+                x: rect.x + inset,
+                y: rect.y + inset,
+                width: rect.width - 2.0 * inset,
+                height: rect.height - 2.0 * inset,
+            };
+            let radius = Corners::uniform(disc.width / 2.0);
+            fill_rounded(framebuffer, &disc, &radius, color);
         }
     }
 }

@@ -6,7 +6,9 @@
 use crate::geometry::{Corners, EdgeSizes, Rect};
 use crate::image::{ImageMap, RasterImage};
 use crate::layout::{BoxType, LayoutBox, LayoutKind};
-use crate::style::{BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, Transform2D};
+use crate::style::{
+    BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, Mark, Transform2D,
+};
 use lumen_css::Color;
 use std::sync::Arc;
 
@@ -74,6 +76,12 @@ pub enum DisplayCommand {
         stops: Vec<(Color, f32)>,
         /// The gradient geometry; the angle only applies to `Linear`.
         kind: GradientKind,
+    },
+    /// A vector control mark (check tick / radio dot) inside `rect`.
+    DrawMark {
+        rect: Rect,
+        color: Color,
+        mark: Mark,
     },
     /// Apply a 2D affine transform to every command until the matching
     /// [`Self::PopTransform`] (composed with enclosing transforms).
@@ -351,6 +359,19 @@ fn paint_box(
             },
             styles: layout.style.border_style,
             radius,
+        });
+    }
+
+    // Control marks (checked checkbox tick / radio dot) draw over the
+    // filled box in white.
+    if !anonymous
+        && visible
+        && let Some(mark) = layout.style.mark
+    {
+        commands.push(DisplayCommand::DrawMark {
+            rect: border_box,
+            color: fade(Color::rgb(0xff, 0xff, 0xff)),
+            mark,
         });
     }
 
@@ -674,6 +695,13 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
             DisplayCommand::PopClip => {
                 let _ = writeln!(output, "PopClip");
             }
+            DisplayCommand::DrawMark { rect, mark, .. } => {
+                let _ = writeln!(
+                    output,
+                    "DrawMark {:?} x={} y={} w={} h={}",
+                    mark, rect.x, rect.y, rect.width, rect.height
+                );
+            }
             DisplayCommand::PushTransform { matrix } => {
                 let _ = writeln!(
                     output,
@@ -783,6 +811,7 @@ mod tests {
                 DisplayCommand::PopClip => "pop-clip",
                 DisplayCommand::FillGradient { .. } => "gradient",
                 DisplayCommand::DrawShadow { .. } => "shadow",
+                DisplayCommand::DrawMark { .. } => "mark",
                 DisplayCommand::PushTransform { .. } => "push-transform",
                 DisplayCommand::PopTransform => "pop-transform",
             })

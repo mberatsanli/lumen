@@ -136,6 +136,30 @@ pub fn render_svg(page: &Page) -> String {
             DisplayCommand::PopClip => {
                 svg.push_str("</g>\n");
             }
+            DisplayCommand::DrawMark { rect, color, mark } => match mark {
+                crate::style::Mark::Check => {
+                    let point = |fx: f32, fy: f32| {
+                        format!("{},{}", rect.x + rect.width * fx, rect.y + rect.height * fy)
+                    };
+                    let _ = writeln!(
+                        svg,
+                        "<polyline points=\"{} {} {}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"{:.2}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
+                        point(0.24, 0.55),
+                        point(0.43, 0.74),
+                        point(0.78, 0.3),
+                        (rect.width.min(rect.height) * 0.16).max(1.4),
+                    );
+                }
+                crate::style::Mark::Dot => {
+                    let _ = writeln!(
+                        svg,
+                        "<circle cx=\"{}\" cy=\"{}\" r=\"{:.2}\" fill=\"{color}\"/>",
+                        rect.x + rect.width / 2.0,
+                        rect.y + rect.height / 2.0,
+                        rect.width * 0.2,
+                    );
+                }
+            },
             DisplayCommand::PushTransform { matrix } => {
                 let _ = writeln!(
                     svg,

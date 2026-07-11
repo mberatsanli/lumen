@@ -23,7 +23,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `:hover` | ✅ | ✅ | ✅ | ✅ | live hover chain in desktop shell |
 | `:root` | ✅ | ✅ | ✅ | ✅ | |
 | `:link` / `:visited` | ⚠️ | ✅ | ✅ | ✅ | :visited from this session's history; :link = href present and unvisited |
-| `:active`, `:focus*` | ⚠️ | ✅ | ✅ | ✅ | :active on pointer press, :focus/:focus-within on last click (no keyboard tabbing); :focus-visible ≈ :focus |
+| `:active`, `:focus*`, `:checked` | ⚠️ | ✅ | ✅ | ✅ | :active on pointer press, :focus/:focus-within on last click (no keyboard tabbing); :checked from live toggles + checked attrs |
 | `:first/last/only-child` | ✅ | ✅ | ✅ | ✅ | of-type variants too |
 | `:nth-child()` family | ⚠️ | ✅ | ✅ | ✅ | nth-child/nth-last-child + full of-type family with an+b/odd/even; no `of S` |
 | `:not()`, `:is()`, `:where()` | ⚠️ | ✅ | ✅ | ✅ | compound arguments only (no combinators inside); :is takes max specificity, :where zero |

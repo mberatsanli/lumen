@@ -213,6 +213,8 @@ pub struct ComputedStyle {
     /// Origin as (x, y); percents resolve against the border box.
     pub transform_origin: (Dimension, Dimension),
     pub transitions: Vec<TransitionSpec>,
+    /// Geometric control mark (from the internal `--lumen-mark` UA hook).
+    pub mark: Option<Mark>,
     pub width: Dimension,
     pub height: Dimension,
     /// Size constraints; `Auto` means unconstrained.
@@ -517,6 +519,15 @@ pub struct TransitionSpec {
     pub ease: bool,
 }
 
+/// A vector-drawn control mark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mark {
+    /// A check tick (checkboxes).
+    Check,
+    /// A filled dot (radios).
+    Dot,
+}
+
 /// One grid column track.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GridTrack {
@@ -784,6 +795,7 @@ impl Default for ComputedStyle {
             transform: None,
             transform_origin: (Dimension::Percent(50.0), Dimension::Percent(50.0)),
             transitions: Vec::new(),
+            mark: None,
             width: Dimension::Auto,
             height: Dimension::Auto,
             min_width: Dimension::Auto,
@@ -981,6 +993,8 @@ pub struct InteractionState {
     pub focus_chain: HashSet<NodeId>,
     /// Link elements whose target was visited this session.
     pub visited_links: HashSet<NodeId>,
+    /// Checked checkboxes/radios (live toggles + checked attributes).
+    pub checked: HashSet<NodeId>,
 }
 
 impl InteractionState {
@@ -1005,7 +1019,15 @@ impl InteractionState {
             focused,
             focus_chain: chain(focused),
             visited_links: HashSet::new(),
+            checked: HashSet::new(),
         }
+    }
+
+    /// Same, with the set of checked checkables (`:checked`).
+    #[must_use]
+    pub fn with_checked(mut self, checked: HashSet<NodeId>) -> Self {
+        self.checked = checked;
+        self
     }
 
     /// Same, with the set of visited link elements (`:visited`).
@@ -1100,9 +1122,13 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             input { width: 170px; min-height: 1.1em; }
             input[type=submit], input[type=button], button { background-color: #ebebeb;
                 width: auto; padding: 3px 12px; }
-            input[type=checkbox], input[type=radio] { width: 12px; height: 12px; padding: 0;
-                font-size: 10px; line-height: 12px; text-align: center; min-height: 0; }
+            input[type=checkbox], input[type=radio] { width: 13px; height: 13px; padding: 0;
+                min-height: 0; border-radius: 3px; border-color: #8a8a8a; }
             input[type=radio] { border-radius: 7px; }
+            input[type=checkbox]:checked, input[type=radio]:checked {
+                background-color: #2266aa; border-color: #2266aa; }
+            input[type=checkbox]:checked { --lumen-mark: check; }
+            input[type=radio]:checked { --lumen-mark: dot; }
             input[type=hidden] { display: none; }
             select { width: auto; }
             textarea { width: 300px; height: 64px; }
@@ -1797,6 +1823,7 @@ fn compound_matches(
         PseudoClass::Focus => interaction.focused == Some(node_id),
         PseudoClass::FocusWithin => interaction.focus_chain.contains(&node_id),
         PseudoClass::Root => document.parent(node_id) == Some(document.root()),
+        PseudoClass::Checked => interaction.checked.contains(&node_id),
         PseudoClass::Visited => interaction.visited_links.contains(&node_id),
         PseudoClass::Link => {
             element.attributes.contains("href") && !interaction.visited_links.contains(&node_id)
@@ -2270,6 +2297,12 @@ fn to_computed(
                 .collect()
         })
         .unwrap_or_default();
+
+    style.mark = match raw.get("--lumen-mark").map(CssValue::raw_text).as_deref() {
+        Some("check") => Some(Mark::Check),
+        Some("dot") => Some(Mark::Dot),
+        _ => None,
+    };
 
     style.visible = !matches!(
         raw.get("visibility").and_then(CssValue::as_keyword),

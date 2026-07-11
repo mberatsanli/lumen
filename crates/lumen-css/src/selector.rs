@@ -71,6 +71,8 @@ pub enum PseudoClass {
     Hover,
     /// The document's root element (html).
     Root,
+    /// Checked checkbox/radio (state supplied by the shell).
+    Checked,
     /// Matches while the pointer is pressed on the element (chain).
     Active,
     /// Matches the focused element (focus-within matches its chain).
@@ -432,6 +434,7 @@ fn parse_pseudo_class(name: &str, arguments: Option<&str>) -> Option<PseudoClass
         ("hover", None) => Some(PseudoClass::Hover),
         ("root", None) => Some(PseudoClass::Root),
         ("active", None) => Some(PseudoClass::Active),
+        ("checked", None) => Some(PseudoClass::Checked),
         ("focus" | "focus-visible", None) => Some(PseudoClass::Focus),
         ("focus-within", None) => Some(PseudoClass::FocusWithin),
         ("first-child", None) => Some(PseudoClass::FirstChild),

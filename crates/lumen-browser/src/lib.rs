@@ -262,8 +262,27 @@ impl<L: ResourceLoader> Session<L> {
                 self.active,
                 self.focused,
             )
-            .with_visited(self.visited_link_nodes(&page.document)),
+            .with_visited(self.visited_link_nodes(&page.document))
+            .with_checked(self.checked_nodes(&page.document)),
         )
+    }
+
+    /// All checked checkables (live toggles over checked attributes).
+    fn checked_nodes(&self, document: &lumen_html::Document) -> std::collections::HashSet<NodeId> {
+        document
+            .descendants(document.root())
+            .filter(|node| {
+                document.element(*node).is_some_and(|element| {
+                    element.tag_name == "input"
+                        && matches!(element.attributes.get("type"), Some("checkbox" | "radio"))
+                        && self
+                            .form_checked
+                            .get(node)
+                            .copied()
+                            .unwrap_or_else(|| element.attributes.contains("checked"))
+                })
+            })
+            .collect()
     }
 
     /// Link elements whose resolved href is in this session's history.
@@ -523,7 +542,8 @@ impl<L: ResourceLoader> Session<L> {
         };
         let interaction =
             lumen_engine::InteractionState::new(&document, self.hovered, self.active, self.focused)
-                .with_visited(self.visited_link_nodes(&document));
+                .with_visited(self.visited_link_nodes(&document))
+                .with_checked(self.checked_nodes(&document));
         self.page = Some(lumen_engine::page_from_document_interactive(
             document,
             self.author.clone(),
@@ -666,7 +686,6 @@ impl<L: ResourceLoader> Session<L> {
             }
             _ => return false,
         }
-        self.sync_check_marks();
         self.relayout();
         true
     }
@@ -680,34 +699,6 @@ impl<L: ResourceLoader> Session<L> {
                 .and_then(|page| page.document.element(node))
                 .is_some_and(|element| element.attributes.contains("checked"))
         })
-    }
-
-    /// Writes check marks into checked checkables as generated text
-    /// ("x" for checkboxes, "•" for radios — glyphs every font has).
-    fn sync_check_marks(&mut self) {
-        let Some(page) = self.page.as_mut() else {
-            return;
-        };
-        let nodes: Vec<(NodeId, bool)> = self
-            .form_checked
-            .iter()
-            .map(|(node, checked)| (*node, *checked))
-            .collect();
-        for (node, checked) in nodes {
-            let mark = if !checked {
-                ""
-            } else if page
-                .document
-                .element(node)
-                .and_then(|element| element.attributes.get("type"))
-                == Some("radio")
-            {
-                "\u{2022}"
-            } else {
-                "x"
-            };
-            page.document.upsert_generated_text(node, true, mark);
-        }
     }
 
     /// Submits the form containing `node` with method GET: name=value
@@ -934,7 +925,8 @@ impl<L: ResourceLoader> Session<L> {
         // back to already-seen pages style immediately.
         self.visited.insert(response.final_url.to_string());
         let interaction = lumen_engine::InteractionState::default()
-            .with_visited(self.visited_link_nodes_against(&document, &response.final_url));
+            .with_visited(self.visited_link_nodes_against(&document, &response.final_url))
+            .with_checked(self.checked_nodes(&document));
         self.page = Some(lumen_engine::page_from_document_interactive(
             document,
             self.author.clone(),
