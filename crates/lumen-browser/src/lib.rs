@@ -1726,6 +1726,38 @@ mod tests {
     }
 
     #[test]
+    fn input_values_keep_consecutive_spaces() {
+        // `white-space: pre` on inputs: runs of spaces must render as
+        // typed, or the shell's caret math drifts right of the text.
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<form><input type='text' name='q'></form>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let field = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+            .unwrap();
+        session.set_form_value(field, "a   b");
+        let rendered = session
+            .page()
+            .unwrap()
+            .display_list
+            .iter()
+            .any(|command| matches!(command,
+                lumen_engine::DisplayCommand::DrawText { text, .. } if text == "a   b"));
+        assert!(rendered, "spaces collapsed in the rendered input value");
+    }
+
+    #[test]
     fn multiple_select_toggles_and_submits_every_selection() {
         let mut session = Session::new(
             FakeLoader::new(&[
