@@ -166,6 +166,42 @@ pub fn page_from_document_interactive(
 /// values render as bullets; submit/button inputs fall back to a default
 /// label.
 fn materialize_form_values(document: &mut Document) {
+    // Selects display their selected (or first) option's label.
+    let selects: Vec<(lumen_html::NodeId, String)> = document
+        .descendants(document.root())
+        .filter_map(|id| {
+            let element = document.element(id)?;
+            if element.tag_name != "select" {
+                return None;
+            }
+            let options: Vec<lumen_html::NodeId> = document
+                .children(id)
+                .iter()
+                .copied()
+                .filter(|child| {
+                    document
+                        .element(*child)
+                        .is_some_and(|option| option.tag_name == "option")
+                })
+                .collect();
+            let selected = options
+                .iter()
+                .copied()
+                .find(|option| {
+                    document
+                        .element(*option)
+                        .is_some_and(|element| element.attributes.contains("selected"))
+                })
+                .or_else(|| options.first().copied())?;
+            Some((id, document.text_content(selected).trim().to_string()))
+        })
+        .collect();
+    for (id, label) in selects {
+        if document.generated_text(id, true).is_none() {
+            document.upsert_generated_text(id, true, &label);
+        }
+    }
+
     let inputs: Vec<(lumen_html::NodeId, String)> = document
         .descendants(document.root())
         .filter_map(|id| {

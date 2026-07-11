@@ -42,6 +42,8 @@ use winit::window::{Window, WindowId};
 const SCROLL_STEP: f32 = 48.0;
 /// Address-bar height in CSS pixels.
 const BAR_HEIGHT: f32 = 36.0;
+/// Row height of the shell-drawn select dropdown, CSS px.
+const SELECT_ROW_HEIGHT: f32 = 22.0;
 
 /// A navigation action executed on a background thread, so slow servers
 /// never freeze the UI.
@@ -270,6 +272,15 @@ impl TextInput {
     }
 }
 
+/// An open `<select>` dropdown drawn by the shell.
+struct SelectPopup {
+    node: usize,
+    options: Vec<(String, String)>,
+    /// Page coordinates of the option list.
+    rect: Rect,
+    hovered: usize,
+}
+
 /// What an editing key did to a [`TextInput`].
 enum EditOutcome {
     /// Text changed.
@@ -463,6 +474,9 @@ struct App {
     find_input: Option<TextInput>,
     /// In-page text input being edited: (input element node, edit state).
     page_input: Option<(usize, TextInput)>,
+    /// Open select dropdown: (select node, options, page-coords rect of
+    /// the list, index under the pointer).
+    select_popup: Option<SelectPopup>,
     find_matches: Vec<Selection>,
     find_index: usize,
     /// Damage tracking: bumped whenever the page raster could change.
@@ -518,6 +532,7 @@ impl App {
             modifiers: Modifiers::default(),
             find_input: None,
             page_input: None,
+            select_popup: None,
             find_matches: Vec::new(),
             find_index: 0,
             page_generation: 0,
@@ -1019,6 +1034,24 @@ impl App {
             self.chrome_click(x);
             return;
         }
+        // An open select dropdown captures the click.
+        if let Some(popup) = self.select_popup.take() {
+            if let Some((x, y)) = self.page_cursor()
+                && x >= popup.rect.x
+                && x < popup.rect.x + popup.rect.width
+                && y >= popup.rect.y
+                && y < popup.rect.y + popup.rect.height
+            {
+                let index = (((y - popup.rect.y) / SELECT_ROW_HEIGHT) as usize)
+                    .min(popup.options.len().saturating_sub(1));
+                if let SessionState::Ready(session) = &mut self.state {
+                    session.set_selected_option(popup.node, index);
+                }
+            }
+            self.invalidate_page();
+            self.request_redraw();
+            return;
+        }
         // A click on the page drops address-bar focus.
         if self.url_input.take().is_some() {
             self.request_redraw();
@@ -1041,13 +1074,66 @@ impl App {
         // Form controls: text inputs begin editing, checkables toggle,
         // submit buttons submit.
         if let Some(control) = control {
-            let kind = self
+            let (tag, kind) = self
                 .session()
                 .and_then(Session::page)
                 .and_then(|page| page.document.element(control))
-                .and_then(|element| element.attributes.get("type"))
-                .unwrap_or("text")
-                .to_string();
+                .map(|element| {
+                    (
+                        element.tag_name.clone(),
+                        element
+                            .attributes
+                            .get("type")
+                            .unwrap_or(if element.tag_name == "button" {
+                                "submit"
+                            } else {
+                                "text"
+                            })
+                            .to_string(),
+                    )
+                })
+                .unwrap_or_default();
+            match tag.as_str() {
+                "select" => {
+                    self.open_select_popup(control);
+                    return;
+                }
+                "textarea" => {
+                    let value = self
+                        .session()
+                        .map(|session| session.form_value(control))
+                        .unwrap_or_default();
+                    let mut input = TextInput::with_all_selected(value);
+                    input.move_to(usize::MAX, false);
+                    self.page_input = Some((control, input));
+                    self.invalidate_page();
+                    self.request_redraw();
+                    return;
+                }
+                "button" => {
+                    if kind == "submit" {
+                        self.page_input = None;
+                        self.start_nav(Nav::Submit(control));
+                    }
+                    return;
+                }
+                _ => {}
+            }
+            if kind == "range" {
+                if let Some((x, _)) = self.page_cursor()
+                    && let Some(page) = self.session().and_then(Session::page)
+                    && let Some(laid) = page.layout.find_by_node(control)
+                {
+                    let content = laid.content_box();
+                    let fraction = ((x - content.x) / content.width.max(1.0)).clamp(0.0, 1.0);
+                    if let SessionState::Ready(session) = &mut self.state {
+                        session.set_range_fraction(control, fraction);
+                    }
+                    self.invalidate_page();
+                    self.request_redraw();
+                }
+                return;
+            }
             match kind.as_str() {
                 "checkbox" | "radio" => {
                     if let SessionState::Ready(session) = &mut self.state
@@ -1109,17 +1195,68 @@ impl App {
         }
     }
 
-    /// The nearest `<input>` element at or above a hit node.
+    /// Opens the dropdown list for a select element.
+    fn open_select_popup(&mut self, node: usize) {
+        let Some(session) = self.session() else {
+            return;
+        };
+        let (options, _) = session.select_options(node);
+        if options.is_empty() {
+            return;
+        }
+        let Some(rect) = session
+            .page()
+            .and_then(|page| page.layout.find_by_node(node))
+            .map(|laid| laid.border_box())
+        else {
+            return;
+        };
+        self.select_popup = Some(SelectPopup {
+            node,
+            rect: Rect {
+                x: rect.x,
+                y: rect.y + rect.height,
+                width: rect.width.max(120.0),
+                height: SELECT_ROW_HEIGHT * options.len() as f32,
+            },
+            hovered: 0,
+            options,
+        });
+        self.request_redraw();
+    }
+
+    /// The nearest form control at or above a hit node; labels resolve
+    /// to their target control (for= id, else a wrapped control).
     fn form_control_at(&self, node: usize) -> Option<usize> {
         let page = self.session().and_then(Session::page)?;
         let document = &page.document;
-        std::iter::once(node)
+        let control = std::iter::once(node)
             .chain(document.ancestors(node))
             .find(|candidate| {
+                document.element(*candidate).is_some_and(|element| {
+                    matches!(
+                        element.tag_name.as_str(),
+                        "input" | "select" | "textarea" | "button" | "label"
+                    )
+                })
+            })?;
+        let element = document.element(control)?;
+        if element.tag_name != "label" {
+            return Some(control);
+        }
+        // label: prefer for=<id>, else the first wrapped control.
+        if let Some(target_id) = element.attributes.get("for") {
+            return document.descendants(document.root()).find(|candidate| {
                 document
                     .element(*candidate)
-                    .is_some_and(|element| element.tag_name == "input")
+                    .is_some_and(|target| target.attributes.get("id") == Some(target_id))
+            });
+        }
+        document.descendants(control).find(|candidate| {
+            document.element(*candidate).is_some_and(|target| {
+                matches!(target.tag_name.as_str(), "input" | "select" | "textarea")
             })
+        })
     }
 
     /// Where in a text control's value the cursor points (char index).
@@ -1586,8 +1723,23 @@ impl App {
                     width: w * scale,
                     height: h * scale,
                 };
+                // Multiline (textarea) caret: place on its line; the
+                // selection highlight only renders for single-line values.
+                let caret_line = display
+                    .chars()
+                    .take(input.caret)
+                    .filter(|character| *character == '\n')
+                    .count();
+                let line_offset = caret_line as f32 * style.line_height;
+                let last_line_start = display
+                    .chars()
+                    .take(input.caret)
+                    .collect::<String>()
+                    .rfind('\n')
+                    .map(|at| at + 1)
+                    .unwrap_or(0);
                 let (start, end) = input.selection();
-                if start != end {
+                if start != end && !display.contains('\n') {
                     let x0 = content.x + width_to(start);
                     let x1 = content.x + width_to(end);
                     framebuffer.blend_fill(
@@ -1596,9 +1748,21 @@ impl App {
                         140,
                     );
                 }
-                let caret_x = content.x + width_to(input.caret);
+                let caret_prefix: String = display
+                    .chars()
+                    .take(input.caret)
+                    .collect::<String>()
+                    .get(last_line_start..)
+                    .unwrap_or("")
+                    .to_string();
+                let caret_x = content.x + measurer.measure(&caret_prefix, &text_style).width;
                 framebuffer.blend_fill(
-                    to_device(caret_x, content.y, 1.5, content.height),
+                    to_device(
+                        caret_x,
+                        content.y + line_offset,
+                        1.5,
+                        style.line_height.min(content.height),
+                    ),
                     lumen_css::Color::rgb(0x20, 0x20, 0x20),
                     255,
                 );
@@ -1615,6 +1779,54 @@ impl App {
                 self.scroll_y,
                 scale,
             );
+        }
+        // Open select dropdown: a shell-drawn list over the page.
+        if let Some(popup) = &self.select_popup {
+            let to_device = |x: f32, y: f32, w: f32, h: f32| Rect {
+                x: x * scale,
+                y: (y - self.scroll_y + BAR_HEIGHT) * scale,
+                width: w * scale,
+                height: h * scale,
+            };
+            let list = to_device(
+                popup.rect.x,
+                popup.rect.y,
+                popup.rect.width,
+                popup.rect.height,
+            );
+            framebuffer.blend_fill(list, lumen_css::Color::rgb(0xff, 0xff, 0xff), 245);
+            for (index, (_, label)) in popup.options.iter().enumerate() {
+                let row_y = popup.rect.y + SELECT_ROW_HEIGHT * index as f32;
+                if index == popup.hovered {
+                    framebuffer.blend_fill(
+                        to_device(popup.rect.x, row_y, popup.rect.width, SELECT_ROW_HEIGHT),
+                        lumen_css::Color::rgb(0x22, 0x66, 0xaa),
+                        60,
+                    );
+                }
+                let commands = vec![DisplayCommand::DrawText {
+                    x: popup.rect.x + 8.0,
+                    y: row_y + SELECT_ROW_HEIGHT - 6.0,
+                    text: label.clone(),
+                    color: lumen_css::Color::rgb(0x23, 0x20, 0x19),
+                    font_size: 13.0,
+                    font_weight: 400,
+                    underline: false,
+                    italic: false,
+                    monospace: false,
+                    line_through: false,
+                    letter_spacing: 0.0,
+                    decoration_color: lumen_css::Color::rgb(0, 0, 0),
+                    decoration_style: lumen_engine::BorderStyle::Solid,
+                }];
+                rasterize_over(
+                    &mut framebuffer,
+                    &commands,
+                    self.scroll_y - BAR_HEIGHT,
+                    scale,
+                    self.effective_font().as_deref(),
+                );
+            }
         }
         // Scrollbar: a proportional overlay thumb on the right edge.
         let max_scroll = self.max_scroll();
@@ -1774,9 +1986,20 @@ impl App {
             EditOutcome::Changed => sync = true,
             EditOutcome::Moved => self.request_redraw(),
             EditOutcome::Submit => {
-                self.page_input = None;
-                self.start_nav(Nav::Submit(control));
-                return;
+                // Enter inside a textarea inserts a newline instead.
+                let is_textarea = self
+                    .session()
+                    .is_some_and(|session| session.is_textarea(control));
+                if is_textarea {
+                    if let Some((_, input)) = &mut self.page_input {
+                        input.insert("\n");
+                    }
+                    sync = true;
+                } else {
+                    self.page_input = None;
+                    self.start_nav(Nav::Submit(control));
+                    return;
+                }
             }
             EditOutcome::Cancel => {
                 self.page_input = None;
@@ -1839,6 +2062,14 @@ impl App {
             if self.handle_bar_key(bar, key, command_held, shift_held, alt_held) {
                 return;
             }
+        }
+        // An open select dropdown: Escape closes it.
+        if self.select_popup.is_some() {
+            if matches!(key, Key::Named(NamedKey::Escape)) {
+                self.select_popup = None;
+                self.request_redraw();
+            }
+            return;
         }
         // In-page form input editing.
         if self.page_input.is_some() {
@@ -1962,6 +2193,22 @@ impl ApplicationHandler<NavDone> for App {
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self.scale();
                 self.cursor = Some((position.x as f32 / scale, position.y as f32 / scale));
+                if let Some(popup) = &mut self.select_popup
+                    && let Some((x, y)) = self
+                        .cursor
+                        .map(|(x, y)| (x, y - BAR_HEIGHT + self.scroll_y))
+                    && x >= popup.rect.x
+                    && x < popup.rect.x + popup.rect.width
+                    && y >= popup.rect.y
+                    && y < popup.rect.y + popup.rect.height
+                {
+                    let row = (((y - popup.rect.y) / SELECT_ROW_HEIGHT) as usize)
+                        .min(popup.options.len().saturating_sub(1));
+                    if row != popup.hovered {
+                        popup.hovered = row;
+                        self.request_redraw();
+                    }
+                }
                 if self.press.is_some() {
                     // Dragging: extend the selection from the anchor.
                     if let (Some(anchor), Some(focus)) =

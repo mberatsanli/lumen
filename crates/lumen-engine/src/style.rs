@@ -520,12 +520,24 @@ pub struct TransitionSpec {
 }
 
 /// A vector-drawn control mark.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mark {
     /// A check tick (checkboxes).
     Check,
     /// A filled dot (radios).
     Dot,
+    /// A horizontal value bar filled to the fraction (progress/meter/
+    /// range; range also gets a thumb).
+    Fraction(FractionMark),
+    /// A small dropdown arrow at the right edge (select).
+    Arrow,
+}
+
+/// A 0..=1 fill fraction with optional slider thumb.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FractionMark {
+    pub fraction: f32,
+    pub thumb: bool,
 }
 
 /// One grid column track.
@@ -1125,6 +1137,19 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             input[type=checkbox], input[type=radio] { width: 13px; height: 13px; padding: 0;
                 min-height: 0; border-radius: 3px; border-color: #8a8a8a; }
             input[type=radio] { border-radius: 7px; }
+            select { border: 1px solid #767676; border-radius: 3px; padding: 3px 24px 3px 8px;
+                background-color: #ffffff; font-size: 13px; min-height: 1.1em;
+                --lumen-mark: arrow; }
+            option { display: none; }
+            textarea { white-space: pre; overflow: hidden; }
+            fieldset { border: 1px solid #b9b2a2; border-radius: 4px;
+                padding: 8px 12px; margin-top: 8px; margin-bottom: 8px; }
+            legend { font-weight: 700; font-size: 0.9em; }
+            progress, meter, input[type=range] { width: 160px; height: 10px; padding: 0;
+                border: 1px solid #b9b2a2; border-radius: 5px; background-color: #e8e4da;
+                min-height: 0; }
+            input[type=range] { height: 14px; border-radius: 7px; }
+            label { color: inherit; }
             input[type=checkbox]:checked, input[type=radio]:checked {
                 background-color: #2266aa; border-color: #2266aa; }
             input[type=checkbox]:checked { --lumen-mark: check; }
@@ -2301,8 +2326,41 @@ fn to_computed(
     style.mark = match raw.get("--lumen-mark").map(CssValue::raw_text).as_deref() {
         Some("check") => Some(Mark::Check),
         Some("dot") => Some(Mark::Dot),
+        Some("arrow") => Some(Mark::Arrow),
         _ => None,
     };
+    // Value bars read their fraction straight from the element.
+    if let Some(element) = element {
+        let attr = |name: &str| -> Option<f32> {
+            element
+                .attributes
+                .get(name)
+                .and_then(|value| value.parse().ok())
+        };
+        let fraction = match element.tag_name.as_str() {
+            "progress" => {
+                Some(attr("value").unwrap_or(0.0) / attr("max").unwrap_or(1.0).max(f32::EPSILON))
+            }
+            "meter" => {
+                Some(attr("value").unwrap_or(0.0) / attr("max").unwrap_or(1.0).max(f32::EPSILON))
+            }
+            "input" if element.attributes.get("type") == Some("range") => {
+                let min = attr("min").unwrap_or(0.0);
+                let max = attr("max").unwrap_or(100.0);
+                Some(
+                    (attr("value").unwrap_or((min + max) / 2.0) - min)
+                        / (max - min).max(f32::EPSILON),
+                )
+            }
+            _ => None,
+        };
+        if let Some(fraction) = fraction {
+            style.mark = Some(Mark::Fraction(FractionMark {
+                fraction: fraction.clamp(0.0, 1.0),
+                thumb: element.tag_name == "input",
+            }));
+        }
+    }
 
     style.visible = !matches!(
         raw.get("visibility").and_then(CssValue::as_keyword),

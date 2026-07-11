@@ -596,12 +596,113 @@ impl<L: ResourceLoader> Session<L> {
         if let Some(value) = self.form_values.get(&node) {
             return value.clone();
         }
-        self.page
-            .as_ref()
-            .and_then(|page| page.document.element(node))
+        let Some(page) = self.page.as_ref() else {
+            return String::new();
+        };
+        if self.is_textarea_document(&page.document, node) {
+            return page.document.text_content(node);
+        }
+        page.document
+            .element(node)
             .and_then(|element| element.attributes.get("value"))
             .unwrap_or_default()
             .to_string()
+    }
+
+    /// Whether a node is a multiline textarea.
+    #[must_use]
+    pub fn is_textarea(&self, node: NodeId) -> bool {
+        self.page
+            .as_ref()
+            .and_then(|page| page.document.element(node))
+            .is_some_and(|element| element.tag_name == "textarea")
+    }
+
+    /// A select's options as (value, label) pairs, plus the index of the
+    /// currently selected one.
+    #[must_use]
+    pub fn select_options(&self, node: NodeId) -> (Vec<(String, String)>, usize) {
+        let Some(page) = self.page.as_ref() else {
+            return (Vec::new(), 0);
+        };
+        let document = &page.document;
+        let options: Vec<(String, String)> = document
+            .children(node)
+            .iter()
+            .copied()
+            .filter(|child| {
+                document
+                    .element(*child)
+                    .is_some_and(|option| option.tag_name == "option")
+            })
+            .map(|option| {
+                let label = document.text_content(option).trim().to_string();
+                let value = document
+                    .element(option)
+                    .and_then(|element| element.attributes.get("value"))
+                    .map_or_else(|| label.clone(), str::to_string);
+                (value, label)
+            })
+            .collect();
+        let live = self.form_values.get(&node);
+        let selected = options
+            .iter()
+            .position(|(value, _)| Some(value) == live)
+            .or_else(|| {
+                document
+                    .children(node)
+                    .iter()
+                    .filter(|child| {
+                        document
+                            .element(**child)
+                            .is_some_and(|option| option.tag_name == "option")
+                    })
+                    .position(|child| {
+                        document
+                            .element(*child)
+                            .is_some_and(|element| element.attributes.contains("selected"))
+                    })
+            })
+            .unwrap_or(0);
+        (options, selected)
+    }
+
+    /// Selects an option by index: the live value and the displayed label
+    /// both update.
+    pub fn set_selected_option(&mut self, node: NodeId, index: usize) {
+        let (options, _) = self.select_options(node);
+        let Some((value, label)) = options.get(index).cloned() else {
+            return;
+        };
+        self.form_values.insert(node, value);
+        if let Some(page) = self.page.as_mut() {
+            page.document.upsert_generated_text(node, true, &label);
+        }
+        self.relayout();
+    }
+
+    /// Sets a range input from a 0..=1 fraction: the value attribute
+    /// updates so the fraction bar restyles.
+    pub fn set_range_fraction(&mut self, node: NodeId, fraction: f32) {
+        let Some(page) = self.page.as_mut() else {
+            return;
+        };
+        let Some(element) = page.document.element(node) else {
+            return;
+        };
+        let attr = |name: &str, default: f32| -> f32 {
+            element
+                .attributes
+                .get(name)
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(default)
+        };
+        let (min, max) = (attr("min", 0.0), attr("max", 100.0));
+        let value = min + (max - min) * fraction.clamp(0.0, 1.0);
+        let rounded = format!("{}", value.round());
+        page.document.set_attribute(node, "value", &rounded);
+        self.form_values.insert(node, rounded);
+        self.relayout();
     }
 
     /// Whether a node is an editable text-ish input.
@@ -644,9 +745,23 @@ impl<L: ResourceLoader> Session<L> {
             }
         };
         if let Some(page) = self.page.as_mut() {
-            page.document.upsert_generated_text(node, true, &display);
+            let is_textarea = page
+                .document
+                .element(node)
+                .is_some_and(|element| element.tag_name == "textarea");
+            if is_textarea {
+                page.document.set_text_content(node, value);
+            } else {
+                page.document.upsert_generated_text(node, true, &display);
+            }
         }
         self.relayout();
+    }
+
+    fn is_textarea_document(&self, document: &lumen_html::Document, node: NodeId) -> bool {
+        document
+            .element(node)
+            .is_some_and(|element| element.tag_name == "textarea")
     }
 
     /// Toggles a checkbox (or selects a radio, clearing its name group).
@@ -729,12 +844,24 @@ impl<L: ResourceLoader> Session<L> {
                 let Some(element) = document.element(control) else {
                     continue;
                 };
-                if element.tag_name != "input" {
+                let tag = element.tag_name.clone();
+                if !matches!(tag.as_str(), "input" | "select" | "textarea") {
                     continue;
                 }
                 let Some(name) = element.attributes.get("name") else {
                     continue;
                 };
+                if tag == "select" {
+                    let (options, selected) = self.select_options(control);
+                    if let Some((value, _)) = options.get(selected) {
+                        pairs.push((name.to_string(), value.clone()));
+                    }
+                    continue;
+                }
+                if tag == "textarea" {
+                    pairs.push((name.to_string(), self.form_value(control)));
+                    continue;
+                }
                 let kind = element.attributes.get("type").unwrap_or("text");
                 match kind {
                     "checkbox" | "radio" => {
@@ -1311,6 +1438,60 @@ mod tests {
         assert_eq!(
             session.current_url().unwrap().as_str(),
             "https://a.test/search?q=hello+w%26rld&hl=tr&safe=1"
+        );
+    }
+
+    #[test]
+    fn selects_textareas_and_ranges_submit_their_values() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                (
+                    "https://a.test/",
+                    "<form action='/go'>\
+                     <select name='renk'><option value='r'>Kirmizi</option>\
+                     <option value='b' selected>Mavi</option></select>\
+                     <textarea name='not'>merhaba</textarea>\
+                     <input type='range' name='ses' min='0' max='10' value='5'>\
+                     </form>",
+                ),
+                ("https://a.test/go?renk=r&not=yeni+not&ses=8", "<p>ok</p>"),
+            ]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let find_tag = |tag: &str| {
+            document
+                .descendants(document.root())
+                .find(|id| {
+                    document
+                        .element(*id)
+                        .is_some_and(|element| element.tag_name == tag)
+                })
+                .unwrap()
+        };
+        let (select, textarea) = (find_tag("select"), find_tag("textarea"));
+        let range = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.attributes.get("type") == Some("range"))
+            })
+            .unwrap();
+        // Initially the selected attr wins; the label shows.
+        let (options, selected) = session.select_options(select);
+        assert_eq!(selected, 1);
+        assert_eq!(options[0].1, "Kirmizi");
+        session.set_selected_option(select, 0);
+        assert_eq!(session.select_options(select).1, 0);
+        session.set_form_value(textarea, "yeni not");
+        assert_eq!(session.form_value(textarea), "yeni not");
+        session.set_range_fraction(range, 0.8);
+        session.submit_form(select).unwrap();
+        assert_eq!(
+            session.current_url().unwrap().as_str(),
+            "https://a.test/go?renk=r&not=yeni+not&ses=8"
         );
     }
 

@@ -79,8 +79,9 @@ interaction) — not just a DOM node.
 |---|:-:|:-:|:-:|:-:|---|
 | `<table>` family | ⚠️ | ✅ | ✅ | ✅ | real column/row layout with colspan/rowspan; thead/tbody/tfoot flattened; caption ignored; no border-collapse |
 | `<form>` submission | ⚠️ | ✅ | ✅ | ✅ | GET only (Enter or submit click): name=value pairs URL-encoded onto the action; no POST |
+| `<progress>` / `<meter>` / range | ⚠️ | ✅ | ✅ | ✅ | vector value bars (range with a click-to-set thumb; no drag) |
 | `<input>` (all types) | ⚠️ | ✅ | ✅ | ✅ | text inputs editable (caret/selection/clipboard, click-to-position), checkbox/radio toggle, submit buttons submit; date/file/color etc render as text boxes |
-| `<textarea> <select> <button>` | ⚠️ | ✅ | ✅ | ✅ | visual only: bordered boxes, button labels render; not interactive |
+| `<textarea> <select> <button>` | ⚠️ | ✅ | ✅ | ✅ | select opens a shell-drawn dropdown, textarea edits multiline (Enter = newline), button submits; label clicks focus their control |
 | `<label> <fieldset> <progress> <meter>` | ❌ | ✅ | ✅ | ✅ | |
 | Focus / validation | ❌ | ✅ | ✅ | ✅ | |
 

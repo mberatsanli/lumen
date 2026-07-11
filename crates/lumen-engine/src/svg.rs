@@ -159,6 +159,40 @@ pub fn render_svg(page: &Page) -> String {
                         rect.width * 0.2,
                     );
                 }
+                crate::style::Mark::Arrow => {
+                    let cx = rect.x + rect.width - 12.0;
+                    let cy = rect.y + rect.height / 2.0;
+                    let _ = writeln!(
+                        svg,
+                        "<polyline points=\"{},{} {},{} {},{}\" fill=\"none\" stroke=\"#55525c\" stroke-width=\"1.6\" stroke-linecap=\"round\"/>",
+                        cx - 3.5,
+                        cy - 1.5,
+                        cx,
+                        cy + 2.5,
+                        cx + 3.5,
+                        cy - 1.5,
+                    );
+                }
+                crate::style::Mark::Fraction(fraction) => {
+                    let _ = writeln!(
+                        svg,
+                        "<rect x=\"{}\" y=\"{}\" width=\"{:.2}\" height=\"{}\" rx=\"{:.2}\" fill=\"#2266aa\"/>",
+                        rect.x,
+                        rect.y,
+                        rect.width * fraction.fraction,
+                        rect.height,
+                        rect.height / 2.0,
+                    );
+                    if fraction.thumb {
+                        let _ = writeln!(
+                            svg,
+                            "<circle cx=\"{:.2}\" cy=\"{}\" r=\"{:.2}\" fill=\"#1c5288\"/>",
+                            rect.x + rect.width * fraction.fraction,
+                            rect.y + rect.height / 2.0,
+                            rect.height / 2.0 + 2.0,
+                        );
+                    }
+                }
             },
             DisplayCommand::PushTransform { matrix } => {
                 let _ = writeln!(

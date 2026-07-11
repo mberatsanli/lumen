@@ -983,6 +983,57 @@ fn draw_mark(framebuffer: &mut Framebuffer, rect: &Rect, color: Color, mark: Mar
             let radius = Corners::uniform(disc.width / 2.0);
             fill_rounded(framebuffer, &disc, &radius, color);
         }
+        Mark::Arrow => {
+            // Small ∨ near the right edge.
+            let cx = rect.x + rect.width - 12.0;
+            let cy = rect.y + rect.height / 2.0;
+            let arm = 3.5;
+            let stroke = Color::rgba(0x55, 0x52, 0x5c, color.a);
+            draw_segment(
+                framebuffer,
+                (cx - arm, cy - 1.5),
+                (cx, cy + 2.5),
+                1.6,
+                stroke,
+            );
+            draw_segment(
+                framebuffer,
+                (cx, cy + 2.5),
+                (cx + arm, cy - 1.5),
+                1.6,
+                stroke,
+            );
+        }
+        Mark::Fraction(fraction) => {
+            // Filled bar to the fraction; sliders add a thumb disc.
+            let fill = Rect {
+                width: rect.width * fraction.fraction,
+                ..*rect
+            };
+            let radius = Corners::uniform(rect.height / 2.0);
+            fill_rounded(
+                framebuffer,
+                &fill,
+                &radius,
+                Color::rgba(0x22, 0x66, 0xaa, color.a),
+            );
+            if fraction.thumb {
+                let diameter = rect.height + 4.0;
+                let disc = Rect {
+                    x: (rect.x + rect.width * fraction.fraction - diameter / 2.0)
+                        .clamp(rect.x - 2.0, rect.x + rect.width - diameter + 2.0),
+                    y: rect.y + rect.height / 2.0 - diameter / 2.0,
+                    width: diameter,
+                    height: diameter,
+                };
+                fill_rounded(
+                    framebuffer,
+                    &disc,
+                    &Corners::uniform(diameter / 2.0),
+                    Color::rgba(0x1c, 0x52, 0x88, color.a),
+                );
+            }
+        }
     }
 }
 

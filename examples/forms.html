@@ -53,9 +53,27 @@
         <input type="radio" name="boyut" value="m" checked> M
         <input type="radio" name="boyut" value="l"> L
       </div>
+      <div class="row"><span class="label">Renk</span>
+        <select name="renk">
+          <option value="kirmizi">Kırmızı</option>
+          <option value="mavi" selected>Mavi</option>
+          <option value="yesil">Yeşil</option>
+        </select></div>
+      <div class="row"><span class="label">Not</span>
+        <textarea name="not" style="width: 260px; height: 60px; border: 1px solid #b9b2a2;
+          border-radius: 4px; padding: 6px 8px; background-color: #fffdf8;
+          font-size: 14px;">Çok satırlı
+metin buraya</textarea></div>
+      <div class="row"><span class="label">Ses</span>
+        <input type="range" name="ses" min="0" max="10" value="5"></div>
+      <div class="row"><span class="label">İlerleme</span>
+        <progress value="7" max="10"></progress></div>
+      <div class="row"><span class="label"><label for="etiketli">Etiket →</label></span>
+        <input type="text" id="etiketli" name="etiket" placeholder="Etikete tıkla, ben odaklanırım"></div>
       <input type="hidden" name="kaynak" value="lumen">
       <div class="row"><span class="label"></span>
-        <input type="submit" value="Gönder"></div>
+        <input type="submit" value="Gönder">
+        <button type="submit">Button ile gönder</button></div>
     </form>
     <p class="hint">Gönderince <code>forms-result.html?ad=...&eposta=...</code>
       adresine gider — adres çubuğunda query’yi gör.</p>

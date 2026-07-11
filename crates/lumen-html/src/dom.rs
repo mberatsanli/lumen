@@ -37,6 +37,11 @@ impl AttributeMap {
         self.entries.entry(name).or_insert(value);
     }
 
+    /// Sets (or overwrites) an attribute.
+    pub fn set(&mut self, name: &str, value: &str) {
+        self.entries.insert(name.to_string(), value.to_string());
+    }
+
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&str> {
         self.entries.get(name).map(String::as_str)
@@ -133,6 +138,33 @@ impl Document {
             }],
             root: 0,
             generated: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// Overwrites one attribute on an element (live form state).
+    pub fn set_attribute(&mut self, node: NodeId, name: &str, value: &str) {
+        if let NodeKind::Element(element) = &mut self.nodes[node].kind {
+            element.attributes.set(name, value);
+        }
+    }
+
+    /// Replaces the text of a node's first text child (creating one when
+    /// none exists) — used for live textarea values.
+    pub fn set_text_content(&mut self, parent: NodeId, text: &str) {
+        let child = self.nodes[parent]
+            .children
+            .iter()
+            .copied()
+            .find(|child| matches!(self.nodes[*child].kind, NodeKind::Text(_)));
+        match child {
+            Some(child) => {
+                if let NodeKind::Text(current) = &mut self.nodes[child].kind {
+                    *current = text.to_string();
+                }
+            }
+            None => {
+                self.append(parent, NodeKind::Text(text.to_string()));
+            }
         }
     }
 
