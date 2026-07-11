@@ -279,6 +279,7 @@ struct SelectPopup {
     /// Page coordinates of the option list.
     rect: Rect,
     hovered: usize,
+    selected: usize,
 }
 
 /// What an editing key did to a [`TextInput`].
@@ -1042,7 +1043,7 @@ impl App {
                 && y >= popup.rect.y
                 && y < popup.rect.y + popup.rect.height
             {
-                let index = (((y - popup.rect.y) / SELECT_ROW_HEIGHT) as usize)
+                let index = (((y - popup.rect.y - 6.0).max(0.0) / SELECT_ROW_HEIGHT) as usize)
                     .min(popup.options.len().saturating_sub(1));
                 if let SessionState::Ready(session) = &mut self.state {
                     session.set_selected_option(popup.node, index);
@@ -1200,7 +1201,7 @@ impl App {
         let Some(session) = self.session() else {
             return;
         };
-        let (options, _) = session.select_options(node);
+        let (options, selected) = session.select_options(node);
         if options.is_empty() {
             return;
         }
@@ -1215,11 +1216,12 @@ impl App {
             node,
             rect: Rect {
                 x: rect.x,
-                y: rect.y + rect.height,
-                width: rect.width.max(120.0),
-                height: SELECT_ROW_HEIGHT * options.len() as f32,
+                y: rect.y + rect.height + 4.0,
+                width: rect.width.max(160.0),
+                height: SELECT_ROW_HEIGHT * options.len() as f32 + 12.0,
             },
-            hovered: 0,
+            hovered: selected,
+            selected,
             options,
         });
         self.request_redraw();
@@ -1780,37 +1782,68 @@ impl App {
                 scale,
             );
         }
-        // Open select dropdown: a shell-drawn list over the page.
+        // Open select dropdown: a native-looking card over the page —
+        // soft shadow, rounded opaque panel, hover highlight, and a tick
+        // on the selected option.
         if let Some(popup) = &self.select_popup {
-            let to_device = |x: f32, y: f32, w: f32, h: f32| Rect {
-                x: x * scale,
-                y: (y - self.scroll_y + BAR_HEIGHT) * scale,
-                width: w * scale,
-                height: h * scale,
-            };
-            let list = to_device(
-                popup.rect.x,
-                popup.rect.y,
-                popup.rect.width,
-                popup.rect.height,
-            );
-            framebuffer.blend_fill(list, lumen_css::Color::rgb(0xff, 0xff, 0xff), 245);
+            let mut commands: Vec<DisplayCommand> = Vec::new();
+            let rect = popup.rect;
+            commands.push(DisplayCommand::DrawShadow {
+                rect: Rect {
+                    x: rect.x,
+                    y: rect.y + 3.0,
+                    ..rect
+                },
+                radius: lumen_engine::Corners::uniform(8.0),
+                blur: 14.0,
+                color: lumen_css::Color::rgba(0x20, 0x1c, 0x2a, 70),
+                inset: false,
+            });
+            commands.push(DisplayCommand::FillRect {
+                rect,
+                color: lumen_css::Color::rgb(0xff, 0xff, 0xff),
+                radius: lumen_engine::Corners::uniform(8.0),
+            });
+            commands.push(DisplayCommand::StrokeRect {
+                rect,
+                widths: lumen_engine::EdgeSizes::uniform(1.0),
+                colors: lumen_engine::EdgeSizes::uniform(lumen_css::Color::rgb(0xd6, 0xd1, 0xc6)),
+                styles: lumen_engine::EdgeSizes::uniform(lumen_engine::BorderStyle::Solid),
+                radius: lumen_engine::Corners::uniform(8.0),
+            });
             for (index, (_, label)) in popup.options.iter().enumerate() {
-                let row_y = popup.rect.y + SELECT_ROW_HEIGHT * index as f32;
+                let row_y = rect.y + 6.0 + SELECT_ROW_HEIGHT * index as f32;
                 if index == popup.hovered {
-                    framebuffer.blend_fill(
-                        to_device(popup.rect.x, row_y, popup.rect.width, SELECT_ROW_HEIGHT),
-                        lumen_css::Color::rgb(0x22, 0x66, 0xaa),
-                        60,
-                    );
+                    commands.push(DisplayCommand::FillRect {
+                        rect: Rect {
+                            x: rect.x + 4.0,
+                            y: row_y,
+                            width: rect.width - 8.0,
+                            height: SELECT_ROW_HEIGHT,
+                        },
+                        color: lumen_css::Color::rgb(0xea, 0xf1, 0xf8),
+                        radius: lumen_engine::Corners::uniform(5.0),
+                    });
                 }
-                let commands = vec![DisplayCommand::DrawText {
-                    x: popup.rect.x + 8.0,
-                    y: row_y + SELECT_ROW_HEIGHT - 6.0,
+                if index == popup.selected {
+                    commands.push(DisplayCommand::DrawMark {
+                        rect: Rect {
+                            x: rect.x + 8.0,
+                            y: row_y + (SELECT_ROW_HEIGHT - 12.0) / 2.0,
+                            width: 12.0,
+                            height: 12.0,
+                        },
+                        color: lumen_css::Color::rgb(0x22, 0x66, 0xaa),
+                        mark: lumen_engine::Mark::Check,
+                    });
+                }
+                commands.push(DisplayCommand::DrawText {
+                    x: rect.x + 26.0,
+                    y: row_y + SELECT_ROW_HEIGHT - 7.0,
                     text: label.clone(),
                     color: lumen_css::Color::rgb(0x23, 0x20, 0x19),
                     font_size: 13.0,
-                    font_weight: 400,
+                    font_weight: if index == popup.selected { 600 } else { 400 },
                     underline: false,
                     italic: false,
                     monospace: false,
@@ -1818,15 +1851,15 @@ impl App {
                     letter_spacing: 0.0,
                     decoration_color: lumen_css::Color::rgb(0, 0, 0),
                     decoration_style: lumen_engine::BorderStyle::Solid,
-                }];
-                rasterize_over(
-                    &mut framebuffer,
-                    &commands,
-                    self.scroll_y - BAR_HEIGHT,
-                    scale,
-                    self.effective_font().as_deref(),
-                );
+                });
             }
+            rasterize_over(
+                &mut framebuffer,
+                &commands,
+                self.scroll_y - BAR_HEIGHT,
+                scale,
+                self.effective_font().as_deref(),
+            );
         }
         // Scrollbar: a proportional overlay thumb on the right edge.
         let max_scroll = self.max_scroll();
@@ -2202,7 +2235,7 @@ impl ApplicationHandler<NavDone> for App {
                     && y >= popup.rect.y
                     && y < popup.rect.y + popup.rect.height
                 {
-                    let row = (((y - popup.rect.y) / SELECT_ROW_HEIGHT) as usize)
+                    let row = (((y - popup.rect.y - 6.0).max(0.0) / SELECT_ROW_HEIGHT) as usize)
                         .min(popup.options.len().saturating_sub(1));
                     if row != popup.hovered {
                         popup.hovered = row;

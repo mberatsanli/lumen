@@ -32,7 +32,7 @@ pub use selection::{
 };
 pub use style::{
     BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, ComputedStyle, Dimension,
-    Display, FontWeight, HoverImpact, InteractionState, LinearGradient, Overflow, StyleMap,
+    Display, FontWeight, HoverImpact, InteractionState, LinearGradient, Mark, Overflow, StyleMap,
     TextAlign, Transform2D, compute_styles, compute_styles_hovered, compute_styles_interactive,
     hover_impact, hover_styles_may_change, interaction_styles_may_change,
 };
