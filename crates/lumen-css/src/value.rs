@@ -349,6 +349,9 @@ pub enum CssValue {
     String(String),
     /// `url(...)` with the URL unquoted.
     Url(String),
+    /// A raw declaration value containing `var()`, substituted (and then
+    /// re-parsed) at style-computation time.
+    Unresolved(String),
     /// An unparsed functional value: (lowercase name, raw arguments).
     Function(String, String),
     Length(f32, Unit),
@@ -515,6 +518,7 @@ impl fmt::Display for CssValue {
         match self {
             Self::String(value) => write!(formatter, "\"{value}\""),
             Self::Url(value) => write!(formatter, "url({value})"),
+            Self::Unresolved(value) => write!(formatter, "{value}"),
             Self::Function(name, arguments) => write!(formatter, "{name}({arguments})"),
             Self::Keyword(keyword) => write!(formatter, "{keyword}"),
             Self::Length(value, Unit::Px) => write!(formatter, "{value}px"),

@@ -21,6 +21,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Siblings `A + B`, `A ~ B` | ✅ | ✅ | ✅ | ✅ | |
 | Attribute `[href]`, `[type="x"]` | ✅ | ✅ | ✅ | ✅ | also `^=`, `$=`, `*=`; no `~=`, `|=`, case flags |
 | `:hover` | ✅ | ✅ | ✅ | ✅ | live hover chain in desktop shell |
+| `:root` | ✅ | ✅ | ✅ | ✅ | |
 | `:link` / `:visited` | ⚠️ | ✅ | ✅ | ✅ | always match; no visited state |
 | `:active`, `:focus*` | ❌ | ✅ | ✅ | ✅ | |
 | `:first/last/only-child` | ✅ | ✅ | ✅ | ✅ | |
@@ -41,8 +42,8 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Inheritance | ⚠️ | ✅ | ✅ | ✅ | 6 props; text-decoration approximated as inherited |
 | `!important` | ✅ | ✅ | ✅ | ✅ | author important beats inline normal; inline important wins |
 | `inherit`/`initial`/`unset`/`revert` | ⚠️ | ✅ | ✅ | ✅ | revert behaves as initial |
-| Custom properties `--x` / `var()` | ❌ | ✅ | ✅ | ✅ | |
-| `calc()`, `min()`, `max()`, `clamp()` | ❌ | ✅ | ✅ | ✅ | |
+| Custom properties `--x` / `var()` | ⚠️ | ✅ | ✅ | ✅ | inherit + fallbacks; substituted before shorthand expansion; no invalid-at-computed-value handling |
+| `calc()`, `min()`, `max()`, `clamp()` | ⚠️ | ✅ | ✅ | ✅ | calc() with px/em/rem/%/numbers, + - * /, parens; px+% mixing unsupported (dropped); no min/max/clamp |
 | `@media` | ❌ | ✅ | ✅ | ✅ | blocks skipped safely, never applied |
 | `@import`, `@font-face`, `@supports`, `@layer` | ❌ | ✅ | ✅ | ✅ | skipped safely |
 

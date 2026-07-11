@@ -3,6 +3,7 @@
 <head>
   <title>Lumen CSS kitchen sink</title>
   <style>
+    :root { --brand: #2266aa; --gap: 8px; }
     /* Comments are stripped, extra semicolons tolerated ;; */
 
     body {
@@ -147,6 +148,12 @@
     .sel-title + p { font-style: italic; }
     a[href^="https"] { color: #7a3d9e; }
 
+    /* --- variables & calc ------------------------------------------------ */
+    .vars { background-color: var(--brand); color: #ffffff;
+            padding: var(--gap) calc(var(--gap) * 2); }
+    .calc-box { width: calc(100% / 3); height: calc(1rem + 14px);
+                background-color: var(--missing, #d8c49a); }
+
     /* --- gradients ------------------------------------------------------ */
     .grad-a { background: linear-gradient(to right, #2266aa, #66ccff); height: 40px;
               border-radius: 8px; }
@@ -267,6 +274,13 @@
     </div>
     <p>Secure links go purple: <a href="https://example.com">https link</a>
        vs <a href="http://example.com">http link</a>.</p>
+  </div>
+
+  <div class="section">
+    <h2>Variables &amp; calc</h2>
+    <p class="vars">Colored and padded via var(--brand) and calc(var(--gap) * 2).</p>
+    <div class="calc-box"></div>
+    <p class="muted">↑ width: calc(100% / 3); background from a var() fallback.</p>
   </div>
 
   <div class="section">

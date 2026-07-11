@@ -113,6 +113,24 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
             Some(prefix_length) => (&trimmed[..prefix_length], true),
             None => (value, false),
         };
+        // Custom properties keep their raw text (substituted into var()
+        // uses later); values using var() defer parsing entirely.
+        if name.starts_with("--") {
+            declarations.push(Declaration {
+                name,
+                value: CssValue::String(value.trim().to_string()),
+                important,
+            });
+            continue;
+        }
+        if value.contains("var(") {
+            declarations.push(Declaration {
+                name,
+                value: CssValue::Unresolved(value.trim().to_string()),
+                important,
+            });
+            continue;
+        }
         let components: Vec<CssValue> = split_components(value)
             .iter()
             .filter_map(|component| CssValue::parse_component(component))
@@ -581,8 +599,7 @@ mod tests {
 
     #[test]
     fn skips_malformed_declarations_and_extra_semicolons() {
-        let declarations =
-            parse_declarations(";; color: red; oops; width: ; height: 10px; x: !!;");
+        let declarations = parse_declarations(";; color: red; oops; width: ; height: 10px; x: !!;");
         assert_eq!(declarations.len(), 2);
         assert_eq!(declarations[0].name, "color");
         assert_eq!(declarations[1].name, "height");

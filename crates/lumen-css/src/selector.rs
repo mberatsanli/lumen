@@ -65,6 +65,8 @@ pub enum PseudoClass {
     Visited,
     /// Matches the engine's hover chain.
     Hover,
+    /// The document's root element (html).
+    Root,
     FirstChild,
     LastChild,
     OnlyChild,
@@ -395,6 +397,7 @@ fn parse_pseudo_class(name: &str, arguments: Option<&str>) -> Option<PseudoClass
         ("link", None) => Some(PseudoClass::Link),
         ("visited", None) => Some(PseudoClass::Visited),
         ("hover", None) => Some(PseudoClass::Hover),
+        ("root", None) => Some(PseudoClass::Root),
         ("first-child", None) => Some(PseudoClass::FirstChild),
         ("last-child", None) => Some(PseudoClass::LastChild),
         ("only-child", None) => Some(PseudoClass::OnlyChild),

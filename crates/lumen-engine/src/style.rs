@@ -548,6 +548,193 @@ pub fn compute_styles_hovered(
     }
 }
 
+/// Substitutes `var(--name[, fallback])` occurrences from the raw map
+/// (custom properties carry their text in `CssValue::String`). Depth-caps
+/// self-referential chains. `None` when a variable has no value and no
+/// fallback.
+fn substitute_vars(text: &str, raw: &RawStyle, depth: usize) -> Option<String> {
+    if depth > 8 {
+        return None;
+    }
+    let Some(start) = text.find("var(") else {
+        return Some(text.to_string());
+    };
+    let after = &text[start + 4..];
+    let mut nesting = 1usize;
+    let mut close = None;
+    for (index, character) in after.char_indices() {
+        match character {
+            '(' => nesting += 1,
+            ')' => {
+                nesting -= 1;
+                if nesting == 0 {
+                    close = Some(index);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let close = close?;
+    let arguments = &after[..close];
+    let (variable, fallback) = match arguments.find(',') {
+        Some(comma) => (
+            arguments[..comma].trim(),
+            Some(arguments[comma + 1..].trim()),
+        ),
+        None => (arguments.trim(), None),
+    };
+    let replacement = match raw.get(variable) {
+        Some(CssValue::String(value)) => substitute_vars(value, raw, depth + 1)?,
+        _ => substitute_vars(fallback?, raw, depth + 1)?,
+    };
+    let rest = substitute_vars(&after[close + 1..], raw, depth)?;
+    Some(format!("{}{replacement}{rest}", &text[..start]))
+}
+
+/// A calc() term family: absolute pixels, percent, or a bare number.
+#[derive(Clone, Copy)]
+enum CalcValue {
+    Px(f32),
+    Percent(f32),
+    Number(f32),
+}
+
+/// Evaluates a calc() expression. Units: px/em/rem/% and numbers; `em`
+/// resolves against `font_size`. Additive mixing of px and % is
+/// unsupported and returns `None`.
+fn evaluate_calc(expression: &str, font_size: f32, root_font_size: f32) -> Option<CssValue> {
+    struct Parser<'a> {
+        tokens: Vec<&'a str>,
+        position: usize,
+    }
+    // Tokenize: parens and operators split; everything else is a term.
+    let mut tokens: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for character in expression.chars() {
+        match character {
+            '(' | ')' | '+' | '*' | '/' => {
+                if !current.trim().is_empty() {
+                    tokens.push(current.trim().to_string());
+                }
+                current.clear();
+                tokens.push(character.to_string());
+            }
+            // Minus only splits when surrounded by whitespace (CSS
+            // requires it); `-n` stays part of a number.
+            ' ' | '\t' => {
+                if !current.trim().is_empty() {
+                    tokens.push(current.trim().to_string());
+                }
+                current.clear();
+            }
+            _ => current.push(character),
+        }
+    }
+    if !current.trim().is_empty() {
+        tokens.push(current.trim().to_string());
+    }
+    let tokens: Vec<&str> = tokens.iter().map(String::as_str).collect();
+
+    fn parse_term(
+        parser: &mut Parser<'_>,
+        font_size: f32,
+        root_font_size: f32,
+    ) -> Option<CalcValue> {
+        let token = *parser.tokens.get(parser.position)?;
+        parser.position += 1;
+        if token == "(" {
+            let value = parse_sum(parser, font_size, root_font_size)?;
+            if parser.tokens.get(parser.position) == Some(&")") {
+                parser.position += 1;
+                return Some(value);
+            }
+            return None;
+        }
+        let value = lumen_css::CssValue::parse_component(token)?;
+        match value {
+            CssValue::Length(size, lumen_css::Unit::Px) => Some(CalcValue::Px(size)),
+            CssValue::Length(size, lumen_css::Unit::Em) => Some(CalcValue::Px(size * font_size)),
+            CssValue::Length(size, lumen_css::Unit::Rem) => {
+                Some(CalcValue::Px(size * root_font_size))
+            }
+            CssValue::Length(size, lumen_css::Unit::Percent) => Some(CalcValue::Percent(size)),
+            CssValue::Number(number) => Some(CalcValue::Number(number)),
+            _ => None,
+        }
+    }
+
+    fn parse_product(
+        parser: &mut Parser<'_>,
+        font_size: f32,
+        root_font_size: f32,
+    ) -> Option<CalcValue> {
+        let mut left = parse_term(parser, font_size, root_font_size)?;
+        while let Some(operator) = parser.tokens.get(parser.position).copied() {
+            if operator != "*" && operator != "/" {
+                break;
+            }
+            parser.position += 1;
+            let right = parse_term(parser, font_size, root_font_size)?;
+            left = match (left, right, operator) {
+                (value, CalcValue::Number(number), "*")
+                | (CalcValue::Number(number), value, "*") => scale(value, number),
+                (value, CalcValue::Number(number), "/") if number != 0.0 => {
+                    scale(value, 1.0 / number)
+                }
+                _ => return None,
+            };
+        }
+        Some(left)
+    }
+
+    fn scale(value: CalcValue, factor: f32) -> CalcValue {
+        match value {
+            CalcValue::Px(size) => CalcValue::Px(size * factor),
+            CalcValue::Percent(size) => CalcValue::Percent(size * factor),
+            CalcValue::Number(number) => CalcValue::Number(number * factor),
+        }
+    }
+
+    fn parse_sum(
+        parser: &mut Parser<'_>,
+        font_size: f32,
+        root_font_size: f32,
+    ) -> Option<CalcValue> {
+        let mut left = parse_product(parser, font_size, root_font_size)?;
+        while let Some(operator) = parser.tokens.get(parser.position).copied() {
+            let sign = match operator {
+                "+" => 1.0,
+                "-" => -1.0,
+                _ => break,
+            };
+            parser.position += 1;
+            let right = parse_product(parser, font_size, root_font_size)?;
+            left = match (left, right) {
+                (CalcValue::Px(a), CalcValue::Px(b)) => CalcValue::Px(a + sign * b),
+                (CalcValue::Percent(a), CalcValue::Percent(b)) => CalcValue::Percent(a + sign * b),
+                (CalcValue::Number(a), CalcValue::Number(b)) => CalcValue::Number(a + sign * b),
+                _ => return None, // px + % needs layout-time resolution.
+            };
+        }
+        Some(left)
+    }
+
+    let mut parser = Parser {
+        tokens,
+        position: 0,
+    };
+    let value = parse_sum(&mut parser, font_size, root_font_size)?;
+    if parser.position != parser.tokens.len() {
+        return None;
+    }
+    Some(match value {
+        CalcValue::Px(size) => CssValue::Length(size, lumen_css::Unit::Px),
+        CalcValue::Percent(size) => CssValue::Length(size, lumen_css::Unit::Percent),
+        CalcValue::Number(number) => CssValue::Number(number),
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn compute_node(
     document: &Document,
@@ -563,6 +750,12 @@ fn compute_node(
     for property in INHERITED_PROPERTIES {
         if let Some(value) = parent_raw.get(property) {
             raw.insert(Cow::Borrowed(property), value.clone());
+        }
+    }
+    // Custom properties (`--x`) inherit wholesale.
+    for (name, value) in parent_raw {
+        if name.starts_with("--") {
+            raw.insert(name.clone(), value.clone());
         }
     }
 
@@ -594,6 +787,26 @@ fn compute_node(
                     raw.insert(Cow::Owned(declaration.name), declaration.value);
                 }
             }
+        }
+    }
+
+    // var() substitution: unresolved values substitute custom properties
+    // (with fallbacks), then re-parse as a normal declaration so
+    // shorthands still expand.
+    let pending: Vec<(String, String)> = raw
+        .iter()
+        .filter_map(|(name, value)| match value {
+            CssValue::Unresolved(text) => Some((name.clone().into_owned(), text.clone())),
+            _ => None,
+        })
+        .collect();
+    for (name, text) in pending {
+        raw.remove(name.as_str());
+        let Some(substituted) = substitute_vars(&text, &raw, 0) else {
+            continue; // Unknown variable without fallback: declaration dies.
+        };
+        for declaration in lumen_css::parse_declarations(&format!("{name}: {substituted}")) {
+            raw.insert(Cow::Owned(declaration.name), declaration.value);
         }
     }
 
@@ -635,6 +848,28 @@ fn compute_node(
         .get("font-size")
         .and_then(CssValue::as_px)
         .unwrap_or(DEFAULT_FONT_SIZE);
+
+    // calc(): evaluated when all terms share a family (px-likes or %).
+    // `em` resolves against the parent font size (exact for font-size,
+    // an approximation elsewhere); mixed px/% expressions are dropped.
+    let calc_names: Vec<String> = raw
+        .iter()
+        .filter_map(|(name, value)| match value {
+            CssValue::Function(function, _) if function == "calc" => {
+                Some(name.clone().into_owned())
+            }
+            _ => None,
+        })
+        .collect();
+    for name in calc_names {
+        let CssValue::Function(_, expression) = raw[name.as_str()].clone() else {
+            continue;
+        };
+        match evaluate_calc(&expression, parent_font_size, root_font_size) {
+            Some(value) => raw.insert(Cow::Owned(name), value),
+            None => raw.remove(name.as_str()),
+        };
+    }
     let computed = to_computed(&raw, element, parent_font_size);
     // Children inherit the *resolved* font size, so `em` chains and
     // percentages resolve against real pixels, not unresolved declarations.
@@ -833,6 +1068,7 @@ fn compound_matches(
     }
     compound.pseudo_classes.iter().all(|pseudo| match pseudo {
         PseudoClass::Hover => hover_chain.contains(&node_id),
+        PseudoClass::Root => document.parent(node_id) == Some(document.root()),
         // No visited state: both always match.
         PseudoClass::Link | PseudoClass::Visited => true,
         PseudoClass::FirstChild => element_siblings(document, node_id).1 == 0,
@@ -1587,6 +1823,54 @@ mod tests {
         assert_eq!(
             style_of(&document, &styles, "div").background_image,
             Some(BackgroundImage::Url("bg.png".to_string()))
+        );
+    }
+
+    #[test]
+    fn custom_properties_substitute_and_inherit() {
+        let (document, styles) = styles_for(
+            "<style>:root { --brand: #ff0000; --pad: 4px 8px; }\
+                    div { color: var(--brand); padding: var(--pad); }\
+                    p { color: var(--missing, #0000ff); }</style>\
+             <div><p>x</p></div>",
+        );
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.color.to_string(), "#ff0000");
+        // The shorthand expands after substitution.
+        assert_eq!(div.padding.top, Dimension::Px(4.0));
+        assert_eq!(div.padding.right, Dimension::Px(8.0));
+        // Fallback used when the variable is missing.
+        assert_eq!(
+            style_of(&document, &styles, "p").color.to_string(),
+            "#0000ff"
+        );
+    }
+
+    #[test]
+    fn calc_evaluates_homogeneous_expressions() {
+        let (document, styles) = styles_for(
+            "<html><head><style>html { font-size: 10px; }\
+                    div { width: calc(200px + 2 * 50px); height: calc(10rem - 2rem); \
+                          margin-top: calc(100% / 4); padding-top: calc(100% - 20px); }\
+             </style></head><body><div>x</div></body></html>",
+        );
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.width, Dimension::Px(300.0));
+        assert_eq!(div.height, Dimension::Px(80.0));
+        assert_eq!(div.margin.top, Dimension::Percent(25.0));
+        // Mixed % and px cannot evaluate: the declaration drops.
+        assert_eq!(div.padding.top, Dimension::Px(0.0));
+    }
+
+    #[test]
+    fn var_inside_calc_resolves() {
+        let (document, styles) = styles_for(
+            "<style>:root { --base: 100px; } div { width: calc(var(--base) * 3); }</style>\
+             <div>x</div>",
+        );
+        assert_eq!(
+            style_of(&document, &styles, "div").width,
+            Dimension::Px(300.0)
         );
     }
 
