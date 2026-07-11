@@ -267,6 +267,11 @@ fn install_globals(context: &mut Context) {
             1,
         )
         .function(
+            NativeFunction::from_fn_ptr(create_element),
+            js_string!("createElement"),
+            1,
+        )
+        .function(
             NativeFunction::from_fn_ptr(query_selector),
             js_string!("querySelector"),
             1,
@@ -395,6 +400,20 @@ fn query_selector_all(
     Ok(boa_engine::object::builtins::JsArray::from_iter(elements, context).into())
 }
 
+fn create_element(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let tag = string_arg(args, 0, context);
+    let node = with_bridge(|bridge| {
+        bridge
+            .page
+            .as_mut()
+            .map(|page| page.document.create_element(&tag))
+    });
+    Ok(match node {
+        Some(node) => element_object(node, context).into(),
+        None => JsValue::null(),
+    })
+}
+
 // ---- timers ----
 
 fn queue_timer(args: &[JsValue], interval: bool, context: &mut Context) -> JsResult<JsValue> {
@@ -463,6 +482,12 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
             js_string!("setAttribute"),
             2,
         )
+        .function(
+            NativeFunction::from_fn_ptr(append_child),
+            js_string!("appendChild"),
+            1,
+        )
+        .function(NativeFunction::from_fn_ptr(remove_node), js_string!("remove"), 0)
         .accessor(
             js_string!("textContent"),
             Some(text_get.clone()),
@@ -583,6 +608,40 @@ fn add_event_listener(this: &JsValue, args: &[JsValue], context: &mut Context) -
     };
     with_bridge(|bridge| {
         bridge.pending_listeners.push((node, event, callback.clone()));
+    });
+    Ok(JsValue::undefined())
+}
+
+fn append_child(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(parent) = this_node(this, context) else {
+        return Ok(JsValue::undefined());
+    };
+    let child = args
+        .first()
+        .cloned()
+        .map(|value| this_node(&value, context));
+    let Some(Some(child)) = child else {
+        return Ok(JsValue::undefined());
+    };
+    with_bridge(|bridge| {
+        if let Some(page) = bridge.page.as_mut() {
+            page.document.append_child(parent, child);
+            bridge.dirty = true;
+        }
+    });
+    // Return the appended child, as the real API does.
+    Ok(args.first().cloned().unwrap_or_default())
+}
+
+fn remove_node(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context) else {
+        return Ok(JsValue::undefined());
+    };
+    with_bridge(|bridge| {
+        if let Some(page) = bridge.page.as_mut() {
+            page.document.detach(node);
+            bridge.dirty = true;
+        }
     });
     Ok(JsValue::undefined())
 }

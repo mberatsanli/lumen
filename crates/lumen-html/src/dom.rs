@@ -230,6 +230,56 @@ impl Document {
         id
     }
 
+    /// Creates a detached element (no parent until appended).
+    pub fn create_element(&mut self, tag: &str) -> NodeId {
+        let id = self.nodes.len();
+        self.nodes.push(Node {
+            kind: NodeKind::Element(ElementData {
+                tag_name: tag.to_ascii_lowercase(),
+                attributes: AttributeMap::new(),
+            }),
+            parent: None,
+            children: Vec::new(),
+        });
+        id
+    }
+
+    /// Creates a detached text node.
+    pub fn create_text(&mut self, text: &str) -> NodeId {
+        let id = self.nodes.len();
+        self.nodes.push(Node {
+            kind: NodeKind::Text(text.to_string()),
+            parent: None,
+            children: Vec::new(),
+        });
+        id
+    }
+
+    /// Attaches `child` as the last child of `parent`, detaching it from
+    /// any current parent first. Refuses appends that would create a
+    /// cycle (a node into itself or its own descendant).
+    pub fn append_child(&mut self, parent: NodeId, child: NodeId) {
+        if parent == child
+            || child == self.root
+            || std::iter::once(parent)
+                .chain(self.ancestors(parent))
+                .any(|ancestor| ancestor == child)
+        {
+            return;
+        }
+        self.detach(child);
+        self.nodes[child].parent = Some(parent);
+        self.nodes[parent].children.push(child);
+    }
+
+    /// Detaches a node from its parent. The node stays in the arena (and
+    /// can be re-appended); detached subtrees simply never render.
+    pub fn detach(&mut self, node: NodeId) {
+        if let Some(parent) = self.nodes[node].parent.take() {
+            self.nodes[parent].children.retain(|child| *child != node);
+        }
+    }
+
     #[must_use]
     pub fn parent(&self, id: NodeId) -> Option<NodeId> {
         self.node(id).parent

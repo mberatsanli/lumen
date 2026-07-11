@@ -37,6 +37,13 @@
       <p>Saat (500ms interval): <span class="big" id="saat">0.0s</span></p>
     </div>
 
+    <div class="row">
+      <input type="text" id="gorev" placeholder="Görev yaz, Ekle'ye bas…">
+      <button id="ekle">Ekle</button>
+      <ul id="liste"></ul>
+      <p class="hint">createElement + appendChild; maddeye tıklayınca remove() ile silinir.</p>
+    </div>
+
     <p class="hint">Butonlar addEventListener ile bağlı; yazı alanı input
       event'iyle selamı günceller; sayaç setInterval ile ilerler.
       console.log çıktısı terminale düşer.</p>
@@ -67,6 +74,18 @@
       ticks++;
       document.getElementById('saat').textContent = (ticks / 2) + 's';
     }, 500);
+
+    const liste = document.getElementById('liste');
+    const gorev = document.getElementById('gorev');
+    document.getElementById('ekle').addEventListener('click', () => {
+      const text = gorev.value.trim();
+      if (text === '') return;
+      const li = document.createElement('li');
+      li.textContent = `☐ ${text}`;
+      li.addEventListener('click', () => li.remove());
+      liste.appendChild(li);
+      gorev.value = '';
+    });
 
     console.log('page script ready:', typeof sayac, [1,2,3].map(x => x * x).join('+'));
   </script>

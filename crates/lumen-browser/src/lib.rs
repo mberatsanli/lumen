@@ -1325,6 +1325,32 @@ mod tests {
     }
 
     #[test]
+    fn scripts_create_append_and_remove_elements() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<ul id='list'><li id='eski'>eski</li></ul>\
+                 <script>\
+                 const list = document.getElementById('list');\
+                 const li = document.createElement('li');\
+                 li.textContent = 'yeni';\
+                 list.appendChild(li);\
+                 document.getElementById('eski').remove();\
+                 </script>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let document = &session.page().unwrap().document;
+        let list = document.get_element_by_id("list").unwrap();
+        assert_eq!(document.text_content(list).trim(), "yeni");
+        assert_eq!(document.children(list).len(), 1);
+        // The removed node left the tree entirely.
+        assert!(document.get_element_by_id("eski").is_none());
+    }
+
+    #[test]
     fn session_owned_editing_types_selects_and_overlays() {
         let mut session = Session::new(
             FakeLoader::new(&[(

@@ -24,7 +24,7 @@ loader thread); the whole world drops on navigation.
 | `element.value` | ✅ | reads live form state, writes update the control |
 | `element.getAttribute` / `setAttribute` | ✅ | `setAttribute('style.color', …)` merges into the style attribute |
 | `element.addEventListener` | ⚠️ | `click` (bubbles to ancestors) and `input`; the handler gets `{ type, target }` |
-| `createElement` / `appendChild` / `remove` | ❌ | structural DOM edits are the next milestone |
+| `document.createElement` / `el.appendChild` / `el.remove` | ✅ | detached nodes render nothing until appended; appends refuse cycles |
 | `preventDefault` / `stopPropagation` | ❌ | |
 | `fetch` / XHR | ❌ | |
 | `window` / `location` / `history` | ❌ | |
