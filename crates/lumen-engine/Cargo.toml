@@ -9,7 +9,7 @@ lumen-html = { path = "../lumen-html" }
 lumen-css = { path = "../lumen-css" }
 font8x8 = "0.3"
 fontdue = "0.9"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 
 [lints]
 workspace = true

@@ -2,8 +2,9 @@
 //!
 //! The engine never fetches: navigation code loads the bytes and hands
 //! them to [`RasterImage::decode`]. Decoding uses the `image` crate
-//! (PNG/JPEG) — codec work, like TLS and font parsing, is deliberately a
-//! library rather than part of the educational pipeline.
+//! (PNG/JPEG/GIF/WebP — animated formats keep their first frame) — codec
+//! work, like TLS and font parsing, is deliberately a library rather than
+//! part of the educational pipeline.
 
 use lumen_html::{Document, NodeId};
 use std::collections::HashMap;
@@ -17,7 +18,7 @@ pub struct RasterImage {
     /// Row-major RGBA, 4 bytes per pixel.
     pub rgba: Vec<u8>,
     pub encoded: Vec<u8>,
-    /// MIME type of `encoded` (`image/png` or `image/jpeg`).
+    /// MIME type of `encoded` (e.g. `image/png`).
     pub mime: &'static str,
 }
 
@@ -39,13 +40,16 @@ impl std::fmt::Debug for RasterImage {
 }
 
 impl RasterImage {
-    /// Decodes PNG or JPEG bytes; `None` for anything else.
+    /// Decodes PNG, JPEG, GIF or WebP bytes (animated GIF/WebP decode to
+    /// their first frame); `None` for anything else.
     #[must_use]
     pub fn decode(bytes: &[u8]) -> Option<Self> {
         let format = image::guess_format(bytes).ok()?;
         let mime = match format {
             image::ImageFormat::Png => "image/png",
             image::ImageFormat::Jpeg => "image/jpeg",
+            image::ImageFormat::Gif => "image/gif",
+            image::ImageFormat::WebP => "image/webp",
             _ => return None,
         };
         let decoded = image::load_from_memory_with_format(bytes, format).ok()?;
@@ -63,7 +67,10 @@ impl RasterImage {
 /// Decoded images per `<img>` node.
 pub type ImageMap = HashMap<NodeId, Arc<RasterImage>>;
 
-/// All `<img src>` references in document order.
+/// All `<img>` source references in document order. `srcset` (when
+/// present) wins over `src`, picking the candidate whose density
+/// descriptor is closest to 1x; width (`w`) descriptors fall back to the
+/// first candidate.
 #[must_use]
 pub fn collect_image_sources(document: &Document) -> Vec<(NodeId, String)> {
     document
@@ -73,10 +80,50 @@ pub fn collect_image_sources(document: &Document) -> Vec<(NodeId, String)> {
             if element.tag_name != "img" {
                 return None;
             }
-            let src = element.attributes.get("src")?;
-            (!src.is_empty()).then(|| (id, src.to_string()))
+            let source = element
+                .attributes
+                .get("srcset")
+                .and_then(pick_srcset_candidate)
+                .or_else(|| {
+                    element
+                        .attributes
+                        .get("src")
+                        .filter(|src| !src.is_empty())
+                        .map(String::from)
+                })?;
+            Some((id, source))
         })
         .collect()
+}
+
+/// Picks one URL from a `srcset` list: the candidate with density closest
+/// to 1x, or the first candidate when only `w` descriptors are present.
+fn pick_srcset_candidate(srcset: &str) -> Option<String> {
+    let mut best: Option<(f32, String)> = None;
+    let mut first: Option<String> = None;
+    for candidate in srcset.split(',') {
+        let mut parts = candidate.split_whitespace();
+        let url = parts.next()?.to_string();
+        if url.is_empty() {
+            continue;
+        }
+        if first.is_none() {
+            first = Some(url.clone());
+        }
+        let density = match parts.next() {
+            None => 1.0,
+            Some(descriptor) => match descriptor.strip_suffix('x') {
+                Some(value) => value.parse::<f32>().ok().unwrap_or(f32::MAX),
+                // `w` descriptors need layout knowledge; skip.
+                None => continue,
+            },
+        };
+        let distance = (density - 1.0).abs();
+        if best.as_ref().is_none_or(|(current, _)| distance < *current) {
+            best = Some((distance, url));
+        }
+    }
+    best.map(|(_, url)| url).or(first)
 }
 
 #[cfg(test)]
@@ -91,6 +138,42 @@ mod tests {
             .write_to(&mut bytes, image::ImageFormat::Png)
             .expect("in-memory png encode");
         bytes.into_inner()
+    }
+
+    #[test]
+    fn decodes_gif_first_frame() {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(2, 3, image::Rgba([0, 255, 0, 255]))
+            .write_to(&mut bytes, image::ImageFormat::Gif)
+            .expect("in-memory gif encode");
+        let decoded = RasterImage::decode(&bytes.into_inner()).expect("valid gif");
+        assert_eq!((decoded.width, decoded.height), (2, 3));
+        assert_eq!(decoded.mime, "image/gif");
+    }
+
+    #[test]
+    fn decodes_webp() {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(4, 2, image::Rgba([0, 0, 255, 255]))
+            .write_to(&mut bytes, image::ImageFormat::WebP)
+            .expect("in-memory webp encode");
+        let decoded = RasterImage::decode(&bytes.into_inner()).expect("valid webp");
+        assert_eq!((decoded.width, decoded.height), (4, 2));
+        assert_eq!(decoded.mime, "image/webp");
+    }
+
+    #[test]
+    fn srcset_picks_the_1x_candidate() {
+        let document = parse_document(
+            "<img srcset='small.png 1x, big.png 2x' src='fallback.png'>\
+             <img srcset='w1.png 400w, w2.png 800w'>\
+             <img src='plain.png'>",
+        );
+        let sources: Vec<String> = collect_image_sources(&document)
+            .into_iter()
+            .map(|(_, source)| source)
+            .collect();
+        assert_eq!(sources, vec!["small.png", "w1.png", "plain.png"]);
     }
 
     #[test]
