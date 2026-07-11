@@ -6,6 +6,7 @@
 //! cargo run -p lumen-cli -- render examples/hello.html crates/lumen-engine/tests/golden/hello.svg
 //! cargo run -p lumen-cli -- render examples/card.html crates/lumen-engine/tests/golden/card.svg
 //! cargo run -p lumen-cli -- render examples/nested.html crates/lumen-engine/tests/golden/nested.svg
+//! cargo run -p lumen-cli -- render examples/kitchen-sink.html crates/lumen-engine/tests/golden/kitchen-sink.svg
 //! ```
 //! and review the diff before committing.
 
@@ -50,6 +51,19 @@ fn nested_renders_to_golden_svg() {
         "nested",
         include_str!("../../../examples/nested.html"),
         include_str!("golden/nested.svg"),
+    );
+}
+
+/// The whole CSS feature showcase: selectors, flexbox (wrap/shrink/
+/// align-self), borders, radii, colors with alpha, opacity, positioning,
+/// overflow clipping, pre/monospace text, floats — one byte-exact
+/// regression net over everything the engine supports.
+#[test]
+fn kitchen_sink_renders_to_golden_svg() {
+    assert_golden(
+        "kitchen-sink",
+        include_str!("../../../examples/kitchen-sink.html"),
+        include_str!("golden/kitchen-sink.svg"),
     );
 }
 
