@@ -124,13 +124,53 @@ fn paint_box(
     }
     let fade = |color: lumen_css::Color| color.with_alpha_factor(opacity);
     let border_box = layout.border_box();
+    // `visibility: hidden` skips this box's own painting; children still
+    // paint (they can set visibility: visible).
+    let visible = layout.style.visible;
 
     let radius = layout
         .style
         .border_radius
         .clamped_to(border_box.width, border_box.height);
 
-    if !anonymous && let Some(background) = layout.style.background_color {
+    // Box shadow paints under everything: layered expanding fills fake
+    // the blur (each ring carries a share of the alpha).
+    if !anonymous
+        && visible
+        && let Some(shadow) = &layout.style.box_shadow
+    {
+        let base = Rect {
+            x: border_box.x + shadow.offset_x - shadow.spread,
+            y: border_box.y + shadow.offset_y - shadow.spread,
+            width: border_box.width + 2.0 * shadow.spread,
+            height: border_box.height + 2.0 * shadow.spread,
+        };
+        let steps = if shadow.blur > 0.0 { 4 } else { 1 };
+        for step in (0..steps).rev() {
+            let expand = shadow.blur * (step as f32 + 1.0) / steps as f32;
+            let alpha_share = 1.0 / (steps as f32);
+            commands.push(DisplayCommand::FillRect {
+                rect: Rect {
+                    x: base.x - expand,
+                    y: base.y - expand,
+                    width: base.width + 2.0 * expand,
+                    height: base.height + 2.0 * expand,
+                },
+                color: fade(shadow.color.with_alpha_factor(alpha_share)),
+                radius: Corners {
+                    top_left: radius.top_left + expand,
+                    top_right: radius.top_right + expand,
+                    bottom_right: radius.bottom_right + expand,
+                    bottom_left: radius.bottom_left + expand,
+                },
+            });
+        }
+    }
+
+    if !anonymous
+        && visible
+        && let Some(background) = layout.style.background_color
+    {
         commands.push(DisplayCommand::FillRect {
             rect: border_box,
             color: fade(background),
@@ -141,7 +181,7 @@ fn paint_box(
     // The background image layer paints over the color. Gradients render
     // directly; url() images stretch over the border box when their bytes
     // were fetched (keyed by this node in the image map).
-    if !anonymous {
+    if !anonymous && visible {
         match &layout.style.background_image {
             Some(BackgroundImage::LinearGradient(gradient)) => {
                 commands.push(DisplayCommand::FillGradient {
@@ -185,6 +225,7 @@ fn paint_box(
 
     let widths = layout.dimensions.border;
     if !anonymous
+        && visible
         && (widths.top > 0.0 || widths.right > 0.0 || widths.bottom > 0.0 || widths.left > 0.0)
     {
         let colors = layout.style.border_color;
@@ -202,7 +243,30 @@ fn paint_box(
         });
     }
 
-    if layout.box_type == BoxType::Replaced {
+    // Outline: a frame just outside the border box, no layout impact.
+    if !anonymous
+        && visible
+        && layout.style.outline_width > 0.0
+        && layout.style.outline_style != BorderStyle::None
+    {
+        let width = layout.style.outline_width;
+        commands.push(DisplayCommand::StrokeRect {
+            rect: Rect {
+                x: border_box.x - width,
+                y: border_box.y - width,
+                width: border_box.width + 2.0 * width,
+                height: border_box.height + 2.0 * width,
+            },
+            widths: EdgeSizes::uniform(width),
+            colors: EdgeSizes::uniform(fade(
+                layout.style.outline_color.unwrap_or(layout.style.color),
+            )),
+            styles: EdgeSizes::uniform(layout.style.outline_style),
+            radius: Corners::uniform(0.0),
+        });
+    }
+
+    if layout.box_type == BoxType::Replaced && visible {
         match images.get(&layout.node_id) {
             Some(image) => commands.push(DisplayCommand::DrawImage {
                 rect: layout.content_box(),
@@ -234,7 +298,7 @@ fn paint_box(
         for line in lines {
             for fragment in &line.fragments {
                 match &fragment.content {
-                    crate::inline::FragmentContent::Text { text, style } => {
+                    crate::inline::FragmentContent::Text { text, style } if style.visible => {
                         commands.push(DisplayCommand::DrawText {
                             x: content.x + fragment.x,
                             y: content.y + line.y + line.baseline,
@@ -252,6 +316,7 @@ fn paint_box(
                     crate::inline::FragmentContent::Box(laid) => {
                         paint_box(laid, images, opacity, commands);
                     }
+                    crate::inline::FragmentContent::Text { .. } => {}
                 }
             }
         }
@@ -687,6 +752,69 @@ mod tests {
             .count();
         // 4 columns x 2 rows.
         assert_eq!(images, 8);
+    }
+
+    #[test]
+    fn visibility_hidden_skips_painting_but_keeps_space() {
+        let list = commands(
+            "<style>.gone { visibility: hidden; background-color: #ff0000; height: 20px; }\
+                    .after { background-color: #00ff00; height: 10px; }</style>\
+             <div class='gone'>invisible text</div><div class='after'></div>",
+        );
+        assert!(
+            !list
+                .iter()
+                .any(|command| matches!(command, DisplayCommand::DrawText { .. }))
+        );
+        let Some(DisplayCommand::FillRect { rect, color, .. }) = list.iter().find(
+            |command| matches!(command, DisplayCommand::FillRect { color, .. } if color.g == 255),
+        ) else {
+            panic!("expected the visible sibling fill");
+        };
+        assert_eq!(color.to_string(), "#00ff00");
+        // The hidden box still occupies its 20px.
+        assert_eq!(rect.y, 20.0);
+    }
+
+    #[test]
+    fn box_shadow_paints_layered_fills_under_the_box() {
+        let list = commands(
+            "<style>div { box-shadow: 5px 5px 8px #000000; background-color: #ffffff; \
+                          width: 50px; height: 20px; }</style><div></div>",
+        );
+        let fills: Vec<&Rect> = list
+            .iter()
+            .filter_map(|command| match command {
+                DisplayCommand::FillRect { rect, color, .. } if color.a < 255 => Some(rect),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fills.len(), 4, "expected 4 blur layers");
+        // The largest layer is offset by the shadow and expanded by blur.
+        assert!(fills[0].x < 5.0 && fills[0].width > 50.0);
+    }
+
+    #[test]
+    fn outline_strokes_outside_the_border_box() {
+        let list = commands(
+            "<style>div { outline: 2px solid #ff0000; width: 50px; height: 20px; }</style>\
+             <div></div>",
+        );
+        let Some(DisplayCommand::StrokeRect {
+            rect,
+            widths,
+            colors,
+            ..
+        }) = list
+            .iter()
+            .find(|command| matches!(command, DisplayCommand::StrokeRect { .. }))
+        else {
+            panic!("no outline stroke");
+        };
+        assert_eq!(rect.x, -2.0);
+        assert_eq!(rect.width, 54.0);
+        assert_eq!(widths.top, 2.0);
+        assert_eq!(colors.top.to_string(), "#ff0000");
     }
 
     #[test]

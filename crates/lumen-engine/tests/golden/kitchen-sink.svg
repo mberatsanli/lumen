@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="6202.477" viewBox="0 0 1024 6202.477">
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="6453.677" viewBox="0 0 1024 6453.677">
 <rect width="100%" height="100%" fill="white"/>
-<rect x="0" y="0" width="1024" height="6202.477" fill="#f2f0ea"/>
-<rect x="0" y="0" width="1024" height="6202.477" fill="#f2f0ea"/>
+<rect x="0" y="0" width="1024" height="6453.677" fill="#f2f0ea"/>
+<rect x="0" y="0" width="1024" height="6453.677" fill="#f2f0ea"/>
 <rect x="175.00002" y="15.360001" width="674" height="208.4" fill="#ffffff"/>
 <rect x="175.00002" y="15.360001" width="674" height="1" fill="#d9d4c7"/>
 <rect x="848" y="15.360001" width="1" height="208.4" fill="#d9d4c7"/>
@@ -161,304 +161,320 @@
 <text x="472" y="2490.9597" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">vs</text>
 <text x="496" y="2490.9597" fill="#334488" font-family="system-ui, sans-serif" font-size="16" font-weight="400" text-decoration="underline">http link</text>
 <text x="568" y="2490.9597" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">.</text>
-<rect x="175.00002" y="2538.3596" width="674" height="140.59985" fill="#ffffff"/>
+<rect x="175.00002" y="2538.3596" width="674" height="235.1997" fill="#ffffff"/>
 <rect x="175.00002" y="2538.3596" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="2538.3596" width="1" height="140.59985" fill="#d9d4c7"/>
-<rect x="175.00002" y="2677.9595" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="2538.3596" width="1" height="140.59985" fill="#d9d4c7"/>
-<text x="192.00002" y="2575.3596" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Forms (visual)</text>
-<path d="M 197.00002 2595.3596 H 379 A 3 3 0 0 1 382 2598.3596 V 2618.5596 A 3 3 0 0 1 379 2621.5596 H 197.00002 A 3 3 0 0 1 194.00002 2618.5596 V 2598.3596 A 3 3 0 0 1 197.00002 2595.3596 Z" fill="#ffffff"/>
-<path d="M 197.00002 2595.3596 H 379 A 3 3 0 0 1 382 2598.3596 V 2618.5596 A 3 3 0 0 1 379 2621.5596 H 197.00002 A 3 3 0 0 1 194.00002 2618.5596 V 2598.3596 A 3 3 0 0 1 197.00002 2595.3596 Z M 197.00002 2596.3596 H 379 A 2 2 0 0 1 381 2598.3596 V 2618.5596 A 2 2 0 0 1 379 2620.5596 H 197.00002 A 2 2 0 0 1 195.00002 2618.5596 V 2598.3596 A 2 2 0 0 1 197.00002 2596.3596 Z" fill="#767676" fill-rule="evenodd"/>
-<text x="203.00002" y="2612.3596" fill="#232019" font-family="system-ui, sans-serif" font-size="13" font-weight="400">Type here…</text>
-<path d="M 397 2595.3596 H 579 A 3 3 0 0 1 582 2598.3596 V 2618.5596 A 3 3 0 0 1 579 2621.5596 H 397 A 3 3 0 0 1 394 2618.5596 V 2598.3596 A 3 3 0 0 1 397 2595.3596 Z" fill="#ffffff"/>
-<path d="M 397 2595.3596 H 579 A 3 3 0 0 1 582 2598.3596 V 2618.5596 A 3 3 0 0 1 579 2621.5596 H 397 A 3 3 0 0 1 394 2618.5596 V 2598.3596 A 3 3 0 0 1 397 2595.3596 Z M 397 2596.3596 H 579 A 2 2 0 0 1 581 2598.3596 V 2618.5596 A 2 2 0 0 1 579 2620.5596 H 397 A 2 2 0 0 1 395 2618.5596 V 2598.3596 A 2 2 0 0 1 397 2596.3596 Z" fill="#767676" fill-rule="evenodd"/>
-<text x="403" y="2612.3596" fill="#232019" font-family="system-ui, sans-serif" font-size="13" font-weight="400">••••••</text>
-<path d="M 597 2595.3596 H 701.5 A 3 3 0 0 1 704.5 2598.3596 V 2618.5596 A 3 3 0 0 1 701.5 2621.5596 H 597 A 3 3 0 0 1 594 2618.5596 V 2598.3596 A 3 3 0 0 1 597 2595.3596 Z" fill="#2266aa"/>
-<path d="M 597 2595.3596 H 701.5 A 3 3 0 0 1 704.5 2598.3596 V 2618.5596 A 3 3 0 0 1 701.5 2621.5596 H 597 A 3 3 0 0 1 594 2618.5596 V 2598.3596 A 3 3 0 0 1 597 2595.3596 Z M 597 2596.3596 H 701.5 A 2 2 0 0 1 703.5 2598.3596 V 2618.5596 A 2 2 0 0 1 701.5 2620.5596 H 597 A 2 2 0 0 1 595 2618.5596 V 2598.3596 A 2 2 0 0 1 597 2596.3596 Z" fill="#1c5288" fill-rule="evenodd"/>
-<text x="607" y="2612.3596" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">Styled submit</text>
-<path d="M 719.5 2607.5596 H 727.5 A 3 3 0 0 1 730.5 2610.5596 V 2618.5596 A 3 3 0 0 1 727.5 2621.5596 H 719.5 A 3 3 0 0 1 716.5 2618.5596 V 2610.5596 A 3 3 0 0 1 719.5 2607.5596 Z" fill="#ffffff"/>
-<path d="M 719.5 2607.5596 H 727.5 A 3 3 0 0 1 730.5 2610.5596 V 2618.5596 A 3 3 0 0 1 727.5 2621.5596 H 719.5 A 3 3 0 0 1 716.5 2618.5596 V 2610.5596 A 3 3 0 0 1 719.5 2607.5596 Z M 719.5 2608.5596 H 727.5 A 2 2 0 0 1 729.5 2610.5596 V 2618.5596 A 2 2 0 0 1 727.5 2620.5596 H 719.5 A 2 2 0 0 1 717.5 2618.5596 V 2610.5596 A 2 2 0 0 1 719.5 2608.5596 Z" fill="#767676" fill-rule="evenodd"/>
-<path d="M 745.5 2607.5596 H 753.5 A 3 3 0 0 1 756.5 2610.5596 V 2618.5596 A 3 3 0 0 1 753.5 2621.5596 H 745.5 A 3 3 0 0 1 742.5 2618.5596 V 2610.5596 A 3 3 0 0 1 745.5 2607.5596 Z" fill="#ffffff"/>
-<path d="M 745.5 2607.5596 H 753.5 A 3 3 0 0 1 756.5 2610.5596 V 2618.5596 A 3 3 0 0 1 753.5 2621.5596 H 745.5 A 3 3 0 0 1 742.5 2618.5596 V 2610.5596 A 3 3 0 0 1 745.5 2607.5596 Z M 745.5 2608.5596 H 753.5 A 2 2 0 0 1 755.5 2610.5596 V 2618.5596 A 2 2 0 0 1 753.5 2620.5596 H 745.5 A 2 2 0 0 1 743.5 2618.5596 V 2610.5596 A 2 2 0 0 1 745.5 2608.5596 Z" fill="#767676" fill-rule="evenodd"/>
-<text x="192.00002" y="2647.5596" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ non-interactive: boxes, values and placeholders render. Entities: © — … → €</text>
-<rect x="175.00002" y="2694.9595" width="674" height="300" fill="#ffffff"/>
-<rect x="175.00002" y="2694.9595" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="2694.9595" width="1" height="300" fill="#d9d4c7"/>
-<rect x="175.00002" y="2993.9595" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="2694.9595" width="1" height="300" fill="#d9d4c7"/>
-<text x="192.00002" y="2731.9595" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Units &amp; cascade keywords</text>
-<rect x="192.00002" y="2749.9595" width="640" height="44" fill="#e9f0ea"/>
-<text x="200.00002" y="2777.9595" fill="#3a362c" font-family="system-ui, sans-serif" font-size="20" font-weight="400">This box is sized in rem (1.25rem font, 0.5rem padding).</text>
-<rect x="192.00002" y="2801.9595" width="436" height="115.19995" fill="#f0ede4"/>
-<text x="200.00002" y="2833.9595" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Parent: green text, 420px wide.</text>
-<rect x="200.00002" y="2856.3594" width="420" height="52.80005" fill="#e3dfd2"/>
-<text x="200.00002" y="2872.3594" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Child: width: inherit (420px), color: initial (back</text>
-<text x="200.00002" y="2894.7593" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">to default, not green).</text>
-<text x="192.00002" y="2941.1594" fill="#b3261e" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This is red: the !important class rule beats both the id rule and the inline</text>
-<text x="192.00002" y="2963.5593" fill="#b3261e" font-family="system-ui, sans-serif" font-size="16" font-weight="400">style.</text>
-<rect x="175.00002" y="3010.9595" width="674" height="118.3999" fill="#ffffff"/>
-<rect x="175.00002" y="3010.9595" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="3010.9595" width="1" height="118.3999" fill="#d9d4c7"/>
-<rect x="175.00002" y="3128.3594" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="3010.9595" width="1" height="118.3999" fill="#d9d4c7"/>
-<text x="192.00002" y="3047.9595" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Media queries</text>
-<rect x="192.00002" y="3065.9595" width="640" height="38.399902" fill="#dfe7f2"/>
-<text x="200.00002" y="3089.9595" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This box changes color and text below 700px.</text>
-<text x="560" y="3089.9595" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">(wide viewport)</text>
-<rect x="175.00002" y="3145.3594" width="674" height="186.7998" fill="#ffffff"/>
-<rect x="175.00002" y="3145.3594" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="3145.3594" width="1" height="186.7998" fill="#d9d4c7"/>
-<rect x="175.00002" y="3331.1592" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="3145.3594" width="1" height="186.7998" fill="#d9d4c7"/>
-<text x="192.00002" y="3182.3594" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Variables &amp; calc</text>
-<rect x="192.00002" y="3200.3594" width="640" height="38.399902" fill="#2266aa"/>
-<text x="208.00002" y="3224.3594" fill="#ffffff" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Colored and padded via var(--brand) and calc(var(--gap) * 2).</text>
-<rect x="192.00002" y="3246.7593" width="213.33336" height="30" fill="#d8c49a"/>
-<text x="192.00002" y="3300.7593" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ width: calc(100% / 3); background from a var() fallback.</text>
-<rect x="175.00002" y="3348.1592" width="674" height="284.7998" fill="#ffffff"/>
-<rect x="175.00002" y="3348.1592" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="3348.1592" width="1" height="284.7998" fill="#d9d4c7"/>
-<rect x="175.00002" y="3631.959" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="3348.1592" width="1" height="284.7998" fill="#d9d4c7"/>
-<text x="192.00002" y="3385.1592" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Gradients</text>
+<rect x="848" y="2538.3596" width="1" height="235.1997" fill="#d9d4c7"/>
+<rect x="175.00002" y="2772.5593" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="2538.3596" width="1" height="235.1997" fill="#d9d4c7"/>
+<text x="192.00002" y="2575.3596" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Shadows, outlines &amp; visibility</text>
+<path d="M 200.00002 2593.3596 H 824 A 8 8 0 0 1 832 2601.3596 V 2647.7595 A 8 8 0 0 1 824 2655.7595 H 200.00002 A 8 8 0 0 1 192.00002 2647.7595 V 2601.3596 A 8 8 0 0 1 200.00002 2593.3596 Z" fill="#ffffff"/>
+<text x="204.00002" y="2629.3596" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">box-shadow with blur under a rounded card.</text>
+<rect x="200.00002" y="2663.7595" width="624" height="54.399902" fill="#f4f1ea"/>
+<line x1="197.00002" y1="2662.2595" x2="827" y2="2662.2595" stroke="#b3261e" stroke-width="3" stroke-dasharray="9 6"/>
+<line x1="825.5" y1="2660.7595" x2="825.5" y2="2721.1594" stroke="#b3261e" stroke-width="3" stroke-dasharray="9 6"/>
+<line x1="197.00002" y1="2719.6594" x2="827" y2="2719.6594" stroke="#b3261e" stroke-width="3" stroke-dasharray="9 6"/>
+<line x1="198.50002" y1="2660.7595" x2="198.50002" y2="2721.1594" stroke="#b3261e" stroke-width="3" stroke-dasharray="9 6"/>
+<text x="208.00002" y="2695.7595" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">outline: dashed, outside the box, no layout shift.</text>
+<text x="192.00002" y="2742.1594" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Visible before</text>
+<text x="432" y="2742.1594" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">and after — the gap stays.</text>
+<rect x="175.00002" y="2789.5593" width="674" height="140.59985" fill="#ffffff"/>
+<rect x="175.00002" y="2789.5593" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="2789.5593" width="1" height="140.59985" fill="#d9d4c7"/>
+<rect x="175.00002" y="2929.1592" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="2789.5593" width="1" height="140.59985" fill="#d9d4c7"/>
+<text x="192.00002" y="2826.5593" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Forms (visual)</text>
+<path d="M 197.00002 2846.5593 H 379 A 3 3 0 0 1 382 2849.5593 V 2869.7593 A 3 3 0 0 1 379 2872.7593 H 197.00002 A 3 3 0 0 1 194.00002 2869.7593 V 2849.5593 A 3 3 0 0 1 197.00002 2846.5593 Z" fill="#ffffff"/>
+<path d="M 197.00002 2846.5593 H 379 A 3 3 0 0 1 382 2849.5593 V 2869.7593 A 3 3 0 0 1 379 2872.7593 H 197.00002 A 3 3 0 0 1 194.00002 2869.7593 V 2849.5593 A 3 3 0 0 1 197.00002 2846.5593 Z M 197.00002 2847.5593 H 379 A 2 2 0 0 1 381 2849.5593 V 2869.7593 A 2 2 0 0 1 379 2871.7593 H 197.00002 A 2 2 0 0 1 195.00002 2869.7593 V 2849.5593 A 2 2 0 0 1 197.00002 2847.5593 Z" fill="#767676" fill-rule="evenodd"/>
+<text x="203.00002" y="2863.5593" fill="#232019" font-family="system-ui, sans-serif" font-size="13" font-weight="400">Type here…</text>
+<path d="M 397 2846.5593 H 579 A 3 3 0 0 1 582 2849.5593 V 2869.7593 A 3 3 0 0 1 579 2872.7593 H 397 A 3 3 0 0 1 394 2869.7593 V 2849.5593 A 3 3 0 0 1 397 2846.5593 Z" fill="#ffffff"/>
+<path d="M 397 2846.5593 H 579 A 3 3 0 0 1 582 2849.5593 V 2869.7593 A 3 3 0 0 1 579 2872.7593 H 397 A 3 3 0 0 1 394 2869.7593 V 2849.5593 A 3 3 0 0 1 397 2846.5593 Z M 397 2847.5593 H 579 A 2 2 0 0 1 581 2849.5593 V 2869.7593 A 2 2 0 0 1 579 2871.7593 H 397 A 2 2 0 0 1 395 2869.7593 V 2849.5593 A 2 2 0 0 1 397 2847.5593 Z" fill="#767676" fill-rule="evenodd"/>
+<text x="403" y="2863.5593" fill="#232019" font-family="system-ui, sans-serif" font-size="13" font-weight="400">••••••</text>
+<path d="M 597 2846.5593 H 701.5 A 3 3 0 0 1 704.5 2849.5593 V 2869.7593 A 3 3 0 0 1 701.5 2872.7593 H 597 A 3 3 0 0 1 594 2869.7593 V 2849.5593 A 3 3 0 0 1 597 2846.5593 Z" fill="#2266aa"/>
+<path d="M 597 2846.5593 H 701.5 A 3 3 0 0 1 704.5 2849.5593 V 2869.7593 A 3 3 0 0 1 701.5 2872.7593 H 597 A 3 3 0 0 1 594 2869.7593 V 2849.5593 A 3 3 0 0 1 597 2846.5593 Z M 597 2847.5593 H 701.5 A 2 2 0 0 1 703.5 2849.5593 V 2869.7593 A 2 2 0 0 1 701.5 2871.7593 H 597 A 2 2 0 0 1 595 2869.7593 V 2849.5593 A 2 2 0 0 1 597 2847.5593 Z" fill="#1c5288" fill-rule="evenodd"/>
+<text x="607" y="2863.5593" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">Styled submit</text>
+<path d="M 719.5 2858.7593 H 727.5 A 3 3 0 0 1 730.5 2861.7593 V 2869.7593 A 3 3 0 0 1 727.5 2872.7593 H 719.5 A 3 3 0 0 1 716.5 2869.7593 V 2861.7593 A 3 3 0 0 1 719.5 2858.7593 Z" fill="#ffffff"/>
+<path d="M 719.5 2858.7593 H 727.5 A 3 3 0 0 1 730.5 2861.7593 V 2869.7593 A 3 3 0 0 1 727.5 2872.7593 H 719.5 A 3 3 0 0 1 716.5 2869.7593 V 2861.7593 A 3 3 0 0 1 719.5 2858.7593 Z M 719.5 2859.7593 H 727.5 A 2 2 0 0 1 729.5 2861.7593 V 2869.7593 A 2 2 0 0 1 727.5 2871.7593 H 719.5 A 2 2 0 0 1 717.5 2869.7593 V 2861.7593 A 2 2 0 0 1 719.5 2859.7593 Z" fill="#767676" fill-rule="evenodd"/>
+<path d="M 745.5 2858.7593 H 753.5 A 3 3 0 0 1 756.5 2861.7593 V 2869.7593 A 3 3 0 0 1 753.5 2872.7593 H 745.5 A 3 3 0 0 1 742.5 2869.7593 V 2861.7593 A 3 3 0 0 1 745.5 2858.7593 Z" fill="#ffffff"/>
+<path d="M 745.5 2858.7593 H 753.5 A 3 3 0 0 1 756.5 2861.7593 V 2869.7593 A 3 3 0 0 1 753.5 2872.7593 H 745.5 A 3 3 0 0 1 742.5 2869.7593 V 2861.7593 A 3 3 0 0 1 745.5 2858.7593 Z M 745.5 2859.7593 H 753.5 A 2 2 0 0 1 755.5 2861.7593 V 2869.7593 A 2 2 0 0 1 753.5 2871.7593 H 745.5 A 2 2 0 0 1 743.5 2869.7593 V 2861.7593 A 2 2 0 0 1 745.5 2859.7593 Z" fill="#767676" fill-rule="evenodd"/>
+<text x="192.00002" y="2898.7593" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ non-interactive: boxes, values and placeholders render. Entities: © — … → €</text>
+<rect x="175.00002" y="2946.1592" width="674" height="300" fill="#ffffff"/>
+<rect x="175.00002" y="2946.1592" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="2946.1592" width="1" height="300" fill="#d9d4c7"/>
+<rect x="175.00002" y="3245.1592" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="2946.1592" width="1" height="300" fill="#d9d4c7"/>
+<text x="192.00002" y="2983.1592" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Units &amp; cascade keywords</text>
+<rect x="192.00002" y="3001.1592" width="640" height="44" fill="#e9f0ea"/>
+<text x="200.00002" y="3029.1592" fill="#3a362c" font-family="system-ui, sans-serif" font-size="20" font-weight="400">This box is sized in rem (1.25rem font, 0.5rem padding).</text>
+<rect x="192.00002" y="3053.1592" width="436" height="115.19995" fill="#f0ede4"/>
+<text x="200.00002" y="3085.1592" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Parent: green text, 420px wide.</text>
+<rect x="200.00002" y="3107.559" width="420" height="52.80005" fill="#e3dfd2"/>
+<text x="200.00002" y="3123.559" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Child: width: inherit (420px), color: initial (back</text>
+<text x="200.00002" y="3145.959" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">to default, not green).</text>
+<text x="192.00002" y="3192.3591" fill="#b3261e" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This is red: the !important class rule beats both the id rule and the inline</text>
+<text x="192.00002" y="3214.759" fill="#b3261e" font-family="system-ui, sans-serif" font-size="16" font-weight="400">style.</text>
+<rect x="175.00002" y="3262.1592" width="674" height="118.3999" fill="#ffffff"/>
+<rect x="175.00002" y="3262.1592" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="3262.1592" width="1" height="118.3999" fill="#d9d4c7"/>
+<rect x="175.00002" y="3379.559" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="3262.1592" width="1" height="118.3999" fill="#d9d4c7"/>
+<text x="192.00002" y="3299.1592" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Media queries</text>
+<rect x="192.00002" y="3317.1592" width="640" height="38.399902" fill="#dfe7f2"/>
+<text x="200.00002" y="3341.1592" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This box changes color and text below 700px.</text>
+<text x="560" y="3341.1592" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">(wide viewport)</text>
+<rect x="175.00002" y="3396.559" width="674" height="186.7998" fill="#ffffff"/>
+<rect x="175.00002" y="3396.559" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="3396.559" width="1" height="186.7998" fill="#d9d4c7"/>
+<rect x="175.00002" y="3582.359" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="3396.559" width="1" height="186.7998" fill="#d9d4c7"/>
+<text x="192.00002" y="3433.559" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Variables &amp; calc</text>
+<rect x="192.00002" y="3451.559" width="640" height="38.399902" fill="#2266aa"/>
+<text x="208.00002" y="3475.559" fill="#ffffff" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Colored and padded via var(--brand) and calc(var(--gap) * 2).</text>
+<rect x="192.00002" y="3497.959" width="213.33336" height="30" fill="#d8c49a"/>
+<text x="192.00002" y="3551.959" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ width: calc(100% / 3); background from a var() fallback.</text>
+<rect x="175.00002" y="3599.359" width="674" height="284.7998" fill="#ffffff"/>
+<rect x="175.00002" y="3599.359" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="3599.359" width="1" height="284.7998" fill="#d9d4c7"/>
+<rect x="175.00002" y="3883.1587" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="3599.359" width="1" height="284.7998" fill="#d9d4c7"/>
+<text x="192.00002" y="3636.359" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Gradients</text>
 <linearGradient id="gradient0" x1="0.0000" y1="0.5000" x2="1.0000" y2="0.5000"><stop offset="0.0000" stop-color="#2266aa"/><stop offset="1.0000" stop-color="#66ccff"/></linearGradient>
-<path d="M 200.00002 3403.1592 H 824 A 8 8 0 0 1 832 3411.1592 V 3435.1592 A 8 8 0 0 1 824 3443.1592 H 200.00002 A 8 8 0 0 1 192.00002 3435.1592 V 3411.1592 A 8 8 0 0 1 200.00002 3403.1592 Z" fill="url(#gradient0)"/>
-<text x="192.00002" y="3467.1592" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ linear-gradient(to right, ...) with border-radius.</text>
+<path d="M 200.00002 3654.359 H 824 A 8 8 0 0 1 832 3662.359 V 3686.359 A 8 8 0 0 1 824 3694.359 H 200.00002 A 8 8 0 0 1 192.00002 3686.359 V 3662.359 A 8 8 0 0 1 200.00002 3654.359 Z" fill="url(#gradient0)"/>
+<text x="192.00002" y="3718.359" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ linear-gradient(to right, ...) with border-radius.</text>
 <linearGradient id="gradient1" x1="0.1464" y1="0.1464" x2="0.8536" y2="0.8536"><stop offset="0.0000" stop-color="#b3261e"/><stop offset="0.6000" stop-color="#f5c518"/><stop offset="1.0000" stop-color="#1a6b3c"/></linearGradient>
-<rect x="192.00002" y="3481.559" width="640" height="56" fill="url(#gradient1)"/>
-<text x="200.00002" y="3513.559" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">135deg, three stops with positions.</text>
+<rect x="192.00002" y="3732.7588" width="640" height="56" fill="url(#gradient1)"/>
+<text x="200.00002" y="3764.7588" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">135deg, three stops with positions.</text>
 <radialGradient id="gradient2" cx="0.5" cy="0.5" r="0.5"><stop offset="0.0000" stop-color="#f5c518"/><stop offset="1.0000" stop-color="#b3261e"/></radialGradient>
-<rect x="192.00002" y="3537.559" width="640" height="40" fill="url(#gradient2)"/>
-<text x="192.00002" y="3601.559" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ radial-gradient.</text>
-<rect x="175.00002" y="3648.959" width="674" height="141.76001" fill="#ffffff"/>
-<rect x="175.00002" y="3648.959" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="3648.959" width="1" height="141.76001" fill="#d9d4c7"/>
-<rect x="175.00002" y="3789.719" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="3648.959" width="1" height="141.76001" fill="#d9d4c7"/>
-<text x="192.00002" y="3685.959" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Generated content</text>
-<text x="192.00002" y="3719.959" fill="#b3261e" font-family="system-ui, sans-serif" font-size="16" font-weight="700">[NEW]</text>
-<text x="240.00002" y="3719.959" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="700">This paragraph is decorated by ::before and ::after.</text>
-<text x="664" y="3719.959" fill="#7a3d9e" font-family="system-ui, sans-serif" font-size="16" font-weight="700">↩</text>
-<text x="192.00002" y="3756.7588" fill="#3a362c" font-family="system-ui, sans-serif" font-size="22.4" font-weight="400">“</text>
-<text x="203.20001" y="3756.7588" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Quotes around this come from generated content, sized in rem.</text>
-<text x="691.2" y="3756.7588" fill="#3a362c" font-family="system-ui, sans-serif" font-size="22.4" font-weight="400">”</text>
-<rect x="175.00002" y="3806.719" width="674" height="188.3999" fill="#ffffff"/>
-<rect x="175.00002" y="3806.719" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="3806.719" width="1" height="188.3999" fill="#d9d4c7"/>
-<rect x="175.00002" y="3994.119" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="3806.719" width="1" height="188.3999" fill="#d9d4c7"/>
-<text x="192.00002" y="3843.719" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Overflow</text>
-<rect x="192.00002" y="3861.719" width="640" height="78" fill="#f0ead9"/>
-<rect x="192.00002" y="3861.719" width="640" height="1" fill="#cbbf9e"/>
-<rect x="831" y="3861.719" width="1" height="78" fill="#cbbf9e"/>
-<rect x="192.00002" y="3938.719" width="640" height="1" fill="#cbbf9e"/>
-<rect x="192.00002" y="3861.719" width="1" height="78" fill="#cbbf9e"/>
-<clipPath id="clip0"><rect x="193.00002" y="3862.719" width="638" height="76"/></clipPath><g clip-path="url(#clip0)">
-<text x="201.00002" y="3894.719" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This box is 60px tall with overflow: hidden. Everything below its padding box</text>
-<text x="201.00002" y="3917.119" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">is clipped away, including this second sentence which keeps going and going</text>
-<text x="201.00002" y="3939.519" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">and going well past the visible area.</text>
-<text x="201.00002" y="3969.919" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">A second paragraph that should be fully invisible.</text>
+<rect x="192.00002" y="3788.7588" width="640" height="40" fill="url(#gradient2)"/>
+<text x="192.00002" y="3852.7588" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ radial-gradient.</text>
+<rect x="175.00002" y="3900.1587" width="674" height="141.76001" fill="#ffffff"/>
+<rect x="175.00002" y="3900.1587" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="3900.1587" width="1" height="141.76001" fill="#d9d4c7"/>
+<rect x="175.00002" y="4040.9187" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="3900.1587" width="1" height="141.76001" fill="#d9d4c7"/>
+<text x="192.00002" y="3937.1587" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Generated content</text>
+<text x="192.00002" y="3971.1587" fill="#b3261e" font-family="system-ui, sans-serif" font-size="16" font-weight="700">[NEW]</text>
+<text x="240.00002" y="3971.1587" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="700">This paragraph is decorated by ::before and ::after.</text>
+<text x="664" y="3971.1587" fill="#7a3d9e" font-family="system-ui, sans-serif" font-size="16" font-weight="700">↩</text>
+<text x="192.00002" y="4007.9585" fill="#3a362c" font-family="system-ui, sans-serif" font-size="22.4" font-weight="400">“</text>
+<text x="203.20001" y="4007.9585" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Quotes around this come from generated content, sized in rem.</text>
+<text x="691.2" y="4007.9585" fill="#3a362c" font-family="system-ui, sans-serif" font-size="22.4" font-weight="400">”</text>
+<rect x="175.00002" y="4057.9187" width="674" height="188.40015" fill="#ffffff"/>
+<rect x="175.00002" y="4057.9187" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="4057.9187" width="1" height="188.40015" fill="#d9d4c7"/>
+<rect x="175.00002" y="4245.319" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="4057.9187" width="1" height="188.40015" fill="#d9d4c7"/>
+<text x="192.00002" y="4094.9187" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Overflow</text>
+<rect x="192.00002" y="4112.919" width="640" height="78" fill="#f0ead9"/>
+<rect x="192.00002" y="4112.919" width="640" height="1" fill="#cbbf9e"/>
+<rect x="831" y="4112.919" width="1" height="78" fill="#cbbf9e"/>
+<rect x="192.00002" y="4189.919" width="640" height="1" fill="#cbbf9e"/>
+<rect x="192.00002" y="4112.919" width="1" height="78" fill="#cbbf9e"/>
+<clipPath id="clip0"><rect x="193.00002" y="4113.919" width="638" height="76"/></clipPath><g clip-path="url(#clip0)">
+<text x="201.00002" y="4145.919" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This box is 60px tall with overflow: hidden. Everything below its padding box</text>
+<text x="201.00002" y="4168.319" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">is clipped away, including this second sentence which keeps going and going</text>
+<text x="201.00002" y="4190.7188" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">and going well past the visible area.</text>
+<text x="201.00002" y="4221.119" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">A second paragraph that should be fully invisible.</text>
 </g>
-<text x="192.00002" y="3963.719" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ overflow: hidden clips children.</text>
-<rect x="175.00002" y="4011.119" width="674" height="178.00024" fill="#ffffff"/>
-<rect x="175.00002" y="4011.119" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="4011.119" width="1" height="178.00024" fill="#d9d4c7"/>
-<rect x="175.00002" y="4188.119" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="4011.119" width="1" height="178.00024" fill="#d9d4c7"/>
-<text x="192.00002" y="4048.119" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Positioning</text>
-<rect x="192.00002" y="4066.119" width="640" height="106" fill="#eef1ee"/>
-<path d="M 776 4068.119 H 820 A 10 10 0 0 1 830 4078.119 V 4078.919 A 10 10 0 0 1 820 4088.919 H 776 A 10 10 0 0 1 766 4078.919 V 4078.119 A 10 10 0 0 1 776 4068.119 Z" fill="#dc143c"/>
-<text x="774" y="4082.119" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12" font-weight="400">absolute</text>
-<rect x="224.00002" y="4088.119" width="624" height="30.400146" fill="#dce6f0"/>
-<text x="228.00002" y="4108.119" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">position: relative nudged 6px down, 24px right.</text>
-<rect x="208.00002" y="4094.1191" width="98" height="48" fill="#f0c9c0"/>
-<text x="212.00002" y="4122.119" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">z 1</text>
-<rect x="288" y="4118.119" width="98" height="48" fill="#c0cbe0"/>
-<text x="292" y="4146.119" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">z 2</text>
-<rect x="248.00002" y="4106.119" width="98" height="48" fill="#c8d8c0"/>
-<text x="252.00002" y="4134.119" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">z 3 — on</text>
-<text x="252.00002" y="4156.519" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">top</text>
-<rect x="175.00002" y="4205.119" width="674" height="331.9995" fill="#ffffff"/>
-<rect x="175.00002" y="4205.119" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="4205.119" width="1" height="331.9995" fill="#d9d4c7"/>
-<rect x="175.00002" y="4536.1187" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="4205.119" width="1" height="331.9995" fill="#d9d4c7"/>
-<text x="192.00002" y="4242.119" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Alpha &amp; opacity</text>
-<rect x="192.00002" y="4260.119" width="640" height="54.399902" fill="rgba(34,102,170,0.349)"/>
-<text x="200.00002" y="4292.119" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">rgba(34,102,170,0.35) — the section shows through.</text>
-<rect x="192.00002" y="4314.519" width="640" height="54.399902" fill="rgba(245,197,24,0.400)"/>
-<text x="200.00002" y="4346.519" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">#f5c51866 — 8-digit hex alpha.</text>
-<rect x="192.00002" y="4368.919" width="640" height="54.399902" fill="#b5e3cc"/>
-<text x="200.00002" y="4400.919" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">hsl(150, 45%, 80%) — mint via HSL.</text>
-<rect x="192.00002" y="4423.319" width="640" height="58.399902" fill="rgba(255,99,71,0.400)"/>
-<rect x="192.00002" y="4423.319" width="640" height="2" fill="rgba(139,0,0,0.400)"/>
-<rect x="830" y="4423.319" width="2" height="58.399902" fill="rgba(139,0,0,0.400)"/>
-<rect x="192.00002" y="4479.7188" width="640" height="2" fill="rgba(139,0,0,0.400)"/>
-<rect x="192.00002" y="4423.319" width="2" height="58.399902" fill="rgba(139,0,0,0.400)"/>
-<text x="202.00002" y="4457.319" fill="rgba(58,54,44,0.400)" font-family="system-ui, sans-serif" font-size="16" font-weight="400">opacity: 0.4 fades box, border and this text together.</text>
-<text x="192.00002" y="4505.7188" fill="#663399" font-family="system-ui, sans-serif" font-size="16" font-weight="400">rebeccapurple, dodgerblue &amp; friends — the full named table.</text>
-<rect x="175.00002" y="4553.1187" width="674" height="240.3999" fill="#ffffff"/>
-<rect x="175.00002" y="4553.1187" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="4553.1187" width="1" height="240.3999" fill="#d9d4c7"/>
-<rect x="175.00002" y="4792.5186" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="4553.1187" width="1" height="240.3999" fill="#d9d4c7"/>
-<text x="192.00002" y="4590.1187" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Inline-block &amp; floats</text>
-<text x="192.00002" y="4640.5186" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Chips flow with text:</text>
-<rect x="368" y="4608.1187" width="46" height="32.4" fill="#e2e8f0"/>
-<rect x="368" y="4608.1187" width="46" height="1" fill="#b6c2d2"/>
-<rect x="413" y="4608.1187" width="1" height="32.4" fill="#b6c2d2"/>
-<rect x="368" y="4639.5186" width="46" height="1" fill="#b6c2d2"/>
-<rect x="368" y="4608.1187" width="1" height="32.4" fill="#b6c2d2"/>
-<text x="379" y="4629.1187" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">one</text>
-<rect x="422" y="4608.1187" width="46" height="32.4" fill="#e2e8f0"/>
-<rect x="422" y="4608.1187" width="46" height="1" fill="#b6c2d2"/>
-<rect x="467" y="4608.1187" width="1" height="32.4" fill="#b6c2d2"/>
-<rect x="422" y="4639.5186" width="46" height="1" fill="#b6c2d2"/>
-<rect x="422" y="4608.1187" width="1" height="32.4" fill="#b6c2d2"/>
-<text x="433" y="4629.1187" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">two</text>
-<rect x="476" y="4608.1187" width="62" height="32.4" fill="#e2e8f0"/>
-<rect x="476" y="4608.1187" width="62" height="1" fill="#b6c2d2"/>
-<rect x="537" y="4608.1187" width="1" height="32.4" fill="#b6c2d2"/>
-<rect x="476" y="4639.5186" width="62" height="1" fill="#b6c2d2"/>
-<rect x="476" y="4608.1187" width="1" height="32.4" fill="#b6c2d2"/>
-<text x="487" y="4629.1187" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">three</text>
-<text x="546" y="4640.5186" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">— and wrap like words when the line</text>
-<text x="192.00002" y="4656.5186" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">runs out of space.</text>
-<rect x="192.00002" y="4670.9185" width="122" height="62" fill="#dbe7d5"/>
-<rect x="192.00002" y="4670.9185" width="122" height="1" fill="#9fb492"/>
-<rect x="313" y="4670.9185" width="1" height="62" fill="#9fb492"/>
-<rect x="192.00002" y="4731.9185" width="122" height="1" fill="#9fb492"/>
-<rect x="192.00002" y="4670.9185" width="1" height="62" fill="#9fb492"/>
-<rect x="742" y="4670.9185" width="90" height="40" fill="#f3dcd2"/>
-<text x="192.00002" y="4686.9185" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This paragraph wraps between a left float and a right float. The text lines are</text>
-<text x="192.00002" y="4709.3184" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">narrowed on both sides while the floats are tall enough, then widen back to the</text>
-<text x="192.00002" y="4731.7183" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">full column below them.</text>
-<rect x="192.00002" y="4746.1187" width="640" height="22.399902" fill="#efe9dc"/>
-<text x="192.00002" y="4762.1187" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">clear: both — this box starts below both floats.</text>
-<rect x="175.00002" y="4809.5186" width="674" height="940.7993" fill="#ffffff"/>
-<rect x="175.00002" y="4809.5186" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="4809.5186" width="1" height="940.7993" fill="#d9d4c7"/>
-<rect x="175.00002" y="5749.318" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="4809.5186" width="1" height="940.7993" fill="#d9d4c7"/>
-<text x="192.00002" y="4846.5186" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Flexbox</text>
-<rect x="192.00002" y="4864.5186" width="640" height="64" fill="#eef2f0"/>
-<rect x="200.00002" y="4870.3184" width="54" height="52.4" fill="#cdddd3"/>
-<rect x="200.00002" y="4870.3184" width="54" height="1" fill="#9db8a8"/>
-<rect x="253.00002" y="4870.3184" width="1" height="52.4" fill="#9db8a8"/>
-<rect x="200.00002" y="4921.7183" width="54" height="1" fill="#9db8a8"/>
-<rect x="200.00002" y="4870.3184" width="1" height="52.4" fill="#9db8a8"/>
-<text x="207.00002" y="4901.3184" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">fixed</text>
-<rect x="262" y="4870.3184" width="500" height="52.4" fill="#dfe7f2"/>
-<rect x="262" y="4870.3184" width="500" height="1" fill="#9db8a8"/>
-<rect x="761" y="4870.3184" width="1" height="52.4" fill="#9db8a8"/>
-<rect x="262" y="4921.7183" width="500" height="1" fill="#9db8a8"/>
-<rect x="262" y="4870.3184" width="1" height="52.4" fill="#9db8a8"/>
-<text x="269" y="4901.3184" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">flex-grow: 1 fills the row</text>
-<rect x="770" y="4870.3184" width="54" height="52.4" fill="#cdddd3"/>
-<rect x="770" y="4870.3184" width="54" height="1" fill="#9db8a8"/>
-<rect x="823" y="4870.3184" width="1" height="52.4" fill="#9db8a8"/>
-<rect x="770" y="4921.7183" width="54" height="1" fill="#9db8a8"/>
-<rect x="770" y="4870.3184" width="1" height="52.4" fill="#9db8a8"/>
-<text x="777" y="4901.3184" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">fixed</text>
-<text x="192.00002" y="4952.5186" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ row with gap + align-items: center.</text>
-<rect x="192.00002" y="4966.9185" width="640" height="54.4" fill="#f4ecdf"/>
-<text x="200.00002" y="4998.9185" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">left</text>
-<text x="484" y="4998.9185" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">middle</text>
-<text x="784" y="4998.9185" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">right</text>
-<text x="192.00002" y="5045.3184" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ justify-content: space-between.</text>
-<rect x="192.00002" y="5059.7183" width="640" height="136" fill="#f0e8f0"/>
-<rect x="200.00002" y="5075.7183" width="624" height="28" fill="#ddcfe0"/>
-<text x="200.00002" y="5091.7183" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">column top</text>
-<rect x="200.00002" y="5117.7183" width="624" height="28" fill="#cfc0d8"/>
-<text x="200.00002" y="5133.7183" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">growing middle</text>
-<rect x="200.00002" y="5159.7183" width="624" height="28" fill="#ddcfe0"/>
-<text x="200.00002" y="5175.7183" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">column bottom</text>
-<text x="192.00002" y="5219.7183" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ column with flex-grow.</text>
-<rect x="192.00002" y="5234.118" width="640" height="189.20001" fill="#e9f0ea"/>
-<rect x="200.00002" y="5242.118" width="164" height="52.4" fill="#cdddd3"/>
-<rect x="200.00002" y="5242.118" width="164" height="1" fill="#b6c2d2"/>
-<rect x="363" y="5242.118" width="1" height="52.4" fill="#b6c2d2"/>
-<rect x="200.00002" y="5293.518" width="164" height="1" fill="#b6c2d2"/>
-<rect x="200.00002" y="5242.118" width="1" height="52.4" fill="#b6c2d2"/>
-<text x="207.00002" y="5273.118" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">one</text>
-<rect x="372" y="5242.118" width="164" height="52.4" fill="#cdddd3"/>
-<rect x="372" y="5242.118" width="164" height="1" fill="#b6c2d2"/>
-<rect x="535" y="5242.118" width="1" height="52.4" fill="#b6c2d2"/>
-<rect x="372" y="5293.518" width="164" height="1" fill="#b6c2d2"/>
-<rect x="372" y="5242.118" width="1" height="52.4" fill="#b6c2d2"/>
-<text x="379" y="5273.118" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">two</text>
-<rect x="544" y="5242.118" width="164" height="52.4" fill="#cdddd3"/>
-<rect x="544" y="5242.118" width="164" height="1" fill="#b6c2d2"/>
-<rect x="707" y="5242.118" width="1" height="52.4" fill="#b6c2d2"/>
-<rect x="544" y="5293.518" width="164" height="1" fill="#b6c2d2"/>
-<rect x="544" y="5242.118" width="1" height="52.4" fill="#b6c2d2"/>
-<text x="551" y="5273.118" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">three</text>
-<rect x="200.00002" y="5302.518" width="164" height="52.4" fill="#cdddd3"/>
-<rect x="200.00002" y="5302.518" width="164" height="1" fill="#b6c2d2"/>
-<rect x="363" y="5302.518" width="1" height="52.4" fill="#b6c2d2"/>
-<rect x="200.00002" y="5353.918" width="164" height="1" fill="#b6c2d2"/>
-<rect x="200.00002" y="5302.518" width="1" height="52.4" fill="#b6c2d2"/>
-<text x="207.00002" y="5333.518" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">four</text>
-<rect x="372" y="5302.518" width="164" height="52.4" fill="#cdddd3"/>
-<rect x="372" y="5302.518" width="164" height="1" fill="#b6c2d2"/>
-<rect x="535" y="5302.518" width="1" height="52.4" fill="#b6c2d2"/>
-<rect x="372" y="5353.918" width="164" height="1" fill="#b6c2d2"/>
-<rect x="372" y="5302.518" width="1" height="52.4" fill="#b6c2d2"/>
-<text x="379" y="5333.518" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">five</text>
-<rect x="544" y="5302.518" width="164" height="52.4" fill="#cdddd3"/>
-<rect x="544" y="5302.518" width="164" height="1" fill="#b6c2d2"/>
-<rect x="707" y="5302.518" width="1" height="52.4" fill="#b6c2d2"/>
-<rect x="544" y="5353.918" width="164" height="1" fill="#b6c2d2"/>
-<rect x="544" y="5302.518" width="1" height="52.4" fill="#b6c2d2"/>
-<text x="551" y="5333.518" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">six</text>
-<rect x="200.00002" y="5362.918" width="164" height="52.4" fill="#cdddd3"/>
-<rect x="200.00002" y="5362.918" width="164" height="1" fill="#b6c2d2"/>
-<rect x="363" y="5362.918" width="1" height="52.4" fill="#b6c2d2"/>
-<rect x="200.00002" y="5414.318" width="164" height="1" fill="#b6c2d2"/>
-<rect x="200.00002" y="5362.918" width="1" height="52.4" fill="#b6c2d2"/>
-<text x="207.00002" y="5393.918" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">seven</text>
-<rect x="372" y="5362.918" width="164" height="52.4" fill="#cdddd3"/>
-<rect x="372" y="5362.918" width="164" height="1" fill="#b6c2d2"/>
-<rect x="535" y="5362.918" width="1" height="52.4" fill="#b6c2d2"/>
-<rect x="372" y="5414.318" width="164" height="1" fill="#b6c2d2"/>
-<rect x="372" y="5362.918" width="1" height="52.4" fill="#b6c2d2"/>
-<text x="379" y="5393.918" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">eight</text>
-<text x="192.00002" y="5447.3184" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ flex-wrap: wrap — chips flow onto new lines.</text>
-<rect x="192.00002" y="5461.7183" width="640" height="88.8" fill="#f2ecdf"/>
-<rect x="200.00002" y="5469.7183" width="251.50201" height="72.8" fill="#e3d3b8"/>
-<text x="206.00002" y="5499.7183" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">shrinks</text>
-<rect x="459.502" y="5469.7183" width="251.50201" height="72.8" fill="#e3d3b8"/>
-<text x="465.502" y="5499.7183" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">shrinks</text>
-<rect x="719.004" y="5469.7183" width="104.99599" height="72.8" fill="#d8c49a"/>
-<text x="725.004" y="5499.7183" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">flex-shrink:</text>
-<text x="725.004" y="5522.118" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">0</text>
-<text x="192.00002" y="5574.518" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ overflow resolved by flex-shrink (last item refuses).</text>
-<rect x="192.00002" y="5588.918" width="640" height="106" fill="#edf0f4"/>
-<rect x="200.00002" y="5596.918" width="52" height="50.4" fill="#ccd8e8"/>
-<text x="206.00002" y="5626.918" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">start</text>
-<rect x="260" y="5636.518" width="172" height="50.4" fill="#ccd8e8"/>
-<text x="266" y="5666.518" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">align-self: flex-end</text>
-<rect x="440" y="5596.918" width="164" height="90" fill="#ccd8e8"/>
-<text x="446" y="5626.918" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">align-self: stretch</text>
-<text x="192.00002" y="5718.918" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ align-self overrides align-items.</text>
-<rect x="175.00002" y="5766.318" width="674" height="233.59961" fill="#ffffff"/>
-<rect x="175.00002" y="5766.318" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="5766.318" width="1" height="233.59961" fill="#d9d4c7"/>
-<rect x="175.00002" y="5998.9175" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="5766.318" width="1" height="233.59961" fill="#d9d4c7"/>
-<text x="192.00002" y="5803.318" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Interaction</text>
-<rect x="192.00002" y="5821.318" width="640" height="62.399902" fill="#e8eef7"/>
-<text x="204.00002" y="5857.318" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Hover me — background flips blue, text goes white.</text>
-<text x="192.00002" y="5907.718" fill="#334488" font-family="system-ui, sans-serif" font-size="16" font-weight="400" text-decoration="underline">Hover turns this link red; click follows it.</text>
-<text x="192.00002" y="5938.1177" fill="#8a8272" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Try to select this — you can&apos;t (user-select: none).</text>
-<text x="192.00002" y="5968.5176" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Select this — the highlight turns gold (::selection).</text>
-<rect x="175.00002" y="6015.9175" width="674" height="155.1997" fill="#ffffff"/>
-<rect x="175.00002" y="6015.9175" width="674" height="1" fill="#d9d4c7"/>
-<rect x="848" y="6015.9175" width="1" height="155.1997" fill="#d9d4c7"/>
-<rect x="175.00002" y="6170.117" width="674" height="1" fill="#d9d4c7"/>
-<rect x="175.00002" y="6015.9175" width="1" height="155.1997" fill="#d9d4c7"/>
-<text x="192.00002" y="6052.9175" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Resilience</text>
-<text x="192.00002" y="6086.9175" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Malformed declarations were skipped; this still styles fine.</text>
-<text x="192.00002" y="6117.3174" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">The @media block above is red everywhere — and correctly ignored, together with</text>
-<text x="192.00002" y="6139.7173" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">:focus and url() values. Parsing never fails.</text>
+<text x="192.00002" y="4214.919" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ overflow: hidden clips children.</text>
+<rect x="175.00002" y="4262.319" width="674" height="178" fill="#ffffff"/>
+<rect x="175.00002" y="4262.319" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="4262.319" width="1" height="178" fill="#d9d4c7"/>
+<rect x="175.00002" y="4439.319" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="4262.319" width="1" height="178" fill="#d9d4c7"/>
+<text x="192.00002" y="4299.319" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Positioning</text>
+<rect x="192.00002" y="4317.319" width="640" height="106" fill="#eef1ee"/>
+<path d="M 776 4319.319 H 820 A 10 10 0 0 1 830 4329.319 V 4330.1187 A 10 10 0 0 1 820 4340.1187 H 776 A 10 10 0 0 1 766 4330.1187 V 4329.319 A 10 10 0 0 1 776 4319.319 Z" fill="#dc143c"/>
+<text x="774" y="4333.319" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12" font-weight="400">absolute</text>
+<rect x="224.00002" y="4339.319" width="624" height="30.399902" fill="#dce6f0"/>
+<text x="228.00002" y="4359.319" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">position: relative nudged 6px down, 24px right.</text>
+<rect x="208.00002" y="4345.319" width="98" height="48" fill="#f0c9c0"/>
+<text x="212.00002" y="4373.319" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">z 1</text>
+<rect x="288" y="4369.319" width="98" height="48" fill="#c0cbe0"/>
+<text x="292" y="4397.319" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">z 2</text>
+<rect x="248.00002" y="4357.319" width="98" height="48" fill="#c8d8c0"/>
+<text x="252.00002" y="4385.319" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">z 3 — on</text>
+<text x="252.00002" y="4407.7188" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">top</text>
+<rect x="175.00002" y="4456.319" width="674" height="331.9995" fill="#ffffff"/>
+<rect x="175.00002" y="4456.319" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="4456.319" width="1" height="331.9995" fill="#d9d4c7"/>
+<rect x="175.00002" y="4787.3184" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="4456.319" width="1" height="331.9995" fill="#d9d4c7"/>
+<text x="192.00002" y="4493.319" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Alpha &amp; opacity</text>
+<rect x="192.00002" y="4511.319" width="640" height="54.399902" fill="rgba(34,102,170,0.349)"/>
+<text x="200.00002" y="4543.319" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">rgba(34,102,170,0.35) — the section shows through.</text>
+<rect x="192.00002" y="4565.7188" width="640" height="54.399902" fill="rgba(245,197,24,0.400)"/>
+<text x="200.00002" y="4597.7188" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">#f5c51866 — 8-digit hex alpha.</text>
+<rect x="192.00002" y="4620.1187" width="640" height="54.399902" fill="#b5e3cc"/>
+<text x="200.00002" y="4652.1187" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">hsl(150, 45%, 80%) — mint via HSL.</text>
+<rect x="192.00002" y="4674.5186" width="640" height="58.399902" fill="rgba(255,99,71,0.400)"/>
+<rect x="192.00002" y="4674.5186" width="640" height="2" fill="rgba(139,0,0,0.400)"/>
+<rect x="830" y="4674.5186" width="2" height="58.399902" fill="rgba(139,0,0,0.400)"/>
+<rect x="192.00002" y="4730.9185" width="640" height="2" fill="rgba(139,0,0,0.400)"/>
+<rect x="192.00002" y="4674.5186" width="2" height="58.399902" fill="rgba(139,0,0,0.400)"/>
+<text x="202.00002" y="4708.5186" fill="rgba(58,54,44,0.400)" font-family="system-ui, sans-serif" font-size="16" font-weight="400">opacity: 0.4 fades box, border and this text together.</text>
+<text x="192.00002" y="4756.9185" fill="#663399" font-family="system-ui, sans-serif" font-size="16" font-weight="400">rebeccapurple, dodgerblue &amp; friends — the full named table.</text>
+<rect x="175.00002" y="4804.3184" width="674" height="240.3999" fill="#ffffff"/>
+<rect x="175.00002" y="4804.3184" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="4804.3184" width="1" height="240.3999" fill="#d9d4c7"/>
+<rect x="175.00002" y="5043.7183" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="4804.3184" width="1" height="240.3999" fill="#d9d4c7"/>
+<text x="192.00002" y="4841.3184" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Inline-block &amp; floats</text>
+<text x="192.00002" y="4891.7183" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Chips flow with text:</text>
+<rect x="368" y="4859.3184" width="46" height="32.4" fill="#e2e8f0"/>
+<rect x="368" y="4859.3184" width="46" height="1" fill="#b6c2d2"/>
+<rect x="413" y="4859.3184" width="1" height="32.4" fill="#b6c2d2"/>
+<rect x="368" y="4890.7183" width="46" height="1" fill="#b6c2d2"/>
+<rect x="368" y="4859.3184" width="1" height="32.4" fill="#b6c2d2"/>
+<text x="379" y="4880.3184" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">one</text>
+<rect x="422" y="4859.3184" width="46" height="32.4" fill="#e2e8f0"/>
+<rect x="422" y="4859.3184" width="46" height="1" fill="#b6c2d2"/>
+<rect x="467" y="4859.3184" width="1" height="32.4" fill="#b6c2d2"/>
+<rect x="422" y="4890.7183" width="46" height="1" fill="#b6c2d2"/>
+<rect x="422" y="4859.3184" width="1" height="32.4" fill="#b6c2d2"/>
+<text x="433" y="4880.3184" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">two</text>
+<rect x="476" y="4859.3184" width="62" height="32.4" fill="#e2e8f0"/>
+<rect x="476" y="4859.3184" width="62" height="1" fill="#b6c2d2"/>
+<rect x="537" y="4859.3184" width="1" height="32.4" fill="#b6c2d2"/>
+<rect x="476" y="4890.7183" width="62" height="1" fill="#b6c2d2"/>
+<rect x="476" y="4859.3184" width="1" height="32.4" fill="#b6c2d2"/>
+<text x="487" y="4880.3184" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">three</text>
+<text x="546" y="4891.7183" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">— and wrap like words when the line</text>
+<text x="192.00002" y="4907.7183" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">runs out of space.</text>
+<rect x="192.00002" y="4922.118" width="122" height="62" fill="#dbe7d5"/>
+<rect x="192.00002" y="4922.118" width="122" height="1" fill="#9fb492"/>
+<rect x="313" y="4922.118" width="1" height="62" fill="#9fb492"/>
+<rect x="192.00002" y="4983.118" width="122" height="1" fill="#9fb492"/>
+<rect x="192.00002" y="4922.118" width="1" height="62" fill="#9fb492"/>
+<rect x="742" y="4922.118" width="90" height="40" fill="#f3dcd2"/>
+<text x="192.00002" y="4938.118" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This paragraph wraps between a left float and a right float. The text lines are</text>
+<text x="192.00002" y="4960.518" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">narrowed on both sides while the floats are tall enough, then widen back to the</text>
+<text x="192.00002" y="4982.918" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">full column below them.</text>
+<rect x="192.00002" y="4997.3184" width="640" height="22.399902" fill="#efe9dc"/>
+<text x="192.00002" y="5013.3184" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">clear: both — this box starts below both floats.</text>
+<rect x="175.00002" y="5060.7183" width="674" height="940.7993" fill="#ffffff"/>
+<rect x="175.00002" y="5060.7183" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="5060.7183" width="1" height="940.7993" fill="#d9d4c7"/>
+<rect x="175.00002" y="6000.5176" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="5060.7183" width="1" height="940.7993" fill="#d9d4c7"/>
+<text x="192.00002" y="5097.7183" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Flexbox</text>
+<rect x="192.00002" y="5115.7183" width="640" height="64" fill="#eef2f0"/>
+<rect x="200.00002" y="5121.518" width="54" height="52.4" fill="#cdddd3"/>
+<rect x="200.00002" y="5121.518" width="54" height="1" fill="#9db8a8"/>
+<rect x="253.00002" y="5121.518" width="1" height="52.4" fill="#9db8a8"/>
+<rect x="200.00002" y="5172.918" width="54" height="1" fill="#9db8a8"/>
+<rect x="200.00002" y="5121.518" width="1" height="52.4" fill="#9db8a8"/>
+<text x="207.00002" y="5152.518" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">fixed</text>
+<rect x="262" y="5121.518" width="500" height="52.4" fill="#dfe7f2"/>
+<rect x="262" y="5121.518" width="500" height="1" fill="#9db8a8"/>
+<rect x="761" y="5121.518" width="1" height="52.4" fill="#9db8a8"/>
+<rect x="262" y="5172.918" width="500" height="1" fill="#9db8a8"/>
+<rect x="262" y="5121.518" width="1" height="52.4" fill="#9db8a8"/>
+<text x="269" y="5152.518" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">flex-grow: 1 fills the row</text>
+<rect x="770" y="5121.518" width="54" height="52.4" fill="#cdddd3"/>
+<rect x="770" y="5121.518" width="54" height="1" fill="#9db8a8"/>
+<rect x="823" y="5121.518" width="1" height="52.4" fill="#9db8a8"/>
+<rect x="770" y="5172.918" width="54" height="1" fill="#9db8a8"/>
+<rect x="770" y="5121.518" width="1" height="52.4" fill="#9db8a8"/>
+<text x="777" y="5152.518" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">fixed</text>
+<text x="192.00002" y="5203.7183" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ row with gap + align-items: center.</text>
+<rect x="192.00002" y="5218.118" width="640" height="54.4" fill="#f4ecdf"/>
+<text x="200.00002" y="5250.118" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">left</text>
+<text x="484" y="5250.118" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">middle</text>
+<text x="784" y="5250.118" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">right</text>
+<text x="192.00002" y="5296.518" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ justify-content: space-between.</text>
+<rect x="192.00002" y="5310.918" width="640" height="136" fill="#f0e8f0"/>
+<rect x="200.00002" y="5326.918" width="624" height="28" fill="#ddcfe0"/>
+<text x="200.00002" y="5342.918" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">column top</text>
+<rect x="200.00002" y="5368.918" width="624" height="28" fill="#cfc0d8"/>
+<text x="200.00002" y="5384.918" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">growing middle</text>
+<rect x="200.00002" y="5410.918" width="624" height="28" fill="#ddcfe0"/>
+<text x="200.00002" y="5426.918" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">column bottom</text>
+<text x="192.00002" y="5470.918" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ column with flex-grow.</text>
+<rect x="192.00002" y="5485.318" width="640" height="189.20001" fill="#e9f0ea"/>
+<rect x="200.00002" y="5493.318" width="164" height="52.4" fill="#cdddd3"/>
+<rect x="200.00002" y="5493.318" width="164" height="1" fill="#b6c2d2"/>
+<rect x="363" y="5493.318" width="1" height="52.4" fill="#b6c2d2"/>
+<rect x="200.00002" y="5544.718" width="164" height="1" fill="#b6c2d2"/>
+<rect x="200.00002" y="5493.318" width="1" height="52.4" fill="#b6c2d2"/>
+<text x="207.00002" y="5524.318" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">one</text>
+<rect x="372" y="5493.318" width="164" height="52.4" fill="#cdddd3"/>
+<rect x="372" y="5493.318" width="164" height="1" fill="#b6c2d2"/>
+<rect x="535" y="5493.318" width="1" height="52.4" fill="#b6c2d2"/>
+<rect x="372" y="5544.718" width="164" height="1" fill="#b6c2d2"/>
+<rect x="372" y="5493.318" width="1" height="52.4" fill="#b6c2d2"/>
+<text x="379" y="5524.318" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">two</text>
+<rect x="544" y="5493.318" width="164" height="52.4" fill="#cdddd3"/>
+<rect x="544" y="5493.318" width="164" height="1" fill="#b6c2d2"/>
+<rect x="707" y="5493.318" width="1" height="52.4" fill="#b6c2d2"/>
+<rect x="544" y="5544.718" width="164" height="1" fill="#b6c2d2"/>
+<rect x="544" y="5493.318" width="1" height="52.4" fill="#b6c2d2"/>
+<text x="551" y="5524.318" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">three</text>
+<rect x="200.00002" y="5553.718" width="164" height="52.4" fill="#cdddd3"/>
+<rect x="200.00002" y="5553.718" width="164" height="1" fill="#b6c2d2"/>
+<rect x="363" y="5553.718" width="1" height="52.4" fill="#b6c2d2"/>
+<rect x="200.00002" y="5605.1177" width="164" height="1" fill="#b6c2d2"/>
+<rect x="200.00002" y="5553.718" width="1" height="52.4" fill="#b6c2d2"/>
+<text x="207.00002" y="5584.718" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">four</text>
+<rect x="372" y="5553.718" width="164" height="52.4" fill="#cdddd3"/>
+<rect x="372" y="5553.718" width="164" height="1" fill="#b6c2d2"/>
+<rect x="535" y="5553.718" width="1" height="52.4" fill="#b6c2d2"/>
+<rect x="372" y="5605.1177" width="164" height="1" fill="#b6c2d2"/>
+<rect x="372" y="5553.718" width="1" height="52.4" fill="#b6c2d2"/>
+<text x="379" y="5584.718" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">five</text>
+<rect x="544" y="5553.718" width="164" height="52.4" fill="#cdddd3"/>
+<rect x="544" y="5553.718" width="164" height="1" fill="#b6c2d2"/>
+<rect x="707" y="5553.718" width="1" height="52.4" fill="#b6c2d2"/>
+<rect x="544" y="5605.1177" width="164" height="1" fill="#b6c2d2"/>
+<rect x="544" y="5553.718" width="1" height="52.4" fill="#b6c2d2"/>
+<text x="551" y="5584.718" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">six</text>
+<rect x="200.00002" y="5614.1177" width="164" height="52.4" fill="#cdddd3"/>
+<rect x="200.00002" y="5614.1177" width="164" height="1" fill="#b6c2d2"/>
+<rect x="363" y="5614.1177" width="1" height="52.4" fill="#b6c2d2"/>
+<rect x="200.00002" y="5665.5176" width="164" height="1" fill="#b6c2d2"/>
+<rect x="200.00002" y="5614.1177" width="1" height="52.4" fill="#b6c2d2"/>
+<text x="207.00002" y="5645.1177" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">seven</text>
+<rect x="372" y="5614.1177" width="164" height="52.4" fill="#cdddd3"/>
+<rect x="372" y="5614.1177" width="164" height="1" fill="#b6c2d2"/>
+<rect x="535" y="5614.1177" width="1" height="52.4" fill="#b6c2d2"/>
+<rect x="372" y="5665.5176" width="164" height="1" fill="#b6c2d2"/>
+<rect x="372" y="5614.1177" width="1" height="52.4" fill="#b6c2d2"/>
+<text x="379" y="5645.1177" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">eight</text>
+<text x="192.00002" y="5698.518" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ flex-wrap: wrap — chips flow onto new lines.</text>
+<rect x="192.00002" y="5712.918" width="640" height="88.8" fill="#f2ecdf"/>
+<rect x="200.00002" y="5720.918" width="251.50201" height="72.8" fill="#e3d3b8"/>
+<text x="206.00002" y="5750.918" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">shrinks</text>
+<rect x="459.502" y="5720.918" width="251.50201" height="72.8" fill="#e3d3b8"/>
+<text x="465.502" y="5750.918" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">shrinks</text>
+<rect x="719.004" y="5720.918" width="104.99599" height="72.8" fill="#d8c49a"/>
+<text x="725.004" y="5750.918" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">flex-shrink:</text>
+<text x="725.004" y="5773.318" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">0</text>
+<text x="192.00002" y="5825.718" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ overflow resolved by flex-shrink (last item refuses).</text>
+<rect x="192.00002" y="5840.1177" width="640" height="106" fill="#edf0f4"/>
+<rect x="200.00002" y="5848.1177" width="52" height="50.4" fill="#ccd8e8"/>
+<text x="206.00002" y="5878.1177" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">start</text>
+<rect x="260" y="5887.718" width="172" height="50.4" fill="#ccd8e8"/>
+<text x="266" y="5917.718" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">align-self: flex-end</text>
+<rect x="440" y="5848.1177" width="164" height="90" fill="#ccd8e8"/>
+<text x="446" y="5878.1177" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">align-self: stretch</text>
+<text x="192.00002" y="5970.1177" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ align-self overrides align-items.</text>
+<rect x="175.00002" y="6017.5176" width="674" height="233.59961" fill="#ffffff"/>
+<rect x="175.00002" y="6017.5176" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="6017.5176" width="1" height="233.59961" fill="#d9d4c7"/>
+<rect x="175.00002" y="6250.117" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="6017.5176" width="1" height="233.59961" fill="#d9d4c7"/>
+<text x="192.00002" y="6054.5176" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Interaction</text>
+<rect x="192.00002" y="6072.5176" width="640" height="62.399902" fill="#e8eef7"/>
+<text x="204.00002" y="6108.5176" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Hover me — background flips blue, text goes white.</text>
+<text x="192.00002" y="6158.9175" fill="#334488" font-family="system-ui, sans-serif" font-size="16" font-weight="400" text-decoration="underline">Hover turns this link red; click follows it.</text>
+<text x="192.00002" y="6189.3174" fill="#8a8272" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Try to select this — you can&apos;t (user-select: none).</text>
+<text x="192.00002" y="6219.7173" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Select this — the highlight turns gold (::selection).</text>
+<rect x="175.00002" y="6267.117" width="674" height="155.1997" fill="#ffffff"/>
+<rect x="175.00002" y="6267.117" width="674" height="1" fill="#d9d4c7"/>
+<rect x="848" y="6267.117" width="1" height="155.1997" fill="#d9d4c7"/>
+<rect x="175.00002" y="6421.317" width="674" height="1" fill="#d9d4c7"/>
+<rect x="175.00002" y="6267.117" width="1" height="155.1997" fill="#d9d4c7"/>
+<text x="192.00002" y="6304.117" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Resilience</text>
+<text x="192.00002" y="6338.117" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Malformed declarations were skipped; this still styles fine.</text>
+<text x="192.00002" y="6368.517" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">The @media block above is red everywhere — and correctly ignored, together with</text>
+<text x="192.00002" y="6390.917" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">:focus and url() values. Parsing never fails.</text>
 </svg>

@@ -148,6 +148,13 @@
     .sel-title + p { font-style: italic; }
     a[href^="https"] { color: #7a3d9e; }
 
+    /* --- shadows & outlines ------------------------------------------------ */
+    .shadowed { box-shadow: 6px 6px 12px #00000066; background-color: #ffffff;
+                padding: 12px; border-radius: 8px; }
+    .outlined { outline: 3px dashed #b3261e; background-color: #f4f1ea; padding: 8px;
+                margin: 8px; }
+    .half-hidden span { visibility: hidden; }
+
     /* --- forms (visual) --------------------------------------------------- */
     .form-row input[type=submit] { background-color: #2266aa; color: #ffffff;
                                    border-color: #1c5288; }
@@ -294,6 +301,14 @@
     </div>
     <p>Secure links go purple: <a href="https://example.com">https link</a>
        vs <a href="http://example.com">http link</a>.</p>
+  </div>
+
+  <div class="section">
+    <h2>Shadows, outlines &amp; visibility</h2>
+    <div class="shadowed"><p>box-shadow with blur under a rounded card.</p></div>
+    <div class="outlined"><p>outline: dashed, outside the box, no layout shift.</p></div>
+    <p class="half-hidden">Visible before <span>THIS IS HIDDEN</span> and after —
+      the gap stays.</p>
   </div>
 
   <div class="section">

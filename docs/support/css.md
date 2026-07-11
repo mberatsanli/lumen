@@ -92,8 +92,8 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Per-side `border-top/right/bottom/left` | ✅ | ✅ | ✅ | ✅ | width/style/color any order |
 | `border-radius` | ⚠️ | ✅ | ✅ | ✅ | 1–4 value shorthand + per-corner longhands (px/em); rounds background + border; rounded border ring is single color/width; no % radii, no elliptical, no overflow clipping |
 | `box-sizing` | ✅ | ✅ | ✅ | ✅ | border-box and content-box |
-| `outline` | ❌ | ✅ | ✅ | ✅ | |
-| `box-shadow` | ❌ | ✅ | ✅ | ✅ | |
+| `outline` | ⚠️ | ✅ | ✅ | ✅ | width/style/color outside the border box; no offset, square corners |
+| `box-shadow` | ⚠️ | ✅ | ✅ | ✅ | first outer shadow; blur faked with 4 layered alpha rings; no inset/multiple |
 | Margin collapsing | ⚠️ | ✅ | ✅ | ✅ | sibling + parent/first-child top; no bottom parent-child, no empty-block collapse-through |
 
 ## Layout

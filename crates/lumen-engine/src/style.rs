@@ -197,6 +197,13 @@ pub struct ComputedStyle {
     pub background_size: BackgroundSize,
     /// Tiling along x / y.
     pub background_repeat: (bool, bool),
+    /// `visibility` (inherited): hidden boxes keep their space unpainted.
+    pub visible: bool,
+    pub box_shadow: Option<BoxShadow>,
+    pub outline_width: f32,
+    /// `None` = currentColor.
+    pub outline_color: Option<Color>,
+    pub outline_style: BorderStyle,
     pub width: Dimension,
     pub height: Dimension,
     /// Size constraints; `Auto` means unconstrained.
@@ -282,6 +289,17 @@ pub enum BackgroundImage {
     LinearGradient(LinearGradient),
     /// Center-anchored ellipse with normalized stops.
     RadialGradient(Vec<(Color, f32)>),
+}
+
+/// One outer box shadow (`inset` and shadow lists collapse to the first
+/// outer shadow).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BoxShadow {
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub blur: f32,
+    pub spread: f32,
+    pub color: Color,
 }
 
 /// `background-size` subset.
@@ -445,6 +463,11 @@ impl Default for ComputedStyle {
             background_position: (Dimension::Px(0.0), Dimension::Px(0.0)),
             background_size: BackgroundSize::Auto,
             background_repeat: (true, true),
+            visible: true,
+            box_shadow: None,
+            outline_width: 0.0,
+            outline_color: None,
+            outline_style: BorderStyle::None,
             width: Dimension::Auto,
             height: Dimension::Auto,
             min_width: Dimension::Auto,
@@ -632,8 +655,9 @@ pub struct PseudoText {
 /// painting*; treating it as inherited approximates that.)
 /// (`user-select` and `::selection` styling are treated as inherited —
 /// an approximation that matches how they behave in practice.)
-const INHERITED_PROPERTIES: [&str; 16] = [
+const INHERITED_PROPERTIES: [&str; 17] = [
     "color",
+    "visibility",
     "font-family",
     "white-space",
     "text-transform",
@@ -1593,6 +1617,67 @@ fn to_computed(
         Some("repeat-x") => (true, false),
         Some("repeat-y") => (false, true),
         _ => (true, true),
+    };
+
+    style.visible = !matches!(
+        raw.get("visibility").and_then(CssValue::as_keyword),
+        Some("hidden" | "collapse")
+    );
+
+    // box-shadow: "x y [blur] [spread] color" — first outer shadow of a
+    // possibly comma-separated list; inset is unsupported and skipped.
+    style.box_shadow = raw.get("box-shadow").and_then(|value| {
+        let text = value.to_string();
+        let first = text.split(',').next()?;
+        if first.contains("inset") {
+            return None;
+        }
+        let mut lengths: Vec<f32> = Vec::new();
+        let mut color = None;
+        for piece in first.split_whitespace() {
+            match CssValue::parse_component(piece)? {
+                CssValue::Length(px, lumen_css::Unit::Px) => lengths.push(px),
+                CssValue::Length(em, lumen_css::Unit::Em) => {
+                    lengths.push(em * style.font_size);
+                }
+                CssValue::Number(number) => lengths.push(number),
+                CssValue::Color(parsed) => color = Some(parsed),
+                CssValue::Keyword(keyword) => color = Color::parse(&keyword),
+                _ => return None,
+            }
+        }
+        if lengths.len() < 2 {
+            return None;
+        }
+        Some(BoxShadow {
+            offset_x: lengths[0],
+            offset_y: lengths[1],
+            blur: lengths.get(2).copied().unwrap_or(0.0).max(0.0),
+            spread: lengths.get(3).copied().unwrap_or(0.0),
+            color: color.unwrap_or(Color::rgba(0, 0, 0, 100)),
+        })
+    });
+
+    style.outline_width = raw
+        .get("outline-width")
+        .and_then(|value| Dimension::from_value(value, style.font_size))
+        .and_then(|dimension| dimension.resolve(0.0, crate::geometry::Size::default()))
+        .unwrap_or(0.0);
+    style.outline_color = match raw.get("outline-color") {
+        Some(CssValue::Color(color)) => Some(*color),
+        _ => None,
+    };
+    style.outline_style = match raw.get("outline-style").and_then(CssValue::as_keyword) {
+        Some("solid" | "auto") => BorderStyle::Solid,
+        Some("dashed") => BorderStyle::Dashed,
+        Some("dotted") => BorderStyle::Dotted,
+        _ => {
+            if style.outline_width > 0.0 && raw.contains_key("outline-width") {
+                BorderStyle::Solid
+            } else {
+                BorderStyle::None
+            }
+        }
     };
 
     style.monospace = matches!(

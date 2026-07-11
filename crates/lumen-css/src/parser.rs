@@ -500,7 +500,34 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
         }
         // Multi-value properties whose components must survive together;
         // the engine re-splits the joined text.
-        "background-position" | "background-size" => {
+        "outline" => {
+            // width/style/color in any order, like one border side.
+            for component in &components {
+                match component {
+                    CssValue::Length(..) | CssValue::Number(_) => {
+                        output.push(Declaration {
+                            name: "outline-width".to_string(),
+                            value: component.clone(),
+                            important: false,
+                        });
+                    }
+                    CssValue::Color(_) => output.push(Declaration {
+                        name: "outline-color".to_string(),
+                        value: component.clone(),
+                        important: false,
+                    }),
+                    CssValue::Keyword(keyword) if BORDER_STYLES.contains(&keyword.as_str()) => {
+                        output.push(Declaration {
+                            name: "outline-style".to_string(),
+                            value: component.clone(),
+                            important: false,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+        "box-shadow" | "background-position" | "background-size" => {
             let text = components
                 .iter()
                 .map(ToString::to_string)
