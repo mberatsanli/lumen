@@ -621,10 +621,13 @@ fn affects_layout(property: &str) -> bool {
             .any(|prefix| property.starts_with(prefix))
 }
 
-fn uses_hover(compound: &CompoundSelector) -> bool {
+fn uses_interactive(compound: &CompoundSelector) -> bool {
     compound.pseudo_classes.iter().any(|pseudo| match pseudo {
-        PseudoClass::Hover => true,
-        PseudoClass::Not(inner) => uses_hover(inner),
+        PseudoClass::Hover
+        | PseudoClass::Active
+        | PseudoClass::Focus
+        | PseudoClass::FocusWithin => true,
+        PseudoClass::Not(inner) => uses_interactive(inner),
         _ => false,
     })
 }
@@ -638,7 +641,7 @@ pub fn hover_impact(sheet: &Stylesheet) -> HoverImpact {
         if !rule
             .selectors
             .iter()
-            .any(|selector| selector.compounds.iter().any(uses_hover))
+            .any(|selector| selector.compounds.iter().any(uses_interactive))
         {
             continue;
         }
@@ -662,20 +665,33 @@ pub fn hover_styles_may_change(
     sheet: &Stylesheet,
     hovered: Option<NodeId>,
 ) -> bool {
-    let Some(node) = hovered else {
-        return false; // No pointer target: :hover matches nothing.
-    };
-    let mut chain: HashSet<NodeId> = HashSet::new();
-    chain.insert(node);
-    chain.extend(document.ancestors(node));
+    interaction_styles_may_change(
+        document,
+        sheet,
+        &InteractionState::new(document, hovered, None, None),
+    )
+}
+
+/// Whether any interactive rule (:hover/:active/:focus...) actually
+/// applies under `state` — i.e. whether entering/leaving this state can
+/// change styles.
+#[must_use]
+pub fn interaction_styles_may_change(
+    document: &Document,
+    sheet: &Stylesheet,
+    state: &InteractionState,
+) -> bool {
+    if state.hover_chain.is_empty() && state.active_chain.is_empty() && state.focused.is_none() {
+        return false;
+    }
     for rule in &sheet.rules {
         for selector in &rule.selectors {
-            if !selector.compounds.iter().any(uses_hover) {
+            if !selector.compounds.iter().any(uses_interactive) {
                 continue;
             }
             for id in document.descendants(document.root()) {
                 if let Some(element) = document.element(id)
-                    && selector_matches(document, id, element, selector, &chain)
+                    && selector_matches(document, id, element, selector, state)
                 {
                     return true;
                 }
@@ -683,6 +699,43 @@ pub fn hover_styles_may_change(
         }
     }
     false
+}
+
+/// Pointer/keyboard interaction state driving :hover/:active/:focus.
+#[derive(Debug, Clone, Default)]
+pub struct InteractionState {
+    /// Hovered node and its ancestors.
+    pub hover_chain: HashSet<NodeId>,
+    /// Pressed node and its ancestors.
+    pub active_chain: HashSet<NodeId>,
+    pub focused: Option<NodeId>,
+    /// Focused node and its ancestors (for :focus-within).
+    pub focus_chain: HashSet<NodeId>,
+}
+
+impl InteractionState {
+    #[must_use]
+    pub fn new(
+        document: &Document,
+        hovered: Option<NodeId>,
+        active: Option<NodeId>,
+        focused: Option<NodeId>,
+    ) -> Self {
+        let chain = |node: Option<NodeId>| -> HashSet<NodeId> {
+            let mut set = HashSet::new();
+            if let Some(node) = node {
+                set.insert(node);
+                set.extend(document.ancestors(node));
+            }
+            set
+        };
+        Self {
+            hover_chain: chain(hovered),
+            active_chain: chain(active),
+            focused,
+            focus_chain: chain(focused),
+        }
+    }
 }
 
 /// Computed styles for every node, keyed by [`NodeId`].
@@ -802,11 +855,21 @@ pub fn compute_styles_hovered(
     author: &Stylesheet,
     hovered: Option<NodeId>,
 ) -> StyleMap {
-    let mut hover_chain = HashSet::new();
-    if let Some(node) = hovered {
-        hover_chain.insert(node);
-        hover_chain.extend(document.ancestors(node));
-    }
+    compute_styles_interactive(
+        document,
+        author,
+        &InteractionState::new(document, hovered, None, None),
+    )
+}
+
+/// [`compute_styles`] with full interaction state
+/// (:hover/:active/:focus).
+#[must_use]
+pub fn compute_styles_interactive(
+    document: &Document,
+    author: &Stylesheet,
+    interaction: &InteractionState,
+) -> StyleMap {
     let mut by_node = HashMap::new();
     let mut pseudo_texts = Vec::new();
     let inherited = HashMap::new();
@@ -816,7 +879,7 @@ pub fn compute_styles_hovered(
         author,
         &inherited,
         DEFAULT_FONT_SIZE,
-        &hover_chain,
+        interaction,
         &mut by_node,
         &mut pseudo_texts,
     );
@@ -1078,7 +1141,7 @@ fn compute_node(
     author: &Stylesheet,
     parent_raw: &RawStyle,
     root_font_size: f32,
-    hover_chain: &HashSet<NodeId>,
+    interaction: &InteractionState,
     output: &mut HashMap<NodeId, ComputedStyle>,
     pseudo_texts: &mut Vec<PseudoText>,
 ) {
@@ -1107,7 +1170,7 @@ fn compute_node(
         let mut important: HashSet<String> = HashSet::new();
         for sheet in [user_agent_stylesheet(), author] {
             for (name, (is_important, _, _, value)) in
-                winning_declarations(document, node_id, element, sheet, hover_chain, None)
+                winning_declarations(document, node_id, element, sheet, interaction, None)
             {
                 if is_important || !important.contains(&name) {
                     if is_important {
@@ -1239,7 +1302,7 @@ fn compute_node(
             let mut any = false;
             for sheet in [user_agent_stylesheet(), author] {
                 for (name, (_, _, _, value)) in
-                    winning_declarations(document, node_id, element, sheet, hover_chain, Some(kind))
+                    winning_declarations(document, node_id, element, sheet, interaction, Some(kind))
                 {
                     pseudo_raw.insert(Cow::Owned(name), value);
                     any = true;
@@ -1285,7 +1348,7 @@ fn compute_node(
             author,
             &raw,
             root_font_size,
-            hover_chain,
+            interaction,
             output,
             pseudo_texts,
         );
@@ -1299,13 +1362,13 @@ fn winning_declarations(
     node_id: NodeId,
     element: &ElementData,
     sheet: &Stylesheet,
-    hover_chain: &HashSet<NodeId>,
+    interaction: &InteractionState,
     pseudo: Option<&str>,
 ) -> HashMap<String, (bool, Specificity, usize, CssValue)> {
     let mut winners: HashMap<String, (bool, Specificity, usize, CssValue)> = HashMap::new();
     for rule in &sheet.rules {
         for selector in &rule.selectors {
-            if selector_matches(document, node_id, element, selector, hover_chain) {
+            if selector_matches(document, node_id, element, selector, interaction) {
                 // `::selection` rules style the highlight, not the element:
                 // only their background-color/color apply, under internal
                 // property names.
@@ -1403,7 +1466,7 @@ fn compound_matches(
     node_id: NodeId,
     element: &ElementData,
     compound: &CompoundSelector,
-    hover_chain: &HashSet<NodeId>,
+    interaction: &InteractionState,
 ) -> bool {
     if let Some(tag) = &compound.tag
         && element.tag_name != *tag
@@ -1446,7 +1509,10 @@ fn compound_matches(
         return false;
     }
     compound.pseudo_classes.iter().all(|pseudo| match pseudo {
-        PseudoClass::Hover => hover_chain.contains(&node_id),
+        PseudoClass::Hover => interaction.hover_chain.contains(&node_id),
+        PseudoClass::Active => interaction.active_chain.contains(&node_id),
+        PseudoClass::Focus => interaction.focused == Some(node_id),
+        PseudoClass::FocusWithin => interaction.focus_chain.contains(&node_id),
         PseudoClass::Root => document.parent(node_id) == Some(document.root()),
         // No visited state: both always match.
         PseudoClass::Link | PseudoClass::Visited => true,
@@ -1465,11 +1531,11 @@ fn compound_matches(
             nth_matches(*a, *b, (siblings.len() - position) as i32)
         }
         PseudoClass::Not(inner) => {
-            !compound_matches(document, node_id, element, inner, hover_chain)
+            !compound_matches(document, node_id, element, inner, interaction)
         }
         PseudoClass::Is(arguments) | PseudoClass::Where(arguments) => arguments
             .iter()
-            .any(|inner| compound_matches(document, node_id, element, inner, hover_chain)),
+            .any(|inner| compound_matches(document, node_id, element, inner, interaction)),
         PseudoClass::FirstOfType => typed_siblings(document, node_id).1 == 0,
         PseudoClass::LastOfType => {
             let (siblings, position) = typed_siblings(document, node_id);
@@ -1495,9 +1561,9 @@ pub(crate) fn selector_matches(
     node_id: NodeId,
     element: &ElementData,
     selector: &Selector,
-    hover_chain: &HashSet<NodeId>,
+    interaction: &InteractionState,
 ) -> bool {
-    if !compound_matches(document, node_id, element, selector.subject(), hover_chain) {
+    if !compound_matches(document, node_id, element, selector.subject(), interaction) {
         return false;
     }
     complex_matches_from(
@@ -1505,7 +1571,7 @@ pub(crate) fn selector_matches(
         selector,
         selector.compounds.len() - 1,
         node_id,
-        hover_chain,
+        interaction,
     )
 }
 
@@ -1516,7 +1582,7 @@ fn complex_matches_from(
     selector: &Selector,
     index: usize,
     node_id: NodeId,
-    hover_chain: &HashSet<NodeId>,
+    interaction: &InteractionState,
 ) -> bool {
     if index == 0 {
         return true;
@@ -1524,8 +1590,8 @@ fn complex_matches_from(
     let needed = &selector.compounds[index - 1];
     let step = |candidate: NodeId| -> bool {
         document.element(candidate).is_some_and(|element| {
-            compound_matches(document, candidate, element, needed, hover_chain)
-        }) && complex_matches_from(document, selector, index - 1, candidate, hover_chain)
+            compound_matches(document, candidate, element, needed, interaction)
+        }) && complex_matches_from(document, selector, index - 1, candidate, interaction)
     };
     match selector.combinators[index - 1] {
         Combinator::Child => document.parent(node_id).is_some_and(step),

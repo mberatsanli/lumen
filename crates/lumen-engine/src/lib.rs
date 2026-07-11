@@ -30,8 +30,9 @@ pub use selection::{
 };
 pub use style::{
     BackgroundImage, BorderStyle, ComputedStyle, Dimension, Display, FontWeight, HoverImpact,
-    LinearGradient, StyleMap, TextAlign, compute_styles, compute_styles_hovered, hover_impact,
-    hover_styles_may_change,
+    InteractionState, LinearGradient, StyleMap, TextAlign, compute_styles, compute_styles_hovered,
+    compute_styles_interactive, hover_impact, hover_styles_may_change,
+    interaction_styles_may_change,
 };
 pub use svg::render_svg;
 pub use text::{HeuristicMeasurer, TextMeasurer, TextMetrics, TextStyle};
@@ -104,12 +105,34 @@ pub fn page_from_document(
     measurer: &dyn TextMeasurer,
     hovered: Option<lumen_html::NodeId>,
 ) -> Page {
+    let interaction = InteractionState::new(&document, hovered, None, None);
+    page_from_document_interactive(
+        document,
+        stylesheet,
+        images,
+        viewport,
+        measurer,
+        &interaction,
+    )
+}
+
+/// [`page_from_document`] with full interaction state
+/// (:hover/:active/:focus).
+#[must_use]
+pub fn page_from_document_interactive(
+    document: Document,
+    stylesheet: std::sync::Arc<lumen_css::Stylesheet>,
+    images: std::sync::Arc<ImageMap>,
+    viewport: Size,
+    measurer: &dyn TextMeasurer,
+    interaction: &InteractionState,
+) -> Page {
     let mut document = document;
     materialize_form_values(&mut document);
     // Media queries resolve against the viewport width here, so resizes
     // (which rebuild the page) restyle automatically.
     let effective = stylesheet.for_width(viewport.width);
-    let mut styles = compute_styles_hovered(&document, &effective, hovered);
+    let mut styles = compute_styles_interactive(&document, &effective, interaction);
     apply_generated_content(&mut document, &mut styles);
     let layout = layout_document(&document, &styles, viewport, measurer, &images);
     let display_list = build_display_list(&layout, &images);
@@ -173,8 +196,14 @@ fn apply_generated_content(document: &mut Document, styles: &mut StyleMap) {
 /// geometry is untouched, so the existing layout tree just gets its
 /// computed styles swapped before the display list rebuilds.
 pub fn repaint_page_for_hover(page: &mut Page, hovered: Option<lumen_html::NodeId>) {
+    let interaction = InteractionState::new(&page.document, hovered, None, None);
+    repaint_page_interactive(page, &interaction);
+}
+
+/// [`repaint_page_for_hover`] with full interaction state.
+pub fn repaint_page_interactive(page: &mut Page, interaction: &InteractionState) {
     let effective = page.stylesheet.for_width(page.viewport.width);
-    let mut styles = compute_styles_hovered(&page.document, &effective, hovered);
+    let mut styles = compute_styles_interactive(&page.document, &effective, interaction);
     apply_generated_content(&mut page.document, &mut styles);
     patch_layout_styles(&mut page.layout, &styles);
     page.display_list = build_display_list(&page.layout, &page.images);

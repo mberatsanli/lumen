@@ -910,13 +910,19 @@ impl App {
         if self.url_input.take().is_some() {
             self.request_redraw();
         }
-        let Some(node) = self.page_cursor().and_then(|(x, y)| {
+        let node = self.page_cursor().and_then(|(x, y)| {
             self.session()
                 .and_then(Session::page)
                 .and_then(|page| page.layout.hit_test(x, y))
-        }) else {
-            return;
-        };
+        });
+        // Clicking moves :focus (cleared when clicking empty space).
+        if let SessionState::Ready(session) = &mut self.state
+            && session.set_focused(node)
+        {
+            self.invalidate_page();
+            self.request_redraw();
+        }
+        let Some(node) = node else { return };
         if let Some(href) = self.session().and_then(|session| session.link_target(node)) {
             self.start_nav(Nav::Follow(href));
         }
@@ -1619,6 +1625,18 @@ impl ApplicationHandler<NavDone> for App {
                 if self.cursor.is_some_and(|(_, y)| y >= BAR_HEIGHT) {
                     self.select_anchor = self.caret_at_cursor();
                 }
+                // :active while the button is held.
+                let hit = self.page_cursor().and_then(|(x, y)| {
+                    self.session()
+                        .and_then(Session::page)
+                        .and_then(|page| page.layout.hit_test(x, y))
+                });
+                if let SessionState::Ready(session) = &mut self.state
+                    && session.set_active(hit)
+                {
+                    self.invalidate_page();
+                    self.request_redraw();
+                }
             }
             WindowEvent::MouseInput {
                 state: ElementState::Released,
@@ -1627,6 +1645,12 @@ impl ApplicationHandler<NavDone> for App {
             } => {
                 let press = self.press.take();
                 self.select_anchor = None;
+                if let SessionState::Ready(session) = &mut self.state
+                    && session.set_active(None)
+                {
+                    self.invalidate_page();
+                    self.request_redraw();
+                }
                 let moved = match (press, self.cursor) {
                     (Some((px, py)), Some((cx, cy))) => {
                         (px - cx).abs() > 3.0 || (py - cy).abs() > 3.0

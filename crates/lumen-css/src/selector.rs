@@ -71,6 +71,11 @@ pub enum PseudoClass {
     Hover,
     /// The document's root element (html).
     Root,
+    /// Matches while the pointer is pressed on the element (chain).
+    Active,
+    /// Matches the focused element (focus-within matches its chain).
+    Focus,
+    FocusWithin,
     FirstChild,
     LastChild,
     OnlyChild,
@@ -426,6 +431,9 @@ fn parse_pseudo_class(name: &str, arguments: Option<&str>) -> Option<PseudoClass
         ("visited", None) => Some(PseudoClass::Visited),
         ("hover", None) => Some(PseudoClass::Hover),
         ("root", None) => Some(PseudoClass::Root),
+        ("active", None) => Some(PseudoClass::Active),
+        ("focus" | "focus-visible", None) => Some(PseudoClass::Focus),
+        ("focus-within", None) => Some(PseudoClass::FocusWithin),
         ("first-child", None) => Some(PseudoClass::FirstChild),
         ("last-child", None) => Some(PseudoClass::LastChild),
         ("only-child", None) => Some(PseudoClass::OnlyChild),
@@ -740,7 +748,7 @@ mod tests {
         assert!(parse_selector("").is_none());
         // Bare pseudo-classes are valid selectors now.
         assert!(parse_selector(":link").is_some());
-        assert!(parse_selector(":focus").is_none()); // Unsupported pseudo.
+        assert!(parse_selector(":blur").is_none()); // Unsupported pseudo.
         assert!(parse_selector(".").is_none());
         assert!(parse_selector("#").is_none());
         assert!(parse_selector("div..x").is_none());

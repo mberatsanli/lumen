@@ -35,6 +35,10 @@ pub struct Session<L: ResourceLoader> {
     images: Arc<ImageMap>,
     /// Node currently under the pointer, for `:hover` styling.
     hovered: Option<NodeId>,
+    /// Node the pointer is pressed on (`:active`).
+    active: Option<NodeId>,
+    /// Focused node (`:focus`) — the shell decides what focus means.
+    focused: Option<NodeId>,
     /// How the current stylesheet's hover rules can affect the page —
     /// picks the cheapest reaction to hover changes.
     hover_impact: lumen_engine::HoverImpact,
@@ -54,6 +58,8 @@ impl<L: ResourceLoader> Session<L> {
             author: Arc::new(lumen_css::Stylesheet::default()),
             images: Arc::new(ImageMap::new()),
             hovered: None,
+            active: None,
+            focused: None,
             hover_impact: lumen_engine::HoverImpact::Nothing,
         }
     }
@@ -131,32 +137,96 @@ impl<L: ResourceLoader> Session<L> {
         }
         let previous = self.hovered;
         self.hovered = node;
-        if self.hover_impact == lumen_engine::HoverImpact::Nothing {
-            // No hover rules: styles cannot change, nothing to redraw.
+        self.react_to_interaction_change(|document, author| {
+            lumen_engine::interaction_styles_may_change(
+                document,
+                author,
+                &lumen_engine::InteractionState::new(document, previous, None, None),
+            )
+        })
+    }
+
+    /// Updates the `:active` (pressed) node. Same reaction ladder as
+    /// hover.
+    pub fn set_active(&mut self, node: Option<NodeId>) -> bool {
+        if self.active == node {
             return false;
         }
-        // Regardless of impact class, do nothing unless the old or new
-        // hover target actually triggers a hover rule — crossing plain
-        // elements while moving the mouse stays free.
+        let previous = self.active;
+        self.active = node;
+        self.react_to_interaction_change(|document, author| {
+            lumen_engine::interaction_styles_may_change(
+                document,
+                author,
+                &lumen_engine::InteractionState::new(document, None, previous, None),
+            )
+        })
+    }
+
+    /// Updates the `:focus` node. Same reaction ladder as hover.
+    pub fn set_focused(&mut self, node: Option<NodeId>) -> bool {
+        if self.focused == node {
+            return false;
+        }
+        let previous = self.focused;
+        self.focused = node;
+        self.react_to_interaction_change(|document, author| {
+            lumen_engine::interaction_styles_may_change(
+                document,
+                author,
+                &lumen_engine::InteractionState::new(document, None, None, previous),
+            )
+        })
+    }
+
+    /// The interaction state for the current session fields.
+    fn interaction(&self) -> Option<lumen_engine::InteractionState> {
+        let page = self.page.as_ref()?;
+        Some(lumen_engine::InteractionState::new(
+            &page.document,
+            self.hovered,
+            self.active,
+            self.focused,
+        ))
+    }
+
+    /// Shared reaction to an interaction change: skip when the sheet has
+    /// no interactive rules, or when neither the old nor the new state
+    /// triggers one; repaint without relayout for paint-only rules.
+    fn react_to_interaction_change(
+        &mut self,
+        old_state_matters: impl Fn(&lumen_html::Document, &lumen_css::Stylesheet) -> bool,
+    ) -> bool {
+        if self.hover_impact == lumen_engine::HoverImpact::Nothing {
+            return false;
+        }
         let affects = self.page.as_ref().is_some_and(|page| {
-            lumen_engine::hover_styles_may_change(&page.document, &self.author, previous)
-                || lumen_engine::hover_styles_may_change(&page.document, &self.author, node)
+            let new_state = lumen_engine::InteractionState::new(
+                &page.document,
+                self.hovered,
+                self.active,
+                self.focused,
+            );
+            lumen_engine::interaction_styles_may_change(&page.document, &self.author, &new_state)
+                || old_state_matters(&page.document, &self.author)
         });
         if !affects {
             return false;
         }
         match self.hover_impact {
             lumen_engine::HoverImpact::Nothing => false,
-            // Paint-only hover rules: swap styles + rebuild the display
-            // list on the existing layout — no relayout.
-            lumen_engine::HoverImpact::PaintOnly => match &mut self.page {
-                Some(page) => {
-                    lumen_engine::repaint_page_for_hover(page, self.hovered);
-                    true
+            lumen_engine::HoverImpact::PaintOnly => {
+                let Some(interaction) = self.interaction() else {
+                    return false;
+                };
+                match &mut self.page {
+                    Some(page) => {
+                        lumen_engine::repaint_page_interactive(page, &interaction);
+                        true
+                    }
+                    None => false,
                 }
-                None => false,
-            },
-            // Geometry-affecting hover rules need the full relayout.
+            }
             lumen_engine::HoverImpact::Layout => {
                 self.relayout();
                 true
@@ -192,13 +262,15 @@ impl<L: ResourceLoader> Session<L> {
                 None => return,
             },
         };
-        self.page = Some(page_from_document(
+        let interaction =
+            lumen_engine::InteractionState::new(&document, self.hovered, self.active, self.focused);
+        self.page = Some(lumen_engine::page_from_document_interactive(
             document,
             self.author.clone(),
             self.images.clone(),
             self.viewport,
             self.measurer.as_ref(),
-            self.hovered,
+            &interaction,
         ));
     }
 
@@ -645,6 +717,45 @@ mod tests {
             .find_by_node(anchor)
             .map(|laid| laid.dimensions.padding.top);
         assert_eq!(hovered_width, Some(8.0));
+    }
+
+    #[test]
+    fn active_and_focus_restyle_their_targets() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>a:active { color: #ff0000; } a:focus { color: #00ff00; }</style>\
+                 <a href='/x'>press me</a>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let anchor = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "a")
+            })
+            .unwrap();
+        let text_color = |session: &Session<FakeLoader>| {
+            session
+                .page()
+                .unwrap()
+                .display_list
+                .iter()
+                .find_map(|command| match command {
+                    lumen_engine::DisplayCommand::DrawText { color, .. } => Some(color.to_string()),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert!(session.set_active(Some(anchor)));
+        assert_eq!(text_color(&session), "#ff0000");
+        assert!(session.set_active(None));
+        assert!(session.set_focused(Some(anchor)));
+        assert_eq!(text_color(&session), "#00ff00");
     }
 
     #[test]
