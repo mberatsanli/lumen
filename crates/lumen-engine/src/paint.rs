@@ -425,8 +425,23 @@ fn paint_box(
         });
     }
 
+    // Inner scrolling: content of a scrollable box shifts up by its
+    // offset (the clip is already in place). Inline lines and block
+    // children both scroll.
+    let child_shift = match scroll_offsets.get(&layout.node_id) {
+        Some(offset) if clips => (shift.0, shift.1 - offset),
+        _ => shift,
+    };
+
     if let LayoutKind::Inline { lines } = &layout.kind {
-        let content = place(layout.content_box());
+        let content = {
+            let content = layout.content_box();
+            Rect {
+                x: content.x + child_shift.0,
+                y: content.y + child_shift.1,
+                ..content
+            }
+        };
         for line in lines {
             for fragment in &line.fragments {
                 match &fragment.content {
@@ -474,7 +489,7 @@ fn paint_box(
                         });
                     }
                     crate::inline::FragmentContent::Box(laid) => {
-                        paint_box(laid, images, opacity, shift, scroll_offsets, commands);
+                        paint_box(laid, images, opacity, child_shift, scroll_offsets, commands);
                     }
                     crate::inline::FragmentContent::Text { .. } => {}
                 }
@@ -482,12 +497,6 @@ fn paint_box(
         }
     }
 
-    // Inner scrolling: children of a scrollable box shift up by its
-    // offset (the clip is already in place).
-    let child_shift = match scroll_offsets.get(&layout.node_id) {
-        Some(offset) if clips => (shift.0, shift.1 - offset),
-        _ => shift,
-    };
     for child in layout.children_in_paint_order() {
         paint_box(
             child,

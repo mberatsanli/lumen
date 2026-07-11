@@ -134,11 +134,17 @@ impl LayoutBox {
     #[must_use]
     pub fn max_inner_scroll(&self) -> f32 {
         let content = self.content_box();
-        let bottom = self
+        let mut bottom = self
             .children
             .iter()
             .map(|child| child.margin_box().y + child.margin_box().height)
             .fold(content.y, f32::max);
+        // Inline content (e.g. a textarea's text lines) scrolls too.
+        if let LayoutKind::Inline { lines } = &self.kind {
+            for line in lines {
+                bottom = bottom.max(content.y + line.y + line.height);
+            }
+        }
         (bottom - content.y - content.height).max(0.0)
     }
 
@@ -2406,6 +2412,21 @@ mod tests {
         assert_eq!(layout.children[1].content_box().height, 20.0);
         // The clamped box still stacks flow at its used height.
         assert_eq!(layout.children[1].content_box().y, 50.0);
+    }
+
+    #[test]
+    fn inline_lines_count_toward_inner_scroll() {
+        // A textarea-like box: inline text lines overflow the fixed
+        // height, so the box must report scrollable room.
+        let layout = layout_of(
+            "<div style='height: 30px; overflow: scroll; white-space: pre;'>a\nb\nc\nd\ne</div>",
+        );
+        let scroller = &layout.children[0];
+        assert!(
+            scroller.max_inner_scroll() > 0.0,
+            "inline overflow should scroll, got {}",
+            scroller.max_inner_scroll()
+        );
     }
 
     #[test]
