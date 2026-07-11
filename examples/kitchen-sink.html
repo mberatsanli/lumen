@@ -385,14 +385,19 @@
 
   <div class="section">
     <h2>Forms (visual)</h2>
-    <div class="form-row">
-      <input type="text" placeholder="Type here…">
-      <input type="password" value="secret">
+    <form action="#" class="form-row">
+      <input type="text" name="q" placeholder="Click and type…">
+      <input type="password" name="p" value="secret">
       <input type="submit" value="Styled submit">
-      <input type="checkbox"> <input type="radio">
+      <input type="checkbox" name="c"> <input type="radio" name="r">
+      <input type="radio" name="r" checked>
+    </form>
+    <p class="muted">↑ interactive: click a field and type; checkboxes toggle;
+      Enter submits (GET). Entities: &copy; &mdash; &hellip; &rarr; &euro;</p>
+    <div style="overflow: scroll; height: 70px; background-color: #f4f1ea; padding: 4px;">
+      <p>Scrollable box line 1</p><p>line 2</p><p>line 3</p><p>line 4</p>
+      <p>line 5</p><p>line 6</p><p>line 7</p><p>line 8 — wheel over me</p>
     </div>
-    <p class="muted">↑ non-interactive: boxes, values and placeholders render.
-      Entities: &copy; &mdash; &hellip; &rarr; &euro;</p>
   </div>
 
   <div class="section">

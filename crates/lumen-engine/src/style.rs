@@ -979,6 +979,8 @@ pub struct InteractionState {
     pub focused: Option<NodeId>,
     /// Focused node and its ancestors (for :focus-within).
     pub focus_chain: HashSet<NodeId>,
+    /// Link elements whose target was visited this session.
+    pub visited_links: HashSet<NodeId>,
 }
 
 impl InteractionState {
@@ -1002,7 +1004,15 @@ impl InteractionState {
             active_chain: chain(active),
             focused,
             focus_chain: chain(focused),
+            visited_links: HashSet::new(),
         }
+    }
+
+    /// Same, with the set of visited link elements (`:visited`).
+    #[must_use]
+    pub fn with_visited(mut self, visited_links: HashSet<NodeId>) -> Self {
+        self.visited_links = visited_links;
+        self
     }
 }
 
@@ -1785,8 +1795,10 @@ fn compound_matches(
         PseudoClass::Focus => interaction.focused == Some(node_id),
         PseudoClass::FocusWithin => interaction.focus_chain.contains(&node_id),
         PseudoClass::Root => document.parent(node_id) == Some(document.root()),
-        // No visited state: both always match.
-        PseudoClass::Link | PseudoClass::Visited => true,
+        PseudoClass::Visited => interaction.visited_links.contains(&node_id),
+        PseudoClass::Link => {
+            element.attributes.contains("href") && !interaction.visited_links.contains(&node_id)
+        }
         PseudoClass::FirstChild => element_siblings(document, node_id).1 == 0,
         PseudoClass::LastChild => {
             let (siblings, position) = element_siblings(document, node_id);

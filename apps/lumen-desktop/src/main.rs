@@ -46,6 +46,8 @@ const BAR_HEIGHT: f32 = 36.0;
 /// A navigation action executed on a background thread, so slow servers
 /// never freeze the UI.
 enum Nav {
+    /// GET-submit the form containing this node.
+    Submit(usize),
     Load(Url),
     Follow(String),
     Back,
@@ -56,6 +58,7 @@ enum Nav {
 impl Nav {
     fn label(&self) -> String {
         match self {
+            Self::Submit(_) => "form".to_string(),
             Self::Load(url) => url.to_string(),
             Self::Follow(href) => href.clone(),
             Self::Back => "back".to_string(),
@@ -325,6 +328,37 @@ fn session_offsets(state: &SessionState) -> &std::collections::HashMap<usize, f3
     }
 }
 
+/// Draws proportional thumbs on `overflow: scroll/auto` boxes.
+fn draw_inner_scrollbars(
+    framebuffer: &mut lumen_engine::Framebuffer,
+    layout: &lumen_engine::LayoutBox,
+    offsets: &std::collections::HashMap<usize, f32>,
+    page_scroll: f32,
+    scale: f32,
+) {
+    let max = layout.max_inner_scroll();
+    if max > 0.0 && layout.style.overflow == lumen_engine::Overflow::Scroll {
+        let content = layout.content_box();
+        let offset = offsets.get(&layout.node_id).copied().unwrap_or(0.0);
+        let track = content.height;
+        let thumb = (track * track / (track + max)).max(12.0);
+        let y = content.y + (track - thumb) * (offset / max).clamp(0.0, 1.0);
+        framebuffer.blend_fill(
+            lumen_engine::Rect {
+                x: (content.x + content.width - 5.0) * scale,
+                y: (y - page_scroll + BAR_HEIGHT) * scale,
+                width: 3.0 * scale,
+                height: thumb * scale,
+            },
+            lumen_css::Color::rgb(0x55, 0x52, 0x5c),
+            130,
+        );
+    }
+    for child in &layout.children {
+        draw_inner_scrollbars(framebuffer, child, offsets, page_scroll, scale);
+    }
+}
+
 fn count_boxes(layout: &lumen_engine::LayoutBox) -> usize {
     1 + layout.children.iter().map(count_boxes).sum::<usize>()
 }
@@ -374,6 +408,8 @@ struct App {
     modifiers: Modifiers,
     /// The find-bar query, when Ctrl/Cmd+F is active.
     find_input: Option<TextInput>,
+    /// In-page text input being edited: (input element node, edit state).
+    page_input: Option<(usize, TextInput)>,
     find_matches: Vec<Selection>,
     find_index: usize,
     /// Damage tracking: bumped whenever the page raster could change.
@@ -428,6 +464,7 @@ impl App {
             selection: None,
             modifiers: Modifiers::default(),
             find_input: None,
+            page_input: None,
             find_matches: Vec::new(),
             find_index: 0,
             page_generation: 0,
@@ -525,6 +562,7 @@ impl App {
         std::thread::spawn(move || {
             session.set_viewport(viewport);
             let result = match nav {
+                Nav::Submit(node) => session.submit_form(node).map(|_| ()),
                 Nav::Load(url) => session.load(url).map(|_| ()),
                 Nav::Follow(href) => session.follow(&href).map(|_| ()),
                 Nav::Back => session.back().map(|_| ()),
@@ -939,16 +977,108 @@ impl App {
             })
         });
         // Clicking moves :focus (cleared when clicking empty space).
+        // The focus target is the nearest form control or the hit node.
+        let control = node.and_then(|node| self.form_control_at(node));
         if let SessionState::Ready(session) = &mut self.state
-            && session.set_focused(node)
+            && session.set_focused(control.or(node))
         {
             self.invalidate_page();
             self.request_redraw();
         }
+        // Form controls: text inputs begin editing, checkables toggle,
+        // submit buttons submit.
+        if let Some(control) = control {
+            let kind = self
+                .session()
+                .and_then(Session::page)
+                .and_then(|page| page.document.element(control))
+                .and_then(|element| element.attributes.get("type"))
+                .unwrap_or("text")
+                .to_string();
+            match kind.as_str() {
+                "checkbox" | "radio" => {
+                    if let SessionState::Ready(session) = &mut self.state
+                        && session.toggle_checkable(control)
+                    {
+                        self.invalidate_page();
+                        self.request_redraw();
+                    }
+                    return;
+                }
+                "submit" => {
+                    self.page_input = None;
+                    self.start_nav(Nav::Submit(control));
+                    return;
+                }
+                _ => {
+                    let is_text = self
+                        .session()
+                        .is_some_and(|session| session.is_text_input(control));
+                    if is_text {
+                        let value = self
+                            .session()
+                            .map(|session| session.form_value(control))
+                            .unwrap_or_default();
+                        // Position the caret at the click (or select all on
+                        // a fresh focus of another control).
+                        let mut input = TextInput::with_all_selected(value);
+                        if let Some(index) = self.caret_index_in_control(control) {
+                            input.move_to(index, false);
+                        }
+                        self.page_input = Some((control, input));
+                        self.invalidate_page();
+                        self.request_redraw();
+                        return;
+                    }
+                }
+            }
+        }
+        self.page_input = None;
         let Some(node) = node else { return };
         if let Some(href) = self.session().and_then(|session| session.link_target(node)) {
             self.start_nav(Nav::Follow(href));
         }
+    }
+
+    /// The nearest `<input>` element at or above a hit node.
+    fn form_control_at(&self, node: usize) -> Option<usize> {
+        let page = self.session().and_then(Session::page)?;
+        let document = &page.document;
+        std::iter::once(node)
+            .chain(document.ancestors(node))
+            .find(|candidate| {
+                document
+                    .element(*candidate)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+    }
+
+    /// Where in a text control's value the cursor points (char index).
+    fn caret_index_in_control(&self, control: usize) -> Option<usize> {
+        let (x, _) = self.page_cursor()?;
+        let session = self.session()?;
+        let page = session.page()?;
+        let laid = page.layout.find_by_node(control)?;
+        let content = laid.content_box();
+        let value = session.form_value(control);
+        let style = page.styles.by_node.get(&control)?;
+        let text_style = TextStyle {
+            font_size: style.font_size,
+            font_weight: style.font_weight,
+            monospace: style.monospace,
+            letter_spacing: style.letter_spacing,
+        };
+        let measurer = self.measurer();
+        let relative = (x - content.x).max(0.0);
+        let mut best = value.chars().count();
+        for index in 0..=value.chars().count() {
+            let prefix: String = value.chars().take(index).collect();
+            if measurer.measure(&prefix, &text_style).width >= relative {
+                best = index;
+                break;
+            }
+        }
+        Some(best)
     }
 
     fn chrome_click(&mut self, x: f32) {
@@ -1362,6 +1492,60 @@ impl App {
                 }
             }
         }
+        // Focused in-page input: selection highlight + caret line.
+        if let Some((control, input)) = &self.page_input
+            && let Some(page) = self.session().and_then(Session::page)
+            && let Some(laid) = page.layout.find_by_node(*control)
+        {
+            let content = laid.content_box();
+            if let Some(style) = page.styles.by_node.get(control) {
+                let text_style = TextStyle {
+                    font_size: style.font_size,
+                    font_weight: style.font_weight,
+                    monospace: style.monospace,
+                    letter_spacing: style.letter_spacing,
+                };
+                let measurer = self.measurer();
+                let width_to = |index: usize| {
+                    let prefix: String = input.text.chars().take(index).collect();
+                    measurer.measure(&prefix, &text_style).width
+                };
+                let to_device = |x: f32, y: f32, w: f32, h: f32| Rect {
+                    x: x * scale,
+                    y: (y - self.scroll_y + BAR_HEIGHT) * scale,
+                    width: w * scale,
+                    height: h * scale,
+                };
+                let (start, end) = input.selection();
+                if start != end {
+                    let x0 = content.x + width_to(start);
+                    let x1 = content.x + width_to(end);
+                    framebuffer.blend_fill(
+                        to_device(x0, content.y, x1 - x0, content.height),
+                        lumen_css::Color::rgb(0xb3, 0xd4, 0xfc),
+                        140,
+                    );
+                }
+                let caret_x = content.x + width_to(input.caret);
+                framebuffer.blend_fill(
+                    to_device(caret_x, content.y, 1.5, content.height),
+                    lumen_css::Color::rgb(0x20, 0x20, 0x20),
+                    255,
+                );
+            }
+        }
+        // Inner scrollbars: a thin thumb on every scrollable box.
+        if let SessionState::Ready(session) = &self.state
+            && let Some(page) = session.page()
+        {
+            draw_inner_scrollbars(
+                &mut framebuffer,
+                &page.layout,
+                session.scroll_offsets(),
+                self.scroll_y,
+                scale,
+            );
+        }
         // Scrollbar: a proportional overlay thumb on the right edge.
         let max_scroll = self.max_scroll();
         if max_scroll > 0.0 {
@@ -1448,7 +1632,13 @@ impl App {
             EditOutcome::Submit => match bar {
                 EditBar::Find => {
                     if !self.find_matches.is_empty() {
-                        self.find_index = (self.find_index + 1) % self.find_matches.len();
+                        // Shift+Enter walks backwards.
+                        self.find_index = if shift_held {
+                            (self.find_index + self.find_matches.len() - 1)
+                                % self.find_matches.len()
+                        } else {
+                            (self.find_index + 1) % self.find_matches.len()
+                        };
                         self.scroll_to_find_match();
                         self.request_redraw();
                     }
@@ -1495,6 +1685,58 @@ impl App {
         true
     }
 
+    /// Applies a key to the focused in-page input, syncing the live value
+    /// into the session (relayout under the hood) on every change.
+    fn handle_page_input_key(&mut self, key: &Key, command_held: bool, shift_held: bool) {
+        let Some((control, input)) = &mut self.page_input else {
+            return;
+        };
+        let control = *control;
+        let mut sync = false;
+        match apply_edit(input, key, command_held, shift_held) {
+            EditOutcome::Changed => sync = true,
+            EditOutcome::Moved => self.request_redraw(),
+            EditOutcome::Submit => {
+                self.page_input = None;
+                self.start_nav(Nav::Submit(control));
+                return;
+            }
+            EditOutcome::Cancel => {
+                self.page_input = None;
+                if let SessionState::Ready(session) = &mut self.state
+                    && session.set_focused(None)
+                {
+                    self.invalidate_page();
+                }
+                self.request_redraw();
+                return;
+            }
+            EditOutcome::Copy => {
+                clipboard_set(&input.selected_text());
+            }
+            EditOutcome::Cut => {
+                clipboard_set(&input.selected_text());
+                input.delete_selection();
+                sync = true;
+            }
+            EditOutcome::Paste => {
+                if let Some(pasted) = clipboard_get() {
+                    input.insert(pasted.replace(['\n', '\r'], " ").as_str());
+                    sync = true;
+                }
+            }
+            EditOutcome::Ignored => {}
+        }
+        if sync {
+            let value = self.page_input.as_ref().unwrap().1.text.clone();
+            if let SessionState::Ready(session) = &mut self.state {
+                session.set_form_value(control, &value);
+            }
+            self.invalidate_page();
+            self.request_redraw();
+        }
+    }
+
     fn handle_key(&mut self, key: &Key) {
         let command_held =
             self.modifiers.state().super_key() || self.modifiers.state().control_key();
@@ -1519,6 +1761,11 @@ impl App {
             if self.handle_bar_key(bar, key, command_held, shift_held) {
                 return;
             }
+        }
+        // In-page form input editing.
+        if self.page_input.is_some() {
+            self.handle_page_input_key(key, command_held, shift_held);
+            return;
         }
         match key {
             Key::Named(NamedKey::ArrowDown) => self.scroll_by(SCROLL_STEP),

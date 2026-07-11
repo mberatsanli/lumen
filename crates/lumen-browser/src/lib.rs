@@ -7,7 +7,7 @@
 
 use lumen_engine::{
     HeuristicMeasurer, ImageMap, Page, RasterImage, Size, TextMeasurer, collect_author_css,
-    collect_image_sources, page_from_document,
+    collect_image_sources,
 };
 use lumen_html::NodeId;
 use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, Url, resolve};
@@ -39,6 +39,12 @@ pub struct Session<L: ResourceLoader> {
     active: Option<NodeId>,
     /// Focused node (`:focus`) — the shell decides what focus means.
     focused: Option<NodeId>,
+    /// Live form control values (overriding the parsed attributes).
+    form_values: std::collections::HashMap<NodeId, String>,
+    /// Live checkbox/radio state.
+    form_checked: std::collections::HashMap<NodeId, bool>,
+    /// Final URLs of visited pages this session (drives `:visited`).
+    visited: std::collections::HashSet<String>,
     /// Running property transitions, stepped by [`Session::tick`].
     transitions: Vec<ActiveTransition>,
     /// Whether the current stylesheet declares any `transition` at all.
@@ -51,6 +57,24 @@ pub struct Session<L: ResourceLoader> {
     /// How the current stylesheet's hover rules can affect the page —
     /// picks the cheapest reaction to hover changes.
     hover_impact: lumen_engine::HoverImpact,
+}
+
+/// Minimal application/x-www-form-urlencoded percent encoding.
+fn url_encode(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    for byte in input.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                output.push(byte as char);
+            }
+            b' ' => output.push('+'),
+            other => {
+                output.push('%');
+                output.push_str(&format!("{other:02X}"));
+            }
+        }
+    }
+    output
 }
 
 /// One value being animated.
@@ -101,6 +125,9 @@ impl<L: ResourceLoader> Session<L> {
             hovered: None,
             active: None,
             focused: None,
+            form_values: std::collections::HashMap::new(),
+            form_checked: std::collections::HashMap::new(),
+            visited: std::collections::HashSet::new(),
             transitions: Vec::new(),
             has_transitions: false,
             scroll_offsets: std::collections::HashMap::new(),
@@ -123,6 +150,7 @@ impl<L: ResourceLoader> Session<L> {
         if let Some(index) = self.index {
             self.history.truncate(index + 1);
         }
+        self.visited.insert(final_url.to_string());
         self.history.push(final_url);
         self.index = Some(self.history.len() - 1);
         Ok(self.page.as_ref().expect("fetch_and_render set the page"))
@@ -227,12 +255,50 @@ impl<L: ResourceLoader> Session<L> {
     /// The interaction state for the current session fields.
     fn interaction(&self) -> Option<lumen_engine::InteractionState> {
         let page = self.page.as_ref()?;
-        Some(lumen_engine::InteractionState::new(
-            &page.document,
-            self.hovered,
-            self.active,
-            self.focused,
-        ))
+        Some(
+            lumen_engine::InteractionState::new(
+                &page.document,
+                self.hovered,
+                self.active,
+                self.focused,
+            )
+            .with_visited(self.visited_link_nodes(&page.document)),
+        )
+    }
+
+    /// Link elements whose resolved href is in this session's history.
+    fn visited_link_nodes(
+        &self,
+        document: &lumen_html::Document,
+    ) -> std::collections::HashSet<NodeId> {
+        let Some(base) = self
+            .index
+            .and_then(|index| self.history.get(index))
+            .cloned()
+        else {
+            return std::collections::HashSet::new();
+        };
+        self.visited_link_nodes_against(document, &base)
+    }
+
+    /// Same, resolving hrefs against an explicit base URL.
+    fn visited_link_nodes_against(
+        &self,
+        document: &lumen_html::Document,
+        base: &Url,
+    ) -> std::collections::HashSet<NodeId> {
+        document
+            .descendants(document.root())
+            .filter(|node| {
+                document.element(*node).is_some_and(|element| {
+                    element.attributes.get("href").is_some_and(|href| {
+                        resolve(base, href)
+                            .map(|url| self.visited.contains(url.as_str()))
+                            .unwrap_or(false)
+                    })
+                })
+            })
+            .collect()
     }
 
     /// Shared reaction to an interaction change: skip when the sheet has
@@ -456,7 +522,8 @@ impl<L: ResourceLoader> Session<L> {
             },
         };
         let interaction =
-            lumen_engine::InteractionState::new(&document, self.hovered, self.active, self.focused);
+            lumen_engine::InteractionState::new(&document, self.hovered, self.active, self.focused)
+                .with_visited(self.visited_link_nodes(&document));
         self.page = Some(lumen_engine::page_from_document_interactive(
             document,
             self.author.clone(),
@@ -500,6 +567,192 @@ impl<L: ResourceLoader> Session<L> {
             &self.scroll_offsets,
         );
         true
+    }
+
+    /// The current value of a form control (live edits over the parsed
+    /// attribute/placeholder).
+    #[must_use]
+    pub fn form_value(&self, node: NodeId) -> String {
+        if let Some(value) = self.form_values.get(&node) {
+            return value.clone();
+        }
+        self.page
+            .as_ref()
+            .and_then(|page| page.document.element(node))
+            .and_then(|element| element.attributes.get("value"))
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    /// Whether a node is an editable text-ish input.
+    #[must_use]
+    pub fn is_text_input(&self, node: NodeId) -> bool {
+        self.page
+            .as_ref()
+            .and_then(|page| page.document.element(node))
+            .is_some_and(|element| {
+                element.tag_name == "input"
+                    && matches!(
+                        element.attributes.get("type").unwrap_or("text"),
+                        "text" | "search" | "email" | "url" | "password" | "tel" | "number"
+                    )
+            })
+    }
+
+    /// Sets a text control's live value: the generated value text updates
+    /// in place and the page relayouts (nowrap + clipping keep it tidy).
+    pub fn set_form_value(&mut self, node: NodeId, value: &str) {
+        self.form_values.insert(node, value.to_string());
+        let display = {
+            let is_password = self
+                .page
+                .as_ref()
+                .and_then(|page| page.document.element(node))
+                .and_then(|element| element.attributes.get("type"))
+                == Some("password");
+            if is_password {
+                "\u{2022}".repeat(value.chars().count())
+            } else {
+                value.to_string()
+            }
+        };
+        if let Some(page) = self.page.as_mut() {
+            page.document.upsert_generated_text(node, true, &display);
+        }
+        self.relayout();
+    }
+
+    /// Toggles a checkbox (or selects a radio, clearing its name group).
+    /// Returns whether anything changed.
+    pub fn toggle_checkable(&mut self, node: NodeId) -> bool {
+        let Some(page) = self.page.as_ref() else {
+            return false;
+        };
+        let Some(element) = page.document.element(node) else {
+            return false;
+        };
+        if element.tag_name != "input" {
+            return false;
+        }
+        let kind = element.attributes.get("type").unwrap_or("text");
+        match kind {
+            "checkbox" => {
+                let current = self.is_checked(node);
+                self.form_checked.insert(node, !current);
+            }
+            "radio" => {
+                let group = element.attributes.get("name").map(str::to_string);
+                let peers: Vec<NodeId> = page
+                    .document
+                    .descendants(page.document.root())
+                    .filter(|candidate| {
+                        page.document.element(*candidate).is_some_and(|peer| {
+                            peer.tag_name == "input"
+                                && peer.attributes.get("type") == Some("radio")
+                                && peer.attributes.get("name").map(str::to_string) == group
+                        })
+                    })
+                    .collect();
+                for peer in peers {
+                    self.form_checked.insert(peer, peer == node);
+                }
+            }
+            _ => return false,
+        }
+        self.sync_check_marks();
+        self.relayout();
+        true
+    }
+
+    /// Whether a checkbox/radio is currently checked.
+    #[must_use]
+    pub fn is_checked(&self, node: NodeId) -> bool {
+        self.form_checked.get(&node).copied().unwrap_or_else(|| {
+            self.page
+                .as_ref()
+                .and_then(|page| page.document.element(node))
+                .is_some_and(|element| element.attributes.contains("checked"))
+        })
+    }
+
+    /// Writes ✕ marks into checked checkables as generated text.
+    fn sync_check_marks(&mut self) {
+        let Some(page) = self.page.as_mut() else {
+            return;
+        };
+        let nodes: Vec<(NodeId, bool)> = self
+            .form_checked
+            .iter()
+            .map(|(node, checked)| (*node, *checked))
+            .collect();
+        for (node, checked) in nodes {
+            page.document
+                .upsert_generated_text(node, true, if checked { "✕" } else { "" });
+        }
+    }
+
+    /// Submits the form containing `node` with method GET: name=value
+    /// pairs of its controls become the action URL's query.
+    pub fn submit_form(&mut self, node: NodeId) -> Result<&Page, LoadError> {
+        let base = self.require_current()?;
+        let (action, pairs) = {
+            let page = self
+                .page
+                .as_ref()
+                .ok_or_else(|| LoadError::InvalidUrl("no page".to_string()))?;
+            let document = &page.document;
+            let form = std::iter::once(node)
+                .chain(document.ancestors(node))
+                .find(|candidate| {
+                    document
+                        .element(*candidate)
+                        .is_some_and(|element| element.tag_name == "form")
+                })
+                .ok_or_else(|| LoadError::InvalidUrl("no enclosing form".to_string()))?;
+            let action = document
+                .element(form)
+                .and_then(|element| element.attributes.get("action"))
+                .unwrap_or("")
+                .to_string();
+            let mut pairs: Vec<(String, String)> = Vec::new();
+            for control in document.descendants(form) {
+                let Some(element) = document.element(control) else {
+                    continue;
+                };
+                if element.tag_name != "input" {
+                    continue;
+                }
+                let Some(name) = element.attributes.get("name") else {
+                    continue;
+                };
+                let kind = element.attributes.get("type").unwrap_or("text");
+                match kind {
+                    "checkbox" | "radio" => {
+                        if self.is_checked(control) {
+                            let value = element.attributes.get("value").unwrap_or("on");
+                            pairs.push((name.to_string(), value.to_string()));
+                        }
+                    }
+                    "submit" | "button" | "reset" | "hidden" if kind == "hidden" => {
+                        pairs.push((
+                            name.to_string(),
+                            element.attributes.get("value").unwrap_or("").to_string(),
+                        ));
+                    }
+                    "submit" | "button" | "reset" => {}
+                    _ => pairs.push((name.to_string(), self.form_value(control))),
+                }
+            }
+            (action, pairs)
+        };
+        let mut url = resolve(&base, &action)?;
+        let query: String = pairs
+            .iter()
+            .map(|(name, value)| format!("{}={}", url_encode(name), url_encode(value)))
+            .collect::<Vec<_>>()
+            .join("&");
+        url.set_query(if query.is_empty() { None } else { Some(&query) });
+        self.load(url)
     }
 
     /// The page's own `@font-face` font, when one loaded.
@@ -656,13 +909,20 @@ impl<L: ResourceLoader> Session<L> {
 
         self.hovered = None; // New document, new node ids.
         self.scroll_offsets.clear();
-        self.page = Some(page_from_document(
+        self.form_values.clear();
+        self.form_checked.clear();
+        // Mark this page itself visited before building, so its own links
+        // back to already-seen pages style immediately.
+        self.visited.insert(response.final_url.to_string());
+        let interaction = lumen_engine::InteractionState::default()
+            .with_visited(self.visited_link_nodes_against(&document, &response.final_url));
+        self.page = Some(lumen_engine::page_from_document_interactive(
             document,
             self.author.clone(),
             self.images.clone(),
             self.viewport,
             self.effective_measurer(),
-            None,
+            &interaction,
         ));
         self.source = Some(source);
         Ok(response.final_url)
@@ -1000,6 +1260,105 @@ mod tests {
             .find_by_node(anchor)
             .map(|laid| laid.dimensions.padding.top);
         assert_eq!(hovered_width, Some(8.0));
+    }
+
+    #[test]
+    fn form_values_edit_and_submit_as_get_query() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                (
+                    "https://a.test/",
+                    "<form action='/search'>\
+                     <input type='text' name='q' value=''>\
+                     <input type='hidden' name='hl' value='tr'>\
+                     <input type='checkbox' name='safe' value='1' checked>\
+                     <input type='submit' value='Go'></form>",
+                ),
+                (
+                    "https://a.test/search?q=hello+w%26rld&hl=tr&safe=1",
+                    "<p>results</p>",
+                ),
+            ]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let field = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.attributes.get("name") == Some("q"))
+            })
+            .unwrap();
+        session.set_form_value(field, "hello w&rld");
+        assert_eq!(session.form_value(field), "hello w&rld");
+        session.submit_form(field).unwrap();
+        assert_eq!(
+            session.current_url().unwrap().as_str(),
+            "https://a.test/search?q=hello+w%26rld&hl=tr&safe=1"
+        );
+    }
+
+    #[test]
+    fn checkables_toggle_and_radios_group() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<form><input type='checkbox' name='c'>\
+                 <input type='radio' name='r' value='1'>\
+                 <input type='radio' name='r' value='2' checked></form>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let inputs: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+            .collect();
+        let (check, radio1, radio2) = (inputs[0], inputs[1], inputs[2]);
+        assert!(!session.is_checked(check));
+        assert!(session.toggle_checkable(check));
+        assert!(session.is_checked(check));
+        assert!(session.is_checked(radio2));
+        assert!(session.toggle_checkable(radio1));
+        assert!(session.is_checked(radio1));
+        assert!(!session.is_checked(radio2));
+    }
+
+    #[test]
+    fn visited_links_match_after_navigation() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                (
+                    "https://a.test/",
+                    "<style>a:visited { color: #800080; }</style>\
+                     <a href='/there'>go</a>",
+                ),
+                ("https://a.test/there", "<a href='/'>back</a>"),
+            ]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        session.follow("/there").unwrap();
+        session.follow("/").unwrap();
+        // The link to /there is now visited: purple.
+        let color = session
+            .page()
+            .unwrap()
+            .display_list
+            .iter()
+            .find_map(|command| match command {
+                lumen_engine::DisplayCommand::DrawText { color, .. } => Some(color.to_string()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(color, "#800080");
     }
 
     #[test]

@@ -22,7 +22,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Attribute `[href]`, `[type="x"]` | ✅ | ✅ | ✅ | ✅ | `=`, `^=`, `$=`, `*=`, `~=`, `|=`; no case flags |
 | `:hover` | ✅ | ✅ | ✅ | ✅ | live hover chain in desktop shell |
 | `:root` | ✅ | ✅ | ✅ | ✅ | |
-| `:link` / `:visited` | ⚠️ | ✅ | ✅ | ✅ | always match; no visited state |
+| `:link` / `:visited` | ⚠️ | ✅ | ✅ | ✅ | :visited from this session's history; :link = href present and unvisited |
 | `:active`, `:focus*` | ⚠️ | ✅ | ✅ | ✅ | :active on pointer press, :focus/:focus-within on last click (no keyboard tabbing); :focus-visible ≈ :focus |
 | `:first/last/only-child` | ✅ | ✅ | ✅ | ✅ | of-type variants too |
 | `:nth-child()` family | ⚠️ | ✅ | ✅ | ✅ | nth-child/nth-last-child + full of-type family with an+b/odd/even; no `of S` |
@@ -110,7 +110,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `display: list-item` | ❌ | ✅ | ✅ | ✅ | no markers |
 | `position` + offsets + `z-index` | ⚠️ | ✅ | ✅ | ✅ | relative/absolute/fixed; containing block = nearest positioned ancestor (viewport at root); absolute `bottom` works under explicit heights; fixed scrolls with the page; z-index = sibling sort, no full stacking contexts |
 | `float` / `clear` | ⚠️ | ✅ | ✅ | ✅ | simplified: floats narrow inline lines in the same container only; block siblings ignore floats except clear |
-| `overflow` | ⚠️ | ✅ | ✅ | ✅ | hidden/clip clip; scroll/auto also wheel-scroll their content (offsets honored by hit testing); no scrollbars on inner boxes, no overflow-x/y split |
+| `overflow` | ⚠️ | ✅ | ✅ | ✅ | hidden/clip clip; scroll/auto wheel-scroll with a thumb indicator (offsets honored by hit testing); no overflow-x/y split |
 | `vertical-align` | ⚠️ | ✅ | ✅ | ✅ | baseline/top/middle/bottom/sub/super on inline boxes and text; treated as inherited (deviation) |
 | `direction: rtl` / writing modes | ❌ | ✅ | ✅ | ✅ | |
 | Multi-column | ❌ | ✅ | ✅ | ✅ | |

@@ -32,9 +32,9 @@ pub use selection::{
 };
 pub use style::{
     BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, ComputedStyle, Dimension,
-    Display, FontWeight, HoverImpact, InteractionState, LinearGradient, StyleMap, TextAlign,
-    Transform2D, compute_styles, compute_styles_hovered, compute_styles_interactive, hover_impact,
-    hover_styles_may_change, interaction_styles_may_change,
+    Display, FontWeight, HoverImpact, InteractionState, LinearGradient, Overflow, StyleMap,
+    TextAlign, Transform2D, compute_styles, compute_styles_hovered, compute_styles_interactive,
+    hover_impact, hover_styles_may_change, interaction_styles_may_change,
 };
 pub use svg::render_svg;
 pub use text::{HeuristicMeasurer, TextMeasurer, TextMetrics, TextStyle};

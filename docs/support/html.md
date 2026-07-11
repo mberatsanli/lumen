@@ -78,8 +78,8 @@ interaction) — not just a DOM node.
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
 | `<table>` family | ⚠️ | ✅ | ✅ | ✅ | real column/row layout with colspan/rowspan; thead/tbody/tfoot flattened; caption ignored; no border-collapse |
-| `<form>` submission | ❌ | ✅ | ✅ | ✅ | |
-| `<input>` (all types) | ⚠️ | ✅ | ✅ | ✅ | visual only: bordered box with value/placeholder text (password bulleted, hidden hidden, checkbox/radio as small squares); not interactive |
+| `<form>` submission | ⚠️ | ✅ | ✅ | ✅ | GET only (Enter or submit click): name=value pairs URL-encoded onto the action; no POST |
+| `<input>` (all types) | ⚠️ | ✅ | ✅ | ✅ | text inputs editable (caret/selection/clipboard, click-to-position), checkbox/radio toggle, submit buttons submit; date/file/color etc render as text boxes |
 | `<textarea> <select> <button>` | ⚠️ | ✅ | ✅ | ✅ | visual only: bordered boxes, button labels render; not interactive |
 | `<label> <fieldset> <progress> <meter>` | ❌ | ✅ | ✅ | ✅ | |
 | Focus / validation | ❌ | ✅ | ✅ | ✅ | |
