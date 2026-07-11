@@ -1,7 +1,7 @@
 //! Shared geometry primitives.
 
 /// Viewport or content size in CSS pixels.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Size {
     pub width: f32,
     pub height: f32,

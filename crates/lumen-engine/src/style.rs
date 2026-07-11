@@ -218,6 +218,15 @@ pub struct ComputedStyle {
     /// `font-family` collapsed to its generic: monospace or not.
     pub monospace: bool,
     pub white_space: WhiteSpace,
+    pub text_transform: TextTransform,
+    /// Extra advance per character, px.
+    pub letter_spacing: f32,
+    /// Extra width per inter-word space, px.
+    pub word_spacing: f32,
+    /// First-line indent, px.
+    pub text_indent: f32,
+    /// `text-decoration: line-through` (inherited like underline).
+    pub line_through: bool,
     pub box_sizing: BoxSizing,
     pub float: Float,
     pub clear: Clear,
@@ -246,6 +255,16 @@ pub struct ComputedStyle {
     /// yet painted) text color.
     pub selection_background: Option<Color>,
     pub selection_color: Option<Color>,
+}
+
+/// `text-transform` subset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextTransform {
+    #[default]
+    None,
+    Uppercase,
+    Lowercase,
+    Capitalize,
 }
 
 /// A background image layer (single layer only).
@@ -382,6 +401,8 @@ pub enum WhiteSpace {
     #[default]
     Normal,
     Pre,
+    /// Collapses whitespace but never wraps.
+    Nowrap,
 }
 
 pub const DEFAULT_FONT_SIZE: f32 = 16.0;
@@ -416,6 +437,11 @@ impl Default for ComputedStyle {
             italic: false,
             monospace: false,
             white_space: WhiteSpace::Normal,
+            text_transform: TextTransform::None,
+            letter_spacing: 0.0,
+            word_spacing: 0.0,
+            text_indent: 0.0,
+            line_through: false,
             box_sizing: BoxSizing::default(),
             float: Float::None,
             clear: Clear::None,
@@ -578,10 +604,14 @@ pub struct PseudoText {
 /// painting*; treating it as inherited approximates that.)
 /// (`user-select` and `::selection` styling are treated as inherited —
 /// an approximation that matches how they behave in practice.)
-const INHERITED_PROPERTIES: [&str; 12] = [
+const INHERITED_PROPERTIES: [&str; 16] = [
     "color",
     "font-family",
     "white-space",
+    "text-transform",
+    "letter-spacing",
+    "word-spacing",
+    "text-indent",
     "font-size",
     "font-weight",
     "line-height",
@@ -1456,6 +1486,10 @@ fn to_computed(
         raw.get("text-decoration").and_then(CssValue::as_keyword),
         Some("underline")
     );
+    style.line_through = matches!(
+        raw.get("text-decoration").and_then(CssValue::as_keyword),
+        Some("line-through")
+    );
 
     style.italic = matches!(
         raw.get("font-style").and_then(CssValue::as_keyword),
@@ -1482,8 +1516,32 @@ fn to_computed(
 
     style.white_space = match raw.get("white-space").and_then(CssValue::as_keyword) {
         Some("pre" | "pre-wrap" | "pre-line") => WhiteSpace::Pre,
+        Some("nowrap") => WhiteSpace::Nowrap,
         _ => WhiteSpace::Normal,
     };
+
+    style.text_transform = match raw.get("text-transform").and_then(CssValue::as_keyword) {
+        Some("uppercase") => TextTransform::Uppercase,
+        Some("lowercase") => TextTransform::Lowercase,
+        Some("capitalize") => TextTransform::Capitalize,
+        _ => TextTransform::None,
+    };
+
+    style.letter_spacing = raw
+        .get("letter-spacing")
+        .and_then(|value| Dimension::from_value(value, style.font_size))
+        .and_then(|dimension| dimension.resolve(0.0, crate::geometry::Size::default()))
+        .unwrap_or(0.0);
+    style.word_spacing = raw
+        .get("word-spacing")
+        .and_then(|value| Dimension::from_value(value, style.font_size))
+        .and_then(|dimension| dimension.resolve(0.0, crate::geometry::Size::default()))
+        .unwrap_or(0.0);
+    style.text_indent = raw
+        .get("text-indent")
+        .and_then(|value| Dimension::from_value(value, style.font_size))
+        .and_then(|dimension| dimension.resolve(0.0, crate::geometry::Size::default()))
+        .unwrap_or(0.0);
 
     style.opacity = match raw.get("opacity") {
         Some(CssValue::Number(value)) => value.clamp(0.0, 1.0),
@@ -2152,6 +2210,35 @@ mod tests {
             style_of(&document, &styles, "p").color.to_string(),
             "#0000ff"
         );
+    }
+
+    #[test]
+    fn typography_properties_parse_and_inherit() {
+        let (document, styles) = styles_for(
+            "<style>div { text-transform: uppercase; letter-spacing: 2px; \
+                          word-spacing: 4px; text-indent: 24px; white-space: nowrap; }\
+                    s { text-decoration: line-through; }</style>\
+             <div><p>t</p></div><p><s>struck</s></p>",
+        );
+        let inner = style_of(&document, &styles, "p");
+        assert_eq!(inner.text_transform, TextTransform::Uppercase);
+        assert_eq!(inner.letter_spacing, 2.0);
+        assert_eq!(inner.word_spacing, 4.0);
+        assert_eq!(inner.text_indent, 24.0);
+        assert_eq!(inner.white_space, WhiteSpace::Nowrap);
+        assert!(style_of(&document, &styles, "s").line_through);
+    }
+
+    #[test]
+    fn font_shorthand_expands() {
+        let (document, styles) =
+            styles_for("<style>p { font: italic bold 20px/2 Menlo, monospace; }</style><p>x</p>");
+        let p = style_of(&document, &styles, "p");
+        assert!(p.italic);
+        assert_eq!(p.font_weight.0, 700);
+        assert_eq!(p.font_size, 20.0);
+        assert_eq!(p.line_height, 40.0);
+        assert!(p.monospace);
     }
 
     #[test]

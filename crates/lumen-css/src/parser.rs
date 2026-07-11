@@ -197,6 +197,70 @@ fn parse_rule_list(
     }
 }
 
+/// Expands the `font` shorthand: [style] [weight] size[/line-height]
+/// family... Unsupported system-font keywords drop the declaration.
+fn expand_font_shorthand(source: &str, output: &mut Vec<Declaration>, important: bool) {
+    let mut push = |name: &str, value: CssValue| {
+        output.push(Declaration {
+            name: name.to_string(),
+            value,
+            important,
+        });
+    };
+    let mut family_parts: Vec<String> = Vec::new();
+    let mut saw_size = false;
+    for component in split_components(source) {
+        if saw_size {
+            family_parts.push(component);
+            continue;
+        }
+        match component.as_str() {
+            "normal" => {}
+            "italic" | "oblique" => {
+                push("font-style", CssValue::Keyword("italic".to_string()));
+            }
+            "bold" | "bolder" => push("font-weight", CssValue::Keyword("bold".to_string())),
+            "small-caps" => {}
+            _ => {
+                // size[/line-height] or a numeric weight.
+                let (size_text, line_height) = match component.split_once('/') {
+                    Some((size, line_height)) => (size, Some(line_height.to_string())),
+                    None => (component.as_str(), None),
+                };
+                match CssValue::parse_component(size_text) {
+                    Some(CssValue::Number(weight)) if weight >= 100.0 => {
+                        push("font-weight", CssValue::Number(weight));
+                    }
+                    Some(size @ CssValue::Length(..)) => {
+                        push("font-size", size);
+                        if let Some(value) =
+                            line_height.and_then(|text| CssValue::parse_component(&text))
+                        {
+                            push("line-height", value);
+                        }
+                        saw_size = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    if !family_parts.is_empty() {
+        let family = family_parts.join(" ");
+        let components: Vec<CssValue> = split_components(&family)
+            .iter()
+            .filter_map(|component| CssValue::parse_component(component))
+            .collect();
+        let start = output.len();
+        expand_declaration("font-family", components, output);
+        if important {
+            for declaration in &mut output[start..] {
+                declaration.important = true;
+            }
+        }
+    }
+}
+
 /// Splits a selector list at top-level commas only, so `:is(.a, .b)`
 /// stays one selector.
 fn split_selector_list(source: &str) -> Vec<&str> {
@@ -271,6 +335,12 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
             Some(prefix_length) => (&trimmed[..prefix_length], true),
             None => (value, false),
         };
+        // The font shorthand needs raw handling: "14px/1.4" does not parse
+        // as one component.
+        if name == "font" {
+            expand_font_shorthand(value, &mut declarations, important);
+            continue;
+        }
         // Custom properties keep their raw text (substituted into var()
         // uses later); values using var() defer parsing entirely.
         if name.starts_with("--") {

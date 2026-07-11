@@ -1874,6 +1874,32 @@ mod tests {
     }
 
     #[test]
+    fn text_transform_and_indent_shape_the_lines() {
+        let layout = layout_of(
+            "<style>p { text-transform: uppercase; text-indent: 40px; }</style>\
+             <p>hello world</p>",
+        );
+        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+            panic!("expected inline content");
+        };
+        assert_eq!(lines[0].fragments[0].text(), Some("HELLO WORLD"));
+        // First line indented by 40px.
+        assert_eq!(lines[0].fragments[0].x, 40.0);
+    }
+
+    #[test]
+    fn nowrap_keeps_text_on_one_line() {
+        let layout = layout_of(
+            "<style>div { width: 60px; white-space: nowrap; }</style>\
+             <div>many words that would surely wrap</div>",
+        );
+        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+            panic!("expected inline content");
+        };
+        assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
     fn pre_preserves_spaces_and_newlines_without_wrapping() {
         let layout = layout_of(
             "<pre>a  b\nverylongline that would normally wrap far beyond any width limit set here</pre>",

@@ -95,6 +95,7 @@ fn prefix_width(run: &TextRun, offset: usize, measurer: &dyn TextMeasurer) -> f3
         font_size: run.style.font_size,
         font_weight: run.style.font_weight,
         monospace: run.style.monospace,
+        letter_spacing: run.style.letter_spacing,
     };
     measurer.measure(&prefix, &text_style).width
 }

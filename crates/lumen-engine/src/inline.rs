@@ -8,7 +8,7 @@
 //! atomic boxes sitting bottom-on-baseline.
 
 use crate::layout::LayoutBox;
-use crate::style::{ComputedStyle, Display, StyleMap, TextAlign, WhiteSpace};
+use crate::style::{ComputedStyle, Display, StyleMap, TextAlign, TextTransform, WhiteSpace};
 use crate::text::{TextMeasurer, TextStyle};
 use lumen_html::{Document, NodeId, NodeKind};
 
@@ -90,6 +90,22 @@ enum InlineItem {
 }
 
 /// Collects the word/atomic/break stream of an inline run in document order.
+/// Applies `text-transform` to one word.
+fn transform_word(word: &str, transform: TextTransform) -> String {
+    match transform {
+        TextTransform::None => word.to_string(),
+        TextTransform::Uppercase => word.to_uppercase(),
+        TextTransform::Lowercase => word.to_lowercase(),
+        TextTransform::Capitalize => {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        }
+    }
+}
+
 fn collect_items(
     document: &Document,
     styles: &StyleMap,
@@ -128,10 +144,14 @@ fn collect_items(
             let leading_space = text.chars().next().is_some_and(char::is_whitespace);
             let trailing_space = text.chars().last().is_some_and(char::is_whitespace);
             let mut first = true;
+            let transform = styles
+                .by_node
+                .get(&node_id)
+                .map_or(TextTransform::None, |style| style.text_transform);
             for word in text.split_whitespace() {
                 items.push(InlineItem::Word {
                     node_id,
-                    text: word.to_string(),
+                    text: transform_word(word, transform),
                     space_before: if first {
                         *pending_space || leading_space
                     } else {
@@ -260,8 +280,14 @@ impl LineBuilder<'_> {
     fn start_line_if_needed(&mut self) {
         if !self.started {
             let (indent, width) = (self.bounds)(self.cursor_y);
-            self.line_indent = indent;
-            self.line_width = width;
+            // `text-indent` shifts the first line of the run.
+            let extra = if self.lines.is_empty() {
+                self.container.text_indent
+            } else {
+                0.0
+            };
+            self.line_indent = indent + extra;
+            self.line_width = (width - extra).max(0.0);
             self.started = true;
         }
     }
@@ -273,16 +299,17 @@ impl LineBuilder<'_> {
             font_size: style.font_size,
             font_weight: style.font_weight,
             monospace: style.monospace,
+            letter_spacing: style.letter_spacing,
         };
         let word_width = self.measurer.measure(word, &text_style).width;
         let space_width = if space_before && !self.current.is_empty() {
-            self.measurer.measure(" ", &text_style).width
+            self.measurer.measure(" ", &text_style).width + style.word_spacing
         } else {
             0.0
         };
 
-        // Preserved-whitespace text never wraps; over-long lines overflow.
-        let wraps = style.white_space != WhiteSpace::Pre;
+        // Preserved-whitespace and nowrap text never wrap.
+        let wraps = style.white_space == WhiteSpace::Normal;
         if wraps
             && !self.current.is_empty()
             && self.pen_x + space_width + word_width > self.line_width
@@ -309,6 +336,7 @@ impl LineBuilder<'_> {
                 font_size: self.container.font_size,
                 font_weight: self.container.font_weight,
                 monospace: self.container.monospace,
+                letter_spacing: self.container.letter_spacing,
             };
             self.measurer.measure(" ", &text_style).width
         } else {

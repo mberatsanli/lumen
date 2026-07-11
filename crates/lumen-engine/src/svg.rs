@@ -209,11 +209,19 @@ pub fn render_svg(page: &Page) -> String {
                 underline,
                 italic,
                 monospace,
+                line_through,
+                letter_spacing,
             } => {
-                let decoration = if *underline {
-                    " text-decoration=\"underline\""
+                let decoration = match (underline, line_through) {
+                    (true, true) => " text-decoration=\"underline line-through\"",
+                    (true, false) => " text-decoration=\"underline\"",
+                    (false, true) => " text-decoration=\"line-through\"",
+                    (false, false) => "",
+                };
+                let spacing = if *letter_spacing != 0.0 {
+                    format!(" letter-spacing=\"{letter_spacing}\"")
                 } else {
-                    ""
+                    String::new()
                 };
                 let slant = if *italic {
                     " font-style=\"italic\""
@@ -227,7 +235,7 @@ pub fn render_svg(page: &Page) -> String {
                 };
                 let _ = writeln!(
                     svg,
-                    "<text x=\"{x}\" y=\"{y}\" fill=\"{color}\" font-family=\"{family}\" font-size=\"{font_size}\" font-weight=\"{font_weight}\"{decoration}{slant}>{}</text>",
+                    "<text x=\"{x}\" y=\"{y}\" fill=\"{color}\" font-family=\"{family}\" font-size=\"{font_size}\" font-weight=\"{font_weight}\"{decoration}{slant}{spacing}>{}</text>",
                     escape_xml(text)
                 );
             }

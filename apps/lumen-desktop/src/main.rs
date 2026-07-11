@@ -593,6 +593,8 @@ impl App {
                 underline: false,
                 italic: false,
                 monospace: false,
+                line_through: false,
+                letter_spacing: 0.0,
             },
             DisplayCommand::DrawText {
                 x: 36.0,
@@ -608,6 +610,8 @@ impl App {
                 underline: false,
                 italic: false,
                 monospace: false,
+                line_through: false,
+                letter_spacing: 0.0,
             },
             DisplayCommand::FillRect {
                 rect: bar(60.0, 6.0, (width - 68.0).max(40.0), BAR_HEIGHT - 12.0),
@@ -629,6 +633,8 @@ impl App {
                 underline: false,
                 italic: false,
                 monospace: false,
+                line_through: false,
+                letter_spacing: 0.0,
             }),
             (None, SessionState::Ready(session)) => commands.push(DisplayCommand::DrawText {
                 x: 68.0,
@@ -640,6 +646,8 @@ impl App {
                 underline: false,
                 italic: false,
                 monospace: false,
+                line_through: false,
+                letter_spacing: 0.0,
             }),
         }
         if let Some(query) = &self.find_input {
@@ -660,6 +668,8 @@ impl App {
                 underline: false,
                 italic: false,
                 monospace: false,
+                line_through: false,
+                letter_spacing: 0.0,
             });
             let label_width = self.chrome_text_width("Find: ", 13.0);
             let query_width = self.draw_input(
@@ -687,6 +697,8 @@ impl App {
                 underline: false,
                 italic: false,
                 monospace: false,
+                line_through: false,
+                letter_spacing: 0.0,
             });
         }
         commands
@@ -701,6 +713,7 @@ impl App {
                     font_size,
                     font_weight: FontWeight(400),
                     monospace: false,
+                    letter_spacing: 0.0,
                 },
             )
             .width
@@ -745,6 +758,8 @@ impl App {
             underline: false,
             italic: false,
             monospace: false,
+            line_through: false,
+            letter_spacing: 0.0,
         });
         let caret_x = x + self.chrome_text_width(&input.slice(0, input.caret), font_size);
         commands.push(DisplayCommand::FillRect {
@@ -1140,6 +1155,8 @@ impl App {
                 underline: false,
                 italic: false,
                 monospace: true,
+                line_through: false,
+                letter_spacing: 0.0,
             });
         }
         commands

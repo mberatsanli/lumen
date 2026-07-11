@@ -331,8 +331,11 @@ fn rasterize_clipped(
                 underline,
                 italic,
                 monospace,
+                line_through,
+                letter_spacing,
             } => {
                 let (x, y, font_size) = (x * scale, (y - scroll_y) * scale, font_size * scale);
+                let letter_spacing = letter_spacing * scale;
                 let packed = pack(*color);
                 let text_alpha = color.a;
                 let shear = if *italic { 0.21 } else { 0.0 };
@@ -349,6 +352,7 @@ fn rasterize_clipped(
                         *font_weight,
                         shear,
                         *monospace,
+                        letter_spacing,
                     ),
                     None => draw_text(
                         framebuffer,
@@ -360,6 +364,7 @@ fn rasterize_clipped(
                         font_size,
                         *font_weight,
                         shear,
+                        letter_spacing,
                     ),
                 };
                 if *underline {
@@ -368,6 +373,18 @@ fn rasterize_clipped(
                         Rect {
                             x,
                             y: y + (2.0 * scale).max(1.0),
+                            width: text_width,
+                            height: scale.max(1.0),
+                        },
+                        *color,
+                    );
+                }
+                if *line_through {
+                    paint_rect(
+                        framebuffer,
+                        Rect {
+                            x,
+                            y: y - font_size * 0.3,
                             width: text_width,
                             height: scale.max(1.0),
                         },
@@ -396,8 +413,9 @@ fn draw_text(
     font_size: f32,
     font_weight: u16,
     shear: f32,
+    letter_spacing: f32,
 ) -> f32 {
-    let advance = font_size * 0.5;
+    let advance = font_size * 0.5 + letter_spacing;
     let cell_height = font_size * 0.8;
     let top = y - cell_height;
     let bold = font_weight >= 600;
@@ -484,6 +502,7 @@ fn draw_text_scalable(
     font_weight: u16,
     shear: f32,
     monospace: bool,
+    letter_spacing: f32,
 ) -> f32 {
     let mut pen_x = x;
     let bold = font_weight >= 600;
@@ -515,7 +534,7 @@ fn draw_text_scalable(
                 shear,
             );
         }
-        pen_x += glyph.metrics.advance_width;
+        pen_x += glyph.metrics.advance_width + letter_spacing;
     }
     pen_x - x
 }
@@ -1066,6 +1085,8 @@ mod tests {
             underline: false,
             italic: false,
             monospace: false,
+            line_through: false,
+            letter_spacing: 0.0,
         }];
         let framebuffer = rasterize(&commands, 20, 20, 0.0);
         let painted = framebuffer

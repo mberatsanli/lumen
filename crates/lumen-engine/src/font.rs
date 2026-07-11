@@ -137,7 +137,9 @@ impl TextMeasurer for SystemFont {
         let face = self.face(style.monospace);
         let width = text
             .chars()
-            .map(|character| face.metrics(character, style.font_size).advance_width)
+            .map(|character| {
+                face.metrics(character, style.font_size).advance_width + style.letter_spacing
+            })
             .sum();
         TextMetrics { width }
     }
@@ -164,6 +166,7 @@ mod tests {
             font_size: 16.0,
             font_weight: FontWeight(400),
             monospace: false,
+            letter_spacing: 0.0,
         };
         let narrow = font.measure("iiii", &style).width;
         let wide = font.measure("MMMM", &style).width;

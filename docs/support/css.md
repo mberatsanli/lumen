@@ -139,14 +139,14 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `line-height` | ✅ | ✅ | ✅ | ✅ | number, px, em |
 | `text-align: left/center/right` | ✅ | ✅ | ✅ | ✅ | |
 | `text-align: justify` | ❌ | ✅ | ✅ | ✅ | |
-| `text-decoration: underline/none` | ⚠️ | ✅ | ✅ | ✅ | no line-through/color/style; propagation ≈ inheritance |
+| `text-decoration` | ⚠️ | ✅ | ✅ | ✅ | underline, line-through, none; no color/style/wavy; propagation ≈ inheritance |
 | `font-family` | ⚠️ | ✅ | ✅ | ✅ | collapsed to generic: monospace vs everything else (one face each) |
 | `font-style: italic` | ✅ | ✅ | ✅ | ✅ | synthetic shear (no real italic face) |
-| `font` shorthand | ❌ | ✅ | ✅ | ✅ | |
-| `letter-/word-spacing` | ❌ | ✅ | ✅ | ✅ | |
-| `text-transform` | ❌ | ✅ | ✅ | ✅ | |
-| `text-indent` | ❌ | ✅ | ✅ | ✅ | |
-| `white-space` / `pre` | ⚠️ | ✅ | ✅ | ✅ | normal + pre (pre-wrap/pre-line treated as pre); pre never wraps |
+| `font` shorthand | ⚠️ | ✅ | ✅ | ✅ | style/weight/size/line-height/family; small-caps and system fonts ignored |
+| `letter-/word-spacing` | ✅ | ✅ | ✅ | ✅ | px/em |
+| `text-transform` | ✅ | ✅ | ✅ | ✅ | uppercase/lowercase/capitalize |
+| `text-indent` | ✅ | ✅ | ✅ | ✅ | first line of the block |
+| `white-space` / `pre` | ⚠️ | ✅ | ✅ | ✅ | normal, nowrap, pre (pre-wrap/pre-line treated as pre) |
 | `word-break` / `overflow-wrap` | ❌ | ✅ | ✅ | ✅ | over-wide words overflow |
 | `text-overflow: ellipsis` | ❌ | ✅ | ✅ | ✅ | |
 | `text-shadow` | ❌ | ✅ | ✅ | ✅ | |

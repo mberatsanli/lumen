@@ -43,6 +43,10 @@ pub enum DisplayCommand {
         underline: bool,
         italic: bool,
         monospace: bool,
+        /// Struck through (`text-decoration: line-through`).
+        line_through: bool,
+        /// Extra advance per character, px.
+        letter_spacing: f32,
     },
     /// A decoded image scaled into `rect`, with an extra alpha multiplier
     /// (255 = opaque) from `opacity`.
@@ -224,6 +228,8 @@ fn paint_box(
                             underline: style.underline,
                             italic: style.italic,
                             monospace: style.monospace,
+                            line_through: style.line_through,
+                            letter_spacing: style.letter_spacing,
                         });
                     }
                     crate::inline::FragmentContent::Box(laid) => {
@@ -300,13 +306,16 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
                 underline,
                 italic,
                 monospace,
+                line_through,
+                ..
             } => {
+                let strike = if *line_through { " line-through" } else { "" };
                 let decoration = if *underline { " underline" } else { "" };
                 let slant = if *italic { " italic" } else { "" };
                 let face = if *monospace { " mono" } else { "" };
                 let _ = writeln!(
                     output,
-                    "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color}{decoration}{slant}{face} {text:?}"
+                    "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color}{decoration}{strike}{slant}{face} {text:?}"
                 );
             }
             DisplayCommand::DrawImage { rect, image, alpha } => {

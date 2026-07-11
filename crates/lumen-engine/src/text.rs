@@ -14,6 +14,8 @@ pub struct TextStyle {
     pub font_weight: FontWeight,
     /// Measure/draw with the monospace face.
     pub monospace: bool,
+    /// Extra advance per character, px.
+    pub letter_spacing: f32,
 }
 
 /// Measured extent of a text run on a single line.
@@ -36,8 +38,9 @@ impl TextMeasurer for HeuristicMeasurer {
     fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics {
         // Monospace glyphs run a little wider than the proportional average.
         let per_char = if style.monospace { 0.6 } else { 0.5 };
+        let count = text.chars().count() as f32;
         TextMetrics {
-            width: text.chars().count() as f32 * style.font_size * per_char,
+            width: count * (style.font_size * per_char + style.letter_spacing),
         }
     }
 }
@@ -50,6 +53,7 @@ mod tests {
         font_size: 16.0,
         font_weight: FontWeight(400),
         monospace: false,
+        letter_spacing: 0.0,
     };
 
     #[test]
@@ -62,6 +66,7 @@ mod tests {
                 font_size: 32.0,
                 font_weight: FontWeight(400),
                 monospace: false,
+                letter_spacing: 0.0,
             },
         );
         assert_eq!(big.width, 64.0);
