@@ -604,13 +604,20 @@ impl<L: ResourceLoader> Session<L> {
     pub fn set_form_value(&mut self, node: NodeId, value: &str) {
         self.form_values.insert(node, value.to_string());
         let display = {
-            let is_password = self
+            let element = self
                 .page
                 .as_ref()
-                .and_then(|page| page.document.element(node))
-                .and_then(|element| element.attributes.get("type"))
-                == Some("password");
-            if is_password {
+                .and_then(|page| page.document.element(node));
+            let is_password =
+                element.and_then(|element| element.attributes.get("type")) == Some("password");
+            if value.is_empty() {
+                // An emptied field shows its placeholder again, like real
+                // browsers do.
+                element
+                    .and_then(|element| element.attributes.get("placeholder"))
+                    .unwrap_or_default()
+                    .to_string()
+            } else if is_password {
                 "\u{2022}".repeat(value.chars().count())
             } else {
                 value.to_string()
@@ -1338,7 +1345,11 @@ mod tests {
             after.iter().any(|text| text.contains("merhaba")),
             "typed value missing: {after:?}"
         );
-        assert!(!after.iter().any(|text| text.contains("ara") && !text.contains("merhaba")));
+        assert!(
+            !after
+                .iter()
+                .any(|text| text.contains("ara") && !text.contains("merhaba"))
+        );
     }
 
     #[test]

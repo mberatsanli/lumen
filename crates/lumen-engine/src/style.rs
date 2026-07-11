@@ -1097,7 +1097,7 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             sup { vertical-align: super; font-size: 0.8em; }
             input, select, textarea, button { border: 1px solid #767676; border-radius: 3px;
                 background-color: #ffffff; padding: 3px 8px; font-size: 13px; margin: 2px; }
-            input { width: 170px; }
+            input { width: 170px; min-height: 1.1em; }
             input[type=submit], input[type=button], button { background-color: #ebebeb;
                 width: auto; padding: 3px 12px; }
             input[type=checkbox], input[type=radio] { width: 12px; height: 12px; padding: 0; }
