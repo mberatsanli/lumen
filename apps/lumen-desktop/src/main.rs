@@ -1040,6 +1040,22 @@ impl App {
         }
     }
 
+    /// What a control actually displays: passwords render as bullets, so
+    /// caret math must measure bullets too.
+    fn control_display_text(&self, control: usize, value: &str) -> String {
+        let is_password = self
+            .session()
+            .and_then(Session::page)
+            .and_then(|page| page.document.element(control))
+            .and_then(|element| element.attributes.get("type"))
+            == Some("password");
+        if is_password {
+            "\u{2022}".repeat(value.chars().count())
+        } else {
+            value.to_string()
+        }
+    }
+
     /// The nearest `<input>` element at or above a hit node.
     fn form_control_at(&self, node: usize) -> Option<usize> {
         let page = self.session().and_then(Session::page)?;
@@ -1060,7 +1076,7 @@ impl App {
         let page = session.page()?;
         let laid = page.layout.find_by_node(control)?;
         let content = laid.content_box();
-        let value = session.form_value(control);
+        let value = self.control_display_text(control, &session.form_value(control));
         let style = page.styles.by_node.get(&control)?;
         let text_style = TextStyle {
             font_size: style.font_size,
@@ -1506,8 +1522,9 @@ impl App {
                     letter_spacing: style.letter_spacing,
                 };
                 let measurer = self.measurer();
+                let display = self.control_display_text(*control, &input.text);
                 let width_to = |index: usize| {
-                    let prefix: String = input.text.chars().take(index).collect();
+                    let prefix: String = display.chars().take(index).collect();
                     measurer.measure(&prefix, &text_style).width
                 };
                 let to_device = |x: f32, y: f32, w: f32, h: f32| Rect {
