@@ -433,7 +433,6 @@ impl App {
         self.select_anchor = None;
         self.select_popup = None;
         self.color_popup = None;
-        self.page_scripts = None;
         self.range_drag = None;
         let SessionState::Ready(mut session) =
             std::mem::replace(&mut self.state, SessionState::Loading { target })
@@ -983,7 +982,7 @@ impl App {
                     return;
                 }
                 "button" => {
-                    if kind == "submit" {
+                    if kind == "submit" && self.in_form(control) {
                         self.end_page_edit();
                         self.start_nav(Nav::Submit(control));
                     }
@@ -1021,8 +1020,10 @@ impl App {
                     return;
                 }
                 "submit" => {
-                    self.end_page_edit();
-                    self.start_nav(Nav::Submit(control));
+                    if self.in_form(control) {
+                        self.end_page_edit();
+                        self.start_nav(Nav::Submit(control));
+                    }
                     return;
                 }
                 _ => {
@@ -1136,6 +1137,23 @@ impl App {
         }
         self.invalidate_page();
         self.request_redraw();
+    }
+
+    /// Whether a control has an enclosing <form> (submit buttons outside
+    /// any form do nothing, like real browsers).
+    fn in_form(&self, control: usize) -> bool {
+        self.session()
+            .and_then(Session::page)
+            .is_some_and(|page| {
+                let document = &page.document;
+                std::iter::once(control)
+                    .chain(document.ancestors(control))
+                    .any(|node| {
+                        document
+                            .element(node)
+                            .is_some_and(|element| element.tag_name == "form")
+                    })
+            })
     }
 
     /// Dispatches a DOM event to the page's scripts, repainting if a
@@ -2163,6 +2181,7 @@ impl ApplicationHandler<NavDone> for App {
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, done: NavDone) {
+        let failed = done.error.is_some();
         if let Some(error) = done.error {
             eprintln!("navigation: {error}");
         } else {
@@ -2171,8 +2190,11 @@ impl ApplicationHandler<NavDone> for App {
         let mut session = done.session;
         // The window may have resized while the session was away.
         session.set_viewport(self.viewport());
-        // The page's <script>s run here, on the main thread.
-        self.page_scripts = lumen_browser::PageScripts::new(&mut session);
+        // A landed navigation gets a fresh script world (run here, on the
+        // main thread); a failed one keeps the old page AND its scripts.
+        if !failed || self.page_scripts.is_none() {
+            self.page_scripts = lumen_browser::PageScripts::new(&mut session);
+        }
         self.state = SessionState::Ready(session);
         self.invalidate_page();
         self.scroll_to_fragment();
