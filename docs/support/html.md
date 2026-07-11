@@ -77,7 +77,7 @@ interaction) — not just a DOM node.
 
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
-| `<table>` family | ⚠️ | ✅ | ✅ | ✅ | parses; flows as plain blocks, no table layout |
+| `<table>` family | ⚠️ | ✅ | ✅ | ✅ | real column/row layout with colspan/rowspan; thead/tbody/tfoot flattened; caption ignored; no border-collapse |
 | `<form>` submission | ❌ | ✅ | ✅ | ✅ | |
 | `<input>` (all types) | ⚠️ | ✅ | ✅ | ✅ | visual only: bordered box with value/placeholder text (password bulleted, hidden hidden, checkbox/radio as small squares); not interactive |
 | `<textarea> <select> <button>` | ⚠️ | ✅ | ✅ | ✅ | visual only: bordered boxes, button labels render; not interactive |

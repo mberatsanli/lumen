@@ -367,6 +367,39 @@ fn natural_right(layout: &LayoutBox) -> f32 {
     }
 }
 
+/// Shrink-to-fit probe: the natural content width of an element laid out
+/// at `available` width (the widest used extent of its children).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn natural_content_width(
+    document: &Document,
+    styles: &StyleMap,
+    node_id: NodeId,
+    available: f32,
+    viewport: Size,
+    measurer: &dyn TextMeasurer,
+    images: &ImageMap,
+) -> f32 {
+    let NodeKind::Element(element) = &document.node(node_id).kind else {
+        return 0.0;
+    };
+    let style = styles.by_node.get(&node_id).cloned().unwrap_or_default();
+    let probe = layout_element(
+        document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, None, viewport,
+        measurer, images,
+    );
+    // Measure the probe's children (the target's own padding/border sit
+    // outside its content width and must not be double-counted).
+    let content_x = probe.content_box().x;
+    (probe
+        .children
+        .iter()
+        .map(natural_right)
+        .fold(content_x, f32::max)
+        - content_x)
+        .min(available)
+        .max(0.0)
+}
+
 /// Lays out an element as an isolated box with an explicit style (used by
 /// flex items to apply grow/stretch overrides).
 #[allow(clippy::too_many_arguments)]
@@ -406,32 +439,9 @@ pub(crate) fn layout_atomic_box(
     };
     let mut style = styles.by_node.get(&node_id).cloned().unwrap_or_default();
     if matches!(style.width, Dimension::Auto) && element.tag_name != "img" {
-        let probe = layout_element(
-            document,
-            styles,
-            node_id,
-            element,
-            style.clone(),
-            0.0,
-            &mut 0.0,
-            available,
-            None,
-            None,
-            viewport,
-            measurer,
-            images,
+        let natural = natural_content_width(
+            document, styles, node_id, available, viewport, measurer, images,
         );
-        // Measure the probe's children (the target's own padding/border sit
-        // outside its content width and must not be double-counted).
-        let content_x = probe.content_box().x;
-        let natural = (probe
-            .children
-            .iter()
-            .map(natural_right)
-            .fold(content_x, f32::max)
-            - content_x)
-            .min(available)
-            .max(0.0);
         style.width = Dimension::Px(natural);
         style.box_sizing = BoxSizing::ContentBox;
     }
@@ -658,6 +668,54 @@ fn layout_element(
                 x: content_x,
                 y: content_y,
                 width: content_width,
+                height: content_height,
+            },
+            padding,
+            border,
+            margin,
+        };
+        *cursor_y = dimensions.margin_box().y + dimensions.margin_box().height;
+        return LayoutBox {
+            node_id,
+            box_type: BoxType::Block,
+            kind: LayoutKind::Element(element.tag_name.clone()),
+            dimensions,
+            style,
+            children,
+        };
+    }
+
+    // Tables use the table algorithm (see table.rs).
+    if element.tag_name == "table" {
+        let (children, used_height) = crate::table::layout_table_children(
+            document,
+            styles,
+            node_id,
+            &style,
+            content_x,
+            content_y,
+            content_width,
+            viewport,
+            measurer,
+            images,
+        );
+        // Shrink-to-fit: an auto-width table hugs its columns.
+        let used_width = children
+            .iter()
+            .map(|child| child.margin_box().x + child.margin_box().width - content_x)
+            .fold(0.0f32, f32::max)
+            + style.gap.max(2.0);
+        let table_width = if matches!(style.width, Dimension::Auto) {
+            used_width.min(content_width)
+        } else {
+            content_width
+        };
+        let content_height = explicit_content_height.unwrap_or(used_height);
+        let dimensions = Dimensions {
+            content: Rect {
+                x: content_x,
+                y: content_y,
+                width: table_width,
                 height: content_height,
             },
             padding,
@@ -2256,6 +2314,48 @@ mod tests {
         // The image fragment is 30 wide and lifts the line to 20 tall.
         assert_eq!(lines[0].fragments[1].width, 30.0);
         assert!(lines[0].height >= 20.0);
+    }
+
+    #[test]
+    fn tables_lay_out_columns_and_rows() {
+        let layout = layout_of(
+            "<style>td { padding: 0; } table { gap: 0px; }</style>\
+             <table>\
+             <tr><td style='width: 100px; height: 10px;'>a</td>\
+                 <td style='width: 50px; height: 10px;'>b</td></tr>\
+             <tr><td style='height: 20px;'>c</td><td style='height: 20px;'>d</td></tr>\
+             </table>",
+        );
+        let table = &layout.children[0];
+        assert_eq!(table.children.len(), 4);
+        let cell = |index: usize| table.children[index].border_box();
+        // Columns align across rows (spacing floor is 2px).
+        assert_eq!(cell(0).x, cell(2).x);
+        assert_eq!(cell(1).x, cell(3).x);
+        assert!(cell(1).x >= cell(0).x + 100.0);
+        // Second row sits below the first.
+        assert!(cell(2).y > cell(0).y);
+        // Rows share heights: cells 2 and 3 on one line.
+        assert_eq!(cell(2).y, cell(3).y);
+    }
+
+    #[test]
+    fn colspan_spans_columns() {
+        let layout = layout_of(
+            "<table>\
+             <tr><td colspan='2' style='height: 5px;'>wide</td></tr>\
+             <tr><td style='width: 60px; height: 5px;'>a</td>\
+                 <td style='width: 40px; height: 5px;'>b</td></tr>\
+             </table>",
+        );
+        let table = &layout.children[0];
+        let wide = table.children[0].border_box();
+        let a = table.children[1].border_box();
+        let b = table.children[2].border_box();
+        // The spanning cell covers both columns.
+        assert!((wide.width - (a.width + b.width + 2.0)).abs() < 1.0);
+        assert_eq!(wide.x, a.x);
+        assert!(b.x > a.x);
     }
 
     #[test]

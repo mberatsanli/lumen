@@ -15,6 +15,7 @@ pub mod raster;
 pub mod selection;
 pub mod style;
 pub mod svg;
+mod table;
 pub mod text;
 
 pub use font::SystemFont;

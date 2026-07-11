@@ -815,6 +815,8 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             pre { white-space: pre; font-family: monospace; margin-top: 8px; margin-bottom: 8px; }
             code, kbd, samp, tt { font-family: monospace; font-size: 0.875em; }
             center { text-align: center; }
+            td, th { padding: 2px 4px; }
+            th { font-weight: 700; text-align: center; }
             sub { vertical-align: sub; font-size: 0.8em; }
             sup { vertical-align: super; font-size: 0.8em; }
             input, select, textarea, button { border: 1px solid #767676; border-radius: 3px;

@@ -148,6 +148,11 @@
     .sel-title + p { font-style: italic; }
     a[href^="https"] { color: #7a3d9e; }
 
+    /* --- tables ---------------------------------------------------------- */
+    .demo-table td, .demo-table th { border: 1px solid #cbbf9e; padding: 4px 8px;
+                                     background-color: #faf7ee; }
+    .demo-table th { background-color: #efe7d2; }
+
     /* --- text edges & alignment -------------------------------------------- */
     .ellip { width: 260px; white-space: nowrap; overflow: hidden;
              text-overflow: ellipsis; background-color: #f4f1ea; padding: 4px; }
@@ -316,6 +321,17 @@
     </div>
     <p>Secure links go purple: <a href="https://example.com">https link</a>
        vs <a href="http://example.com">http link</a>.</p>
+  </div>
+
+  <div class="section">
+    <h2>Tables</h2>
+    <table class="demo-table">
+      <tr><th>Feature</th><th>State</th><th>Note</th></tr>
+      <tr><td>Columns</td><td>auto</td><td>widest cell wins</td></tr>
+      <tr><td colspan="2">colspan spans two columns</td><td>ok</td></tr>
+      <tr><td rowspan="2">rowspan</td><td>row A</td><td>right</td></tr>
+      <tr><td>row B</td><td>below</td></tr>
+    </table>
   </div>
 
   <div class="section">
