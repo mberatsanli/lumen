@@ -1100,7 +1100,9 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             input { width: 170px; min-height: 1.1em; }
             input[type=submit], input[type=button], button { background-color: #ebebeb;
                 width: auto; padding: 3px 12px; }
-            input[type=checkbox], input[type=radio] { width: 12px; height: 12px; padding: 0; }
+            input[type=checkbox], input[type=radio] { width: 12px; height: 12px; padding: 0;
+                font-size: 10px; line-height: 12px; text-align: center; min-height: 0; }
+            input[type=radio] { border-radius: 7px; }
             input[type=hidden] { display: none; }
             select { width: auto; }
             textarea { width: 300px; height: 64px; }

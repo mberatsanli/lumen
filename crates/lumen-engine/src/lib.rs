@@ -166,7 +166,16 @@ fn materialize_form_values(document: &mut Document) {
             let kind = element.attributes.get("type").unwrap_or("text");
             let value = element.attributes.get("value");
             let text = match kind {
-                "hidden" | "checkbox" | "radio" => return None,
+                "hidden" => return None,
+                // Initially-checked checkables show their mark.
+                "checkbox" => element
+                    .attributes
+                    .contains("checked")
+                    .then_some("x".to_string())?,
+                "radio" => element
+                    .attributes
+                    .contains("checked")
+                    .then_some("\u{2022}".to_string())?,
                 "password" => "\u{2022}".repeat(value.map_or(0, str::len)),
                 "submit" => value.unwrap_or("Submit").to_string(),
                 "button" | "reset" => value.unwrap_or("").to_string(),

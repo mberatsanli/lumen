@@ -682,7 +682,8 @@ impl<L: ResourceLoader> Session<L> {
         })
     }
 
-    /// Writes ✕ marks into checked checkables as generated text.
+    /// Writes check marks into checked checkables as generated text
+    /// ("x" for checkboxes, "•" for radios — glyphs every font has).
     fn sync_check_marks(&mut self) {
         let Some(page) = self.page.as_mut() else {
             return;
@@ -693,8 +694,19 @@ impl<L: ResourceLoader> Session<L> {
             .map(|(node, checked)| (*node, *checked))
             .collect();
         for (node, checked) in nodes {
-            page.document
-                .upsert_generated_text(node, true, if checked { "✕" } else { "" });
+            let mark = if !checked {
+                ""
+            } else if page
+                .document
+                .element(node)
+                .and_then(|element| element.attributes.get("type"))
+                == Some("radio")
+            {
+                "\u{2022}"
+            } else {
+                "x"
+            };
+            page.document.upsert_generated_text(node, true, mark);
         }
     }
 
