@@ -71,6 +71,16 @@ pub enum DisplayCommand {
         /// The gradient geometry; the angle only applies to `Linear`.
         kind: GradientKind,
     },
+    /// A box shadow with a Gaussian falloff. `rect` is the shadow's own
+    /// box (offset and spread already applied); `blur` is the CSS blur
+    /// radius (≈ 2σ). Inset shadows shade inward from `rect` instead.
+    DrawShadow {
+        rect: Rect,
+        radius: Corners<f32>,
+        blur: f32,
+        color: Color,
+        inset: bool,
+    },
 }
 
 /// How a gradient sweeps its box.
@@ -144,39 +154,24 @@ fn paint_box(
         .clamped_to(border_box.width, border_box.height);
 
     // Outer box shadows paint under everything, last shadow first (the
-    // first of the list sits on top). Layered expanding fills fake the
-    // blur (each ring carries a share of the alpha).
+    // first of the list sits on top), with a real Gaussian falloff.
     if !anonymous && visible {
         for shadow in layout.style.box_shadows.iter().rev() {
             if shadow.inset {
                 continue; // Painted over the background below.
             }
-            let base = Rect {
-                x: border_box.x + shadow.offset_x - shadow.spread,
-                y: border_box.y + shadow.offset_y - shadow.spread,
-                width: border_box.width + 2.0 * shadow.spread,
-                height: border_box.height + 2.0 * shadow.spread,
-            };
-            let steps = if shadow.blur > 0.0 { 4 } else { 1 };
-            for step in (0..steps).rev() {
-                let expand = shadow.blur * (step as f32 + 1.0) / steps as f32;
-                let alpha_share = 1.0 / (steps as f32);
-                commands.push(DisplayCommand::FillRect {
-                    rect: Rect {
-                        x: base.x - expand,
-                        y: base.y - expand,
-                        width: base.width + 2.0 * expand,
-                        height: base.height + 2.0 * expand,
-                    },
-                    color: fade(shadow.color.with_alpha_factor(alpha_share)),
-                    radius: Corners {
-                        top_left: radius.top_left + expand,
-                        top_right: radius.top_right + expand,
-                        bottom_right: radius.bottom_right + expand,
-                        bottom_left: radius.bottom_left + expand,
-                    },
-                });
-            }
+            commands.push(DisplayCommand::DrawShadow {
+                rect: Rect {
+                    x: border_box.x + shadow.offset_x - shadow.spread,
+                    y: border_box.y + shadow.offset_y - shadow.spread,
+                    width: border_box.width + 2.0 * shadow.spread,
+                    height: border_box.height + 2.0 * shadow.spread,
+                },
+                radius,
+                blur: shadow.blur,
+                color: fade(shadow.color),
+                inset: false,
+            });
         }
     }
 
@@ -191,36 +186,25 @@ fn paint_box(
         });
     }
 
-    // Inset shadows shade inward from the box edge, over the background:
-    // layered frames with alpha shares approximate the falloff.
+    // Inset shadows shade inward from the box edge, over the background,
+    // with the same Gaussian falloff mirrored.
     if !anonymous && visible {
         for shadow in layout.style.box_shadows.iter().rev() {
             if !shadow.inset {
                 continue;
             }
-            let reach = (shadow.blur + shadow.spread).max(1.0);
-            let steps = 4;
-            for step in 0..steps {
-                let inset_by = reach * step as f32 / steps as f32;
-                let thickness = reach / steps as f32 + 1.0;
-                commands.push(DisplayCommand::StrokeRect {
-                    rect: Rect {
-                        x: border_box.x + shadow.offset_x.min(0.0) + inset_by,
-                        y: border_box.y + shadow.offset_y.min(0.0) + inset_by,
-                        width: (border_box.width - 2.0 * inset_by).max(0.0),
-                        height: (border_box.height - 2.0 * inset_by).max(0.0),
-                    },
-                    widths: EdgeSizes::uniform(thickness),
-                    colors: EdgeSizes::uniform(fade(
-                        shadow
-                            .color
-                            .with_alpha_factor(1.0 - step as f32 / steps as f32)
-                            .with_alpha_factor(0.4),
-                    )),
-                    styles: EdgeSizes::uniform(BorderStyle::Solid),
-                    radius,
-                });
-            }
+            commands.push(DisplayCommand::DrawShadow {
+                rect: Rect {
+                    x: border_box.x + shadow.offset_x + shadow.spread,
+                    y: border_box.y + shadow.offset_y + shadow.spread,
+                    width: (border_box.width - 2.0 * shadow.spread).max(0.0),
+                    height: (border_box.height - 2.0 * shadow.spread).max(0.0),
+                },
+                radius,
+                blur: shadow.blur,
+                color: fade(shadow.color),
+                inset: true,
+            });
         }
     }
 
@@ -578,6 +562,20 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
             DisplayCommand::PopClip => {
                 let _ = writeln!(output, "PopClip");
             }
+            DisplayCommand::DrawShadow {
+                rect,
+                blur,
+                color,
+                inset,
+                ..
+            } => {
+                let kind = if *inset { "inset" } else { "outer" };
+                let _ = writeln!(
+                    output,
+                    "DrawShadow {kind} x={} y={} w={} h={} blur={blur} color={color}",
+                    rect.x, rect.y, rect.width, rect.height
+                );
+            }
             DisplayCommand::FillGradient {
                 rect,
                 angle_degrees,
@@ -662,6 +660,7 @@ mod tests {
                 DisplayCommand::PushClip { .. } => "push-clip",
                 DisplayCommand::PopClip => "pop-clip",
                 DisplayCommand::FillGradient { .. } => "gradient",
+                DisplayCommand::DrawShadow { .. } => "shadow",
             })
             .collect();
         assert_eq!(kinds, vec!["fill", "stroke", "text"]);
@@ -835,26 +834,40 @@ mod tests {
     }
 
     #[test]
-    fn box_shadow_paints_layered_fills_under_the_box() {
+    fn box_shadows_emit_gaussian_shadow_commands() {
         let list = commands(
             "<style>div { box-shadow: 5px 5px 8px #000000, 0 0 4px #ff0000; \
                           background-color: #ffffff; width: 50px; height: 20px; }</style>\
              <div></div>",
         );
-        let fills: Vec<&Rect> = list
+        let shadows: Vec<(&Rect, f32)> = list
             .iter()
             .filter_map(|command| match command {
-                DisplayCommand::FillRect { rect, color, .. } if color.a < 255 => Some(rect),
+                DisplayCommand::DrawShadow { rect, blur, .. } => Some((rect, *blur)),
                 _ => None,
             })
             .collect();
-        assert_eq!(fills.len(), 8, "expected 4 blur layers per shadow");
-        // The largest layer of the last shadow paints first.
-        assert!(fills[0].x < 0.0 && fills[0].width > 50.0);
+        assert_eq!(shadows.len(), 2);
+        // Last shadow of the list paints first; the first sits on top.
+        assert_eq!(shadows[0].1, 4.0);
+        assert_eq!(shadows[1].1, 8.0);
+        assert_eq!((shadows[1].0.x, shadows[1].0.y), (5.0, 5.0));
+        // The shadow paints before the background fill.
+        let shadow_at = list
+            .iter()
+            .position(|command| matches!(command, DisplayCommand::DrawShadow { .. }))
+            .unwrap();
+        let fill_at = list
+            .iter()
+            .position(|command| {
+                matches!(command, DisplayCommand::FillRect { color, .. } if color.a == 255)
+            })
+            .unwrap();
+        assert!(shadow_at < fill_at);
     }
 
     #[test]
-    fn inset_shadows_stroke_inside_after_the_background() {
+    fn inset_shadows_paint_over_the_background() {
         let list = commands(
             "<style>div { box-shadow: inset 0 0 6px #000000; background-color: #ffffff; \
                           width: 50px; height: 30px; }</style><div></div>",
@@ -865,16 +878,11 @@ mod tests {
                 matches!(command, DisplayCommand::FillRect { color, .. } if color.a == 255)
             })
             .unwrap();
-        let first_ring = list
+        let shadow = list
             .iter()
-            .position(|command| matches!(command, DisplayCommand::StrokeRect { .. }))
+            .position(|command| matches!(command, DisplayCommand::DrawShadow { inset: true, .. }))
             .unwrap();
-        assert!(first_ring > background, "inset rings paint over the fill");
-        let rings = list
-            .iter()
-            .filter(|command| matches!(command, DisplayCommand::StrokeRect { .. }))
-            .count();
-        assert_eq!(rings, 4);
+        assert!(shadow > background, "inset shades over the fill");
     }
 
     #[test]

@@ -199,27 +199,9 @@
 <radialGradient id="gradient0" cx="0.5" cy="0.5" r="0.5"><stop offset="0.0000" stop-color="#b3261e"/><stop offset="0.3333" stop-color="#f5c518"/><stop offset="0.6667" stop-color="#1a6b3c"/><stop offset="1.0000" stop-color="#b3261e"/></radialGradient>
 <path d="M 222.00002 2762.9595 H 222.00002 A 30 30 0 0 1 252.00002 2792.9595 V 2792.9595 A 30 30 0 0 1 222.00002 2822.9595 H 222.00002 A 30 30 0 0 1 192.00002 2792.9595 V 2792.9595 A 30 30 0 0 1 222.00002 2762.9595 Z" fill="url(#gradient0)"/>
 <text x="192.00002" y="2846.9595" fill="#808080" font-family="system-ui, sans-serif" font-size="16" font-weight="400">↑ conic-gradient wheel.</text>
-<path d="M 196.00002 2859.3594 H 836 A 6 6 0 0 1 842 2865.3594 V 2923.7593 A 6 6 0 0 1 836 2929.7593 H 196.00002 A 6 6 0 0 1 190.00002 2923.7593 V 2865.3594 A 6 6 0 0 1 196.00002 2859.3594 Z" fill="rgba(0,0,0,0.082)"/>
-<path d="M 196.00002 2860.8594 H 836 A 4.5 4.5 0 0 1 840.5 2865.3594 V 2923.7593 A 4.5 4.5 0 0 1 836 2928.2593 H 196.00002 A 4.5 4.5 0 0 1 191.50002 2923.7593 V 2865.3594 A 4.5 4.5 0 0 1 196.00002 2860.8594 Z" fill="rgba(0,0,0,0.082)"/>
-<path d="M 196.00002 2862.3594 H 836 A 3 3 0 0 1 839 2865.3594 V 2923.7593 A 3 3 0 0 1 836 2926.7593 H 196.00002 A 3 3 0 0 1 193.00002 2923.7593 V 2865.3594 A 3 3 0 0 1 196.00002 2862.3594 Z" fill="rgba(0,0,0,0.082)"/>
-<path d="M 196.00002 2863.8594 H 836 A 1.5 1.5 0 0 1 837.5 2865.3594 V 2923.7593 A 1.5 1.5 0 0 1 836 2925.2593 H 196.00002 A 1.5 1.5 0 0 1 194.50002 2923.7593 V 2865.3594 A 1.5 1.5 0 0 1 196.00002 2863.8594 Z" fill="rgba(0,0,0,0.082)"/>
+<filter id="shadow0" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3.000"/></filter><rect x="196.00002" y="2865.3594" width="640" height="58.399902" fill="rgba(0,0,0,0.333)" filter="url(#shadow0)"/>
 <rect x="192.00002" y="2861.3594" width="640" height="58.399902" fill="#ffffff"/>
-<rect x="192.00002" y="2861.3594" width="640" height="3.5" fill="rgba(0,0,0,0.212)"/>
-<rect x="828.5" y="2861.3594" width="3.5" height="58.399902" fill="rgba(0,0,0,0.212)"/>
-<rect x="192.00002" y="2916.2593" width="640" height="3.5" fill="rgba(0,0,0,0.212)"/>
-<rect x="192.00002" y="2861.3594" width="3.5" height="58.399902" fill="rgba(0,0,0,0.212)"/>
-<rect x="194.50002" y="2863.8594" width="635" height="3.5" fill="rgba(0,0,0,0.157)"/>
-<rect x="826" y="2863.8594" width="3.5" height="53.399902" fill="rgba(0,0,0,0.157)"/>
-<rect x="194.50002" y="2913.7593" width="635" height="3.5" fill="rgba(0,0,0,0.157)"/>
-<rect x="194.50002" y="2863.8594" width="3.5" height="53.399902" fill="rgba(0,0,0,0.157)"/>
-<rect x="197.00002" y="2866.3594" width="630" height="3.5" fill="rgba(0,0,0,0.106)"/>
-<rect x="823.5" y="2866.3594" width="3.5" height="48.399902" fill="rgba(0,0,0,0.106)"/>
-<rect x="197.00002" y="2911.2593" width="630" height="3.5" fill="rgba(0,0,0,0.106)"/>
-<rect x="197.00002" y="2866.3594" width="3.5" height="48.399902" fill="rgba(0,0,0,0.106)"/>
-<rect x="199.50002" y="2868.8594" width="625" height="3.5" fill="rgba(0,0,0,0.051)"/>
-<rect x="821" y="2868.8594" width="3.5" height="43.399902" fill="rgba(0,0,0,0.051)"/>
-<rect x="199.50002" y="2908.7593" width="625" height="3.5" fill="rgba(0,0,0,0.051)"/>
-<rect x="199.50002" y="2868.8594" width="3.5" height="43.399902" fill="rgba(0,0,0,0.051)"/>
+<filter id="shadow1" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5.000"/></filter><clipPath id="shadowclip1"><rect x="192.00002" y="2861.3594" width="640" height="58.399902"/></clipPath><g clip-path="url(#shadowclip1)"><rect x="192.00002" y="2861.3594" width="640" height="58.399902" fill="none" stroke="rgba(0,0,0,0.533)" stroke-width="10" filter="url(#shadow1)"/></g>
 <text x="202.00002" y="2895.3594" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">inset + outer shadow combined.</text>
 <rect x="175.00002" y="2952.7593" width="674" height="235.1997" fill="#ffffff"/>
 <rect x="175.00002" y="2952.7593" width="674" height="1" fill="#d9d4c7"/>
@@ -227,10 +209,7 @@
 <rect x="175.00002" y="3186.959" width="674" height="1" fill="#d9d4c7"/>
 <rect x="175.00002" y="2952.7593" width="1" height="235.1997" fill="#d9d4c7"/>
 <text x="192.00002" y="2989.7593" fill="#232019" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Shadows, outlines &amp; visibility</text>
-<path d="M 206.00002 3001.7593 H 830 A 20 20 0 0 1 850 3021.7593 V 3068.1592 A 20 20 0 0 1 830 3088.1592 H 206.00002 A 20 20 0 0 1 186.00002 3068.1592 V 3021.7593 A 20 20 0 0 1 206.00002 3001.7593 Z" fill="rgba(0,0,0,0.098)"/>
-<path d="M 206.00002 3004.7593 H 830 A 17 17 0 0 1 847 3021.7593 V 3068.1592 A 17 17 0 0 1 830 3085.1592 H 206.00002 A 17 17 0 0 1 189.00002 3068.1592 V 3021.7593 A 17 17 0 0 1 206.00002 3004.7593 Z" fill="rgba(0,0,0,0.098)"/>
-<path d="M 206.00002 3007.7593 H 830 A 14 14 0 0 1 844 3021.7593 V 3068.1592 A 14 14 0 0 1 830 3082.1592 H 206.00002 A 14 14 0 0 1 192.00002 3068.1592 V 3021.7593 A 14 14 0 0 1 206.00002 3007.7593 Z" fill="rgba(0,0,0,0.098)"/>
-<path d="M 206.00002 3010.7593 H 830 A 11 11 0 0 1 841 3021.7593 V 3068.1592 A 11 11 0 0 1 830 3079.1592 H 206.00002 A 11 11 0 0 1 195.00002 3068.1592 V 3021.7593 A 11 11 0 0 1 206.00002 3010.7593 Z" fill="rgba(0,0,0,0.098)"/>
+<filter id="shadow2" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6.000"/></filter><path d="M 206.00002 3013.7593 H 830 A 8 8 0 0 1 838 3021.7593 V 3068.1592 A 8 8 0 0 1 830 3076.1592 H 206.00002 A 8 8 0 0 1 198.00002 3068.1592 V 3021.7593 A 8 8 0 0 1 206.00002 3013.7593 Z" fill="rgba(0,0,0,0.400)" filter="url(#shadow2)"/>
 <path d="M 200.00002 3007.7593 H 824 A 8 8 0 0 1 832 3015.7593 V 3062.1592 A 8 8 0 0 1 824 3070.1592 H 200.00002 A 8 8 0 0 1 192.00002 3062.1592 V 3015.7593 A 8 8 0 0 1 200.00002 3007.7593 Z" fill="#ffffff"/>
 <text x="204.00002" y="3043.7593" fill="#3a362c" font-family="system-ui, sans-serif" font-size="16" font-weight="400">box-shadow with blur under a rounded card.</text>
 <rect x="200.00002" y="3078.1592" width="624" height="54.399902" fill="#f4f1ea"/>

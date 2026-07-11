@@ -17,8 +17,60 @@ pub fn render_svg(page: &Page) -> String {
 
     let mut clip_id = 0usize;
     let mut gradient_id = 0usize;
+    let mut shadow_id = 0usize;
     for command in &page.display_list {
         match command {
+            DisplayCommand::DrawShadow {
+                rect,
+                radius,
+                blur,
+                color,
+                inset,
+            } => {
+                // Native Gaussian blur; inset approximated as an outer
+                // blur clipped to the box.
+                let sigma = blur / 2.0;
+                let _ = write!(
+                    svg,
+                    "<filter id=\"shadow{shadow_id}\" x=\"-50%\" y=\"-50%\" width=\"200%\" height=\"200%\"><feGaussianBlur stdDeviation=\"{sigma:.3}\"/></filter>"
+                );
+                let shape = if radius.is_zero() {
+                    format!(
+                        "x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"",
+                        rect.x, rect.y, rect.width, rect.height
+                    )
+                } else {
+                    String::new()
+                };
+                if *inset {
+                    let _ = write!(
+                        svg,
+                        "<clipPath id=\"shadowclip{shadow_id}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/></clipPath><g clip-path=\"url(#shadowclip{shadow_id})\">",
+                        rect.x, rect.y, rect.width, rect.height,
+                    );
+                    let _ = writeln!(
+                        svg,
+                        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"{}\" filter=\"url(#shadow{shadow_id})\"/></g>",
+                        rect.x,
+                        rect.y,
+                        rect.width,
+                        rect.height,
+                        blur.max(1.0),
+                    );
+                } else if radius.is_zero() {
+                    let _ = writeln!(
+                        svg,
+                        "<rect {shape} fill=\"{color}\" filter=\"url(#shadow{shadow_id})\"/>"
+                    );
+                } else {
+                    let _ = writeln!(
+                        svg,
+                        "<path d=\"{}\" fill=\"{color}\" filter=\"url(#shadow{shadow_id})\"/>",
+                        rounded_rect_path(rect, radius)
+                    );
+                }
+                shadow_id += 1;
+            }
             DisplayCommand::FillGradient {
                 rect,
                 radius,

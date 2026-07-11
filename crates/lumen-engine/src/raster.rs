@@ -218,6 +218,22 @@ fn rasterize_clipped(
                 framebuffer.clip = clips.last().copied();
                 continue;
             }
+            DisplayCommand::DrawShadow {
+                rect,
+                radius,
+                blur,
+                color,
+                inset,
+            } => {
+                draw_shadow(
+                    framebuffer,
+                    &shift(rect),
+                    &scale_radius(radius, scale),
+                    blur * scale,
+                    *color,
+                    *inset,
+                );
+            }
             DisplayCommand::FillGradient {
                 rect,
                 radius,
@@ -729,6 +745,101 @@ fn gradient_color_at(stops: &[(Color, f32)], progress: f32) -> Color {
     stops[stops.len() - 1].0
 }
 
+/// Abramowitz–Stegun approximation of the error function (max error
+/// ~2.5e-5) — the building block of analytic Gaussian box shadows.
+#[allow(clippy::excessive_precision)]
+fn erf(x: f32) -> f32 {
+    let sign = x.signum();
+    let x = x.abs();
+    let t = 1.0 / (1.0 + 0.327_591_1 * x);
+    let y = 1.0
+        - (((((1.061_405_429 * t - 1.453_152_027) * t) + 1.421_413_741) * t - 0.284_496_736) * t
+            + 0.254_829_592)
+            * t
+            * (-x * x).exp();
+    sign * y
+}
+
+/// Gaussian coverage of an axis-aligned box at a point: the separable
+/// product of two erf integrals (Evan Wallace's analytic shadow — exact
+/// for square boxes, a good approximation near rounded corners).
+fn gaussian_box_coverage(rect: &Rect, sigma: f32, px: f32, py: f32) -> f32 {
+    let denominator = sigma * std::f32::consts::SQRT_2;
+    let x =
+        0.5 * (erf((px - rect.x) / denominator) - erf((px - (rect.x + rect.width)) / denominator));
+    let y =
+        0.5 * (erf((py - rect.y) / denominator) - erf((py - (rect.y + rect.height)) / denominator));
+    (x * y).clamp(0.0, 1.0)
+}
+
+/// Rasterizes a box shadow with a true Gaussian falloff. CSS blur radius
+/// ≈ 2σ. Outer shadows shade `coverage`, inset shadows its complement
+/// clipped to the box.
+fn draw_shadow(
+    framebuffer: &mut Framebuffer,
+    rect: &Rect,
+    radius: &Corners<f32>,
+    blur: f32,
+    color: Color,
+    inset: bool,
+) {
+    let sigma = (blur / 2.0).max(0.01);
+    let reach = if inset { 0.0 } else { blur.max(1.0) * 1.5 };
+    let x0 = ((rect.x - reach).floor().max(0.0)) as u32;
+    let y0 = ((rect.y - reach).floor().max(0.0)) as u32;
+    let x1 = (((rect.x + rect.width + reach).ceil()).max(0.0) as u32).min(framebuffer.width);
+    let y1 = (((rect.y + rect.height + reach).ceil()).max(0.0) as u32).min(framebuffer.height);
+    let rounded = !radius.is_zero();
+    let packed = pack(color);
+    for pixel_y in y0..y1 {
+        for pixel_x in x0..x1 {
+            if !framebuffer.admits(pixel_x, pixel_y) {
+                continue;
+            }
+            let (px, py) = (pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
+            let coverage = if blur <= 0.0 {
+                // Hard shadow: plain (rounded) box coverage.
+                if rounded {
+                    rounded_coverage(rect, radius, px, py)
+                } else if px >= rect.x
+                    && px < rect.x + rect.width
+                    && py >= rect.y
+                    && py < rect.y + rect.height
+                {
+                    1.0
+                } else {
+                    0.0
+                }
+            } else {
+                gaussian_box_coverage(rect, sigma, px, py)
+            };
+            let coverage = if inset {
+                // Inset: the complement, clipped to the box itself.
+                let inside = if rounded {
+                    rounded_coverage(rect, radius, px, py)
+                } else if px >= rect.x
+                    && px < rect.x + rect.width
+                    && py >= rect.y
+                    && py < rect.y + rect.height
+                {
+                    1.0
+                } else {
+                    0.0
+                };
+                (1.0 - coverage) * inside
+            } else {
+                coverage
+            };
+            let alpha = (f32::from(color.a) * coverage) as u8;
+            if alpha == 0 {
+                continue;
+            }
+            let position = (pixel_y * framebuffer.width + pixel_x) as usize;
+            framebuffer.pixels[position] = blend(framebuffer.pixels[position], packed, alpha);
+        }
+    }
+}
+
 fn scale_radius(radius: &Corners<f32>, scale: f32) -> Corners<f32> {
     Corners {
         top_left: radius.top_left * scale,
@@ -1031,6 +1142,36 @@ mod tests {
         ];
         let framebuffer = rasterize(&commands, 10, 10, 0.0);
         assert_eq!(framebuffer.pixel(5, 5), 0x00ff_ffff);
+    }
+
+    #[test]
+    fn shadows_fall_off_smoothly() {
+        let commands = vec![DisplayCommand::DrawShadow {
+            rect: Rect {
+                x: 20.0,
+                y: 20.0,
+                width: 20.0,
+                height: 20.0,
+            },
+            radius: Corners::uniform(0.0),
+            blur: 12.0,
+            color: Color::rgb(0, 0, 0),
+            inset: false,
+        }];
+        let framebuffer = rasterize(&commands, 60, 60, 0.0);
+        // Sampling outward from the center: strictly darker → lighter,
+        // with no repeated banding plateaus near the edge.
+        let samples: Vec<u32> = (0..12)
+            .map(|step| framebuffer.pixel(30 + step * 2, 30) & 0xff)
+            .collect();
+        for pair in samples.windows(2) {
+            assert!(pair[0] <= pair[1], "{samples:?}");
+        }
+        assert!(samples[0] < 60, "center dark: {samples:?}");
+        assert!(
+            *samples.last().unwrap() > 240,
+            "far edge light: {samples:?}"
+        );
     }
 
     #[test]
