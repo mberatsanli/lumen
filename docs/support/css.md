@@ -94,7 +94,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `box-sizing` | ✅ | ✅ | ✅ | ✅ | border-box and content-box |
 | `outline` | ⚠️ | ✅ | ✅ | ✅ | width/style/color outside the border box; no offset, square corners |
 | `box-shadow` | ⚠️ | ✅ | ✅ | ✅ | full comma lists incl. inset; blur faked with 4 layered alpha rings (inset as inward frames) |
-| Margin collapsing | ⚠️ | ✅ | ✅ | ✅ | sibling + parent/first-child top; no bottom parent-child, no empty-block collapse-through |
+| Margin collapsing | ⚠️ | ✅ | ✅ | ✅ | siblings, parent/first-child top, parent/last-child bottom, empty blocks collapse through; not at the root flow |
 
 ## Layout
 
@@ -108,10 +108,10 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Grid | ❌ | ✅ | ✅ | ✅ | |
 | Table layout | ❌ | ✅ | ✅ | ✅ | tables flow as plain blocks |
 | `display: list-item` | ❌ | ✅ | ✅ | ✅ | no markers |
-| `position` + offsets + `z-index` | ⚠️ | ✅ | ✅ | ✅ | relative/absolute/fixed; containing block = parent content box (not nearest positioned ancestor); absolute `bottom` unsupported; fixed scrolls with the page; z-index = simple sort, no stacking contexts |
+| `position` + offsets + `z-index` | ⚠️ | ✅ | ✅ | ✅ | relative/absolute/fixed; containing block = nearest positioned ancestor (viewport at root); absolute `bottom` works under explicit heights; fixed scrolls with the page; z-index = sibling sort, no full stacking contexts |
 | `float` / `clear` | ⚠️ | ✅ | ✅ | ✅ | simplified: floats narrow inline lines in the same container only; block siblings ignore floats except clear |
 | `overflow` | ⚠️ | ✅ | ✅ | ✅ | hidden/scroll/auto/clip all clip to the padding box at paint time; no inner scrolling; hit testing unclipped |
-| `vertical-align` | ❌ | ✅ | ✅ | ✅ | |
+| `vertical-align` | ⚠️ | ✅ | ✅ | ✅ | baseline/top/middle/bottom/sub/super on inline boxes and text; treated as inherited (deviation) |
 | `direction: rtl` / writing modes | ❌ | ✅ | ✅ | ✅ | |
 | Multi-column | ❌ | ✅ | ✅ | ✅ | |
 | `aspect-ratio` | ⚠️ | ✅ | ✅ | ✅ | derives auto height from used width; no width-from-height |

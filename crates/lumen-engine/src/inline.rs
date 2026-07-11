@@ -8,7 +8,9 @@
 //! atomic boxes sitting bottom-on-baseline.
 
 use crate::layout::LayoutBox;
-use crate::style::{ComputedStyle, Display, StyleMap, TextAlign, TextTransform, WhiteSpace};
+use crate::style::{
+    ComputedStyle, Display, StyleMap, TextAlign, TextTransform, VerticalAlign, WhiteSpace,
+};
 use crate::text::{TextMeasurer, TextStyle};
 use lumen_html::{Document, NodeId, NodeKind};
 
@@ -34,6 +36,9 @@ pub struct Fragment {
     pub x: f32,
     pub width: f32,
     pub content: FragmentContent,
+    /// Vertical offset from the default (baseline) position, from
+    /// `vertical-align`.
+    pub dy: f32,
 }
 
 impl Fragment {
@@ -393,6 +398,7 @@ impl LineBuilder<'_> {
             node_id,
             x: self.pen_x + space_width,
             width,
+            dy: 0.0,
             content: FragmentContent::Box(Box::new(laid)),
         });
         self.pen_x += space_width + width;
@@ -422,6 +428,7 @@ impl LineBuilder<'_> {
                 node_id,
                 x: self.pen_x + space_width,
                 width: word_width,
+                dy: 0.0,
                 content: FragmentContent::Text {
                     text: word.to_string(),
                     style: Box::new(style),
@@ -482,6 +489,7 @@ impl LineBuilder<'_> {
                         node_id: fragment.node_id,
                         x: fragment.x,
                         width,
+                        dy: 0.0,
                         content: FragmentContent::Text {
                             text: cut,
                             style: style.clone(),
@@ -522,14 +530,36 @@ impl LineBuilder<'_> {
             };
         for fragment in &mut fragments {
             fragment.x += shift;
-            // Atomic boxes get their final absolute position now: baseline
-            // aligned, margin box flush with the fragment slot.
-            if let FragmentContent::Box(laid) = &mut fragment.content {
-                let margin_box = laid.margin_box();
-                let dx = self.origin.0 + fragment.x - margin_box.x;
-                let dy =
-                    self.origin.1 + self.cursor_y + baseline - margin_box.height - margin_box.y;
-                laid.translate(dx, dy);
+            match &mut fragment.content {
+                // Atomic boxes get their final absolute position now:
+                // baseline aligned by default, shifted by vertical-align.
+                FragmentContent::Box(laid) => {
+                    let margin_box = laid.margin_box();
+                    let box_height = margin_box.height;
+                    let default_top = baseline - box_height;
+                    let align = laid.style.vertical_align;
+                    let top = match align {
+                        VerticalAlign::Top => 0.0,
+                        VerticalAlign::Middle => (height - box_height) / 2.0,
+                        VerticalAlign::Bottom => height - box_height,
+                        _ => default_top,
+                    };
+                    let dx = self.origin.0 + fragment.x - margin_box.x;
+                    let dy = self.origin.1 + self.cursor_y + top - margin_box.y;
+                    laid.translate(dx, dy);
+                }
+                // Text fragments carry a baseline offset for painting.
+                FragmentContent::Text { style, .. } => {
+                    let ascent = style.font_size;
+                    fragment.dy = match style.vertical_align {
+                        VerticalAlign::Baseline => 0.0,
+                        VerticalAlign::Top => -(baseline - ascent),
+                        VerticalAlign::Middle => (height - ascent) / 2.0 - (baseline - ascent),
+                        VerticalAlign::Bottom => height - baseline,
+                        VerticalAlign::Sub => 0.25 * style.font_size,
+                        VerticalAlign::Super => -0.4 * style.font_size,
+                    };
+                }
             }
         }
 

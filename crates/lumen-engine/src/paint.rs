@@ -359,7 +359,7 @@ fn paint_box(
                     crate::inline::FragmentContent::Text { text, style } if style.visible => {
                         commands.push(DisplayCommand::DrawText {
                             x: content.x + fragment.x,
-                            y: content.y + line.y + line.baseline,
+                            y: content.y + line.y + line.baseline + fragment.dy,
                             text: text.clone(),
                             color: fade(style.color),
                             font_size: style.font_size,

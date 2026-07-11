@@ -2082,6 +2082,42 @@ mod tests {
     }
 
     #[test]
+    fn vertical_align_shifts_atomic_inlines_and_text() {
+        let layout = layout_of(
+            "<style>.line { line-height: 60px; }\
+                    .box { display: inline-block; width: 10px; height: 20px; }\
+                    .top { vertical-align: top; }\
+                    .mid { vertical-align: middle; }</style>\
+             <p class='line'>x <span class='box top'></span>\
+             <span class='box mid'></span> <sup>up</sup></p>",
+        );
+        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+            panic!("expected inline content");
+        };
+        let line = &lines[0];
+        let boxes: Vec<&crate::layout::LayoutBox> = line
+            .fragments
+            .iter()
+            .filter_map(|fragment| match &fragment.content {
+                FragmentContent::Box(laid) => Some(laid.as_ref()),
+                _ => None,
+            })
+            .collect();
+        let line_top = layout.children[0].children[0].content_box().y + line.y;
+        // top-aligned box sits at the line top.
+        assert_eq!(boxes[0].margin_box().y, line_top);
+        // middle-aligned box is centered in the 60px line.
+        assert_eq!(boxes[1].margin_box().y, line_top + 20.0);
+        // The sup text fragment carries a negative baseline shift.
+        let sup = line
+            .fragments
+            .iter()
+            .find(|fragment| fragment.text() == Some("up"))
+            .unwrap();
+        assert!(sup.dy < 0.0);
+    }
+
+    #[test]
     fn nowrap_keeps_text_on_one_line() {
         let layout = layout_of(
             "<style>div { width: 60px; white-space: nowrap; }</style>\

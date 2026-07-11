@@ -247,6 +247,9 @@ pub struct ComputedStyle {
     pub break_words: bool,
     /// `text-decoration: line-through` (inherited like underline).
     pub line_through: bool,
+    /// Approximated as inherited so text inside `<sup>`/aligned spans
+    /// picks it up (deviation, like text-decoration).
+    pub vertical_align: VerticalAlign,
     pub box_sizing: BoxSizing,
     pub float: Float,
     pub clear: Clear,
@@ -275,6 +278,20 @@ pub struct ComputedStyle {
     /// yet painted) text color.
     pub selection_background: Option<Color>,
     pub selection_color: Option<Color>,
+}
+
+/// `vertical-align` subset for inline-level content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VerticalAlign {
+    #[default]
+    Baseline,
+    Top,
+    Middle,
+    Bottom,
+    /// Baseline shifted down ~0.25em.
+    Sub,
+    /// Baseline shifted up ~0.4em.
+    Super,
 }
 
 /// `text-transform` subset.
@@ -509,6 +526,7 @@ impl Default for ComputedStyle {
             text_overflow_ellipsis: false,
             break_words: false,
             line_through: false,
+            vertical_align: VerticalAlign::Baseline,
             box_sizing: BoxSizing::default(),
             float: Float::None,
             clear: Clear::None,
@@ -671,9 +689,10 @@ pub struct PseudoText {
 /// painting*; treating it as inherited approximates that.)
 /// (`user-select` and `::selection` styling are treated as inherited —
 /// an approximation that matches how they behave in practice.)
-const INHERITED_PROPERTIES: [&str; 20] = [
+const INHERITED_PROPERTIES: [&str; 21] = [
     "color",
     "visibility",
+    "vertical-align",
     "word-break",
     "overflow-wrap",
     "word-wrap",
@@ -717,6 +736,8 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             pre { white-space: pre; font-family: monospace; margin-top: 8px; margin-bottom: 8px; }
             code, kbd, samp, tt { font-family: monospace; font-size: 0.875em; }
             center { text-align: center; }
+            sub { vertical-align: sub; font-size: 0.8em; }
+            sup { vertical-align: super; font-size: 0.8em; }
             input, select, textarea, button { border: 1px solid #767676; border-radius: 3px;
                 background-color: #ffffff; padding: 3px 8px; font-size: 13px; margin: 2px; }
             input { width: 170px; }
@@ -1738,6 +1759,15 @@ fn to_computed(
         Some("pre" | "pre-wrap" | "pre-line") => WhiteSpace::Pre,
         Some("nowrap") => WhiteSpace::Nowrap,
         _ => WhiteSpace::Normal,
+    };
+
+    style.vertical_align = match raw.get("vertical-align").and_then(CssValue::as_keyword) {
+        Some("top" | "text-top") => VerticalAlign::Top,
+        Some("middle") => VerticalAlign::Middle,
+        Some("bottom" | "text-bottom") => VerticalAlign::Bottom,
+        Some("sub") => VerticalAlign::Sub,
+        Some("super") => VerticalAlign::Super,
+        _ => VerticalAlign::Baseline,
     };
 
     style.text_transform = match raw.get("text-transform").and_then(CssValue::as_keyword) {
