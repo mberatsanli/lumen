@@ -2,7 +2,7 @@
 
 use crate::Page;
 use crate::geometry::{Corners, Rect};
-use crate::paint::DisplayCommand;
+use crate::paint::{DisplayCommand, GradientKind};
 use std::fmt::Write as _;
 
 /// Renders a page's display list to an SVG document string.
@@ -24,13 +24,15 @@ pub fn render_svg(page: &Page) -> String {
                 radius,
                 angle_degrees,
                 stops,
-                radial,
+                kind,
             } => {
                 // CSS angle (0 = up) to a unit direction, mapped onto the
                 // object bounding box (approximation for non-square boxes).
                 let radians = angle_degrees.to_radians();
                 let (dx, dy) = (radians.sin() / 2.0, -radians.cos() / 2.0);
-                if *radial {
+                // SVG has no conic gradient: conic falls back to radial
+                // (documented approximation; the raster backend is exact).
+                if *kind != GradientKind::Linear {
                     let _ = write!(
                         svg,
                         "<radialGradient id=\"gradient{gradient_id}\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\">",
@@ -51,7 +53,7 @@ pub fn render_svg(page: &Page) -> String {
                         "<stop offset=\"{position:.4}\" stop-color=\"{color}\"/>"
                     );
                 }
-                svg.push_str(if *radial {
+                svg.push_str(if *kind != GradientKind::Linear {
                     "</radialGradient>\n"
                 } else {
                     "</linearGradient>\n"

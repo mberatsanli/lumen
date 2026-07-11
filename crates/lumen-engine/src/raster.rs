@@ -8,7 +8,7 @@
 
 use crate::font::SystemFont;
 use crate::geometry::{Corners, Rect};
-use crate::paint::DisplayCommand;
+use crate::paint::{DisplayCommand, GradientKind};
 use font8x8::UnicodeFonts;
 use lumen_css::Color;
 
@@ -223,7 +223,7 @@ fn rasterize_clipped(
                 radius,
                 angle_degrees,
                 stops,
-                radial,
+                kind,
             } => {
                 fill_gradient(
                     framebuffer,
@@ -231,7 +231,7 @@ fn rasterize_clipped(
                     &scale_radius(radius, scale),
                     *angle_degrees,
                     stops,
-                    *radial,
+                    *kind,
                 );
             }
             DisplayCommand::FillRect {
@@ -640,7 +640,7 @@ fn fill_gradient(
     radius: &Corners<f32>,
     angle_degrees: f32,
     stops: &[(Color, f32)],
-    radial: bool,
+    kind: GradientKind,
 ) {
     if stops.is_empty() || rect.width <= 0.0 || rect.height <= 0.0 {
         return;
@@ -676,15 +676,23 @@ fn fill_gradient(
             if coverage <= 0.0 {
                 continue;
             }
-            let progress = if radial {
-                // Centered ellipse: normalized distance to the edge.
-                let nx = (px - center_x) / (rect.width / 2.0).max(f32::EPSILON);
-                let ny = (py - center_y) / (rect.height / 2.0).max(f32::EPSILON);
-                (nx * nx + ny * ny).sqrt().clamp(0.0, 1.0)
-            } else if line_length <= 0.0 {
-                0.0
-            } else {
-                (((px - center_x) * dx + (py - center_y) * dy) / line_length + 0.5).clamp(0.0, 1.0)
+            let progress = match kind {
+                GradientKind::Radial => {
+                    // Centered ellipse: normalized distance to the edge.
+                    let nx = (px - center_x) / (rect.width / 2.0).max(f32::EPSILON);
+                    let ny = (py - center_y) / (rect.height / 2.0).max(f32::EPSILON);
+                    (nx * nx + ny * ny).sqrt().clamp(0.0, 1.0)
+                }
+                GradientKind::Conic => {
+                    // Sweep angle, 0 at top, clockwise, normalized to a turn.
+                    let angle = (px - center_x).atan2(center_y - py);
+                    (angle / (2.0 * std::f32::consts::PI)).rem_euclid(1.0)
+                }
+                GradientKind::Linear if line_length <= 0.0 => 0.0,
+                GradientKind::Linear => {
+                    (((px - center_x) * dx + (py - center_y) * dy) / line_length + 0.5)
+                        .clamp(0.0, 1.0)
+                }
             };
             let color = gradient_color_at(stops, progress);
             let alpha = (f32::from(color.a) * coverage) as u8;
@@ -985,7 +993,7 @@ mod tests {
             radius: Corners::uniform(0.0),
             angle_degrees: 90.0, // to right
             stops: vec![(Color::rgb(0, 0, 0), 0.0), (Color::rgb(255, 255, 255), 1.0)],
-            radial: false,
+            kind: GradientKind::Linear,
         }];
         let framebuffer = rasterize(&commands, 10, 4, 0.0);
         let left = framebuffer.pixel(0, 2) & 0xff;
@@ -1023,6 +1031,29 @@ mod tests {
         ];
         let framebuffer = rasterize(&commands, 10, 10, 0.0);
         assert_eq!(framebuffer.pixel(5, 5), 0x00ff_ffff);
+    }
+
+    #[test]
+    fn conic_gradients_sweep_by_angle() {
+        let commands = vec![DisplayCommand::FillGradient {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 20.0,
+                height: 20.0,
+            },
+            radius: Corners::uniform(0.0),
+            angle_degrees: 0.0,
+            stops: vec![(Color::rgb(0, 0, 0), 0.0), (Color::rgb(255, 255, 255), 1.0)],
+            kind: GradientKind::Conic,
+        }];
+        let framebuffer = rasterize(&commands, 20, 20, 0.0);
+        // Just right of top-center: near the 0-turn start (dark).
+        let start = framebuffer.pixel(11, 2) & 0xff;
+        // Just left of top-center: near the full turn (light).
+        let end = framebuffer.pixel(9, 2) & 0xff;
+        assert!(start < 40, "{start}");
+        assert!(end > 215, "{end}");
     }
 
     #[test]

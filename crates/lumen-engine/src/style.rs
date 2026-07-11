@@ -199,7 +199,7 @@ pub struct ComputedStyle {
     pub background_repeat: (bool, bool),
     /// `visibility` (inherited): hidden boxes keep their space unpainted.
     pub visible: bool,
-    pub box_shadow: Option<BoxShadow>,
+    pub box_shadows: Vec<BoxShadow>,
     pub outline_width: f32,
     /// `None` = currentColor.
     pub outline_color: Option<Color>,
@@ -296,10 +296,11 @@ pub enum BackgroundImage {
     LinearGradient(LinearGradient),
     /// Center-anchored ellipse with normalized stops.
     RadialGradient(Vec<(Color, f32)>),
+    /// Center-anchored sweep (0 at top, clockwise) with normalized stops.
+    ConicGradient(Vec<(Color, f32)>),
 }
 
-/// One outer box shadow (`inset` and shadow lists collapse to the first
-/// outer shadow).
+/// One box shadow of a possibly comma-separated list.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BoxShadow {
     pub offset_x: f32,
@@ -307,6 +308,8 @@ pub struct BoxShadow {
     pub blur: f32,
     pub spread: f32,
     pub color: Color,
+    /// Shades inward from the box edge instead of dropping behind it.
+    pub inset: bool,
 }
 
 /// `background-size` subset.
@@ -376,7 +379,10 @@ fn parse_gradient_stops(parts: &[&str]) -> Option<Vec<(Color, f32)>> {
         let mut pieces = part.split_whitespace();
         let color = Color::parse(pieces.next()?)?;
         let position = match pieces.next() {
-            Some(position) => Some(position.strip_suffix('%')?.parse::<f32>().ok()? / 100.0),
+            Some(position) => Some(match position.strip_suffix('%') {
+                Some(percent) => percent.parse::<f32>().ok()? / 100.0,
+                None => position.strip_suffix("deg")?.parse::<f32>().ok()? / 360.0,
+            }),
             None => None,
         };
         stops.push((color, position));
@@ -471,7 +477,7 @@ impl Default for ComputedStyle {
             background_size: BackgroundSize::Auto,
             background_repeat: (true, true),
             visible: true,
-            box_shadow: None,
+            box_shadows: Vec::new(),
             outline_width: 0.0,
             outline_color: None,
             outline_style: BorderStyle::None,
@@ -1566,14 +1572,21 @@ fn to_computed(
         Some(CssValue::Function(name, arguments)) if name == "linear-gradient" => {
             parse_linear_gradient(arguments).map(BackgroundImage::LinearGradient)
         }
-        Some(CssValue::Function(name, arguments)) if name == "radial-gradient" => {
+        Some(CssValue::Function(name, arguments))
+            if name == "radial-gradient" || name == "conic-gradient" =>
+        {
             let parts = split_top_level_commas(arguments);
-            // An optional shape/position prelude is skipped (always
-            // rendered as a centered ellipse).
+            // An optional shape/position/from prelude is skipped (always
+            // rendered centered).
             let start = usize::from(
                 Color::parse(parts[0].split_whitespace().next().unwrap_or("")).is_none(),
             );
-            parse_gradient_stops(&parts[start..]).map(BackgroundImage::RadialGradient)
+            let stops = parse_gradient_stops(&parts[start..]);
+            if name == "radial-gradient" {
+                stops.map(BackgroundImage::RadialGradient)
+            } else {
+                stops.map(BackgroundImage::ConicGradient)
+            }
         }
         _ => None,
     };
@@ -1650,39 +1663,44 @@ fn to_computed(
         Some("hidden" | "collapse")
     );
 
-    // box-shadow: "x y [blur] [spread] color" — first outer shadow of a
-    // possibly comma-separated list; inset is unsupported and skipped.
-    style.box_shadow = raw.get("box-shadow").and_then(|value| {
-        let text = value.to_string();
-        let first = text.split(',').next()?;
-        if first.contains("inset") {
-            return None;
-        }
-        let mut lengths: Vec<f32> = Vec::new();
-        let mut color = None;
-        for piece in first.split_whitespace() {
-            match CssValue::parse_component(piece)? {
-                CssValue::Length(px, lumen_css::Unit::Px) => lengths.push(px),
-                CssValue::Length(em, lumen_css::Unit::Em) => {
-                    lengths.push(em * style.font_size);
-                }
-                CssValue::Number(number) => lengths.push(number),
-                CssValue::Color(parsed) => color = Some(parsed),
-                CssValue::Keyword(keyword) => color = Color::parse(&keyword),
-                _ => return None,
-            }
-        }
-        if lengths.len() < 2 {
-            return None;
-        }
-        Some(BoxShadow {
-            offset_x: lengths[0],
-            offset_y: lengths[1],
-            blur: lengths.get(2).copied().unwrap_or(0.0).max(0.0),
-            spread: lengths.get(3).copied().unwrap_or(0.0),
-            color: color.unwrap_or(Color::rgba(0, 0, 0, 100)),
+    // box-shadow: comma-separated "[inset] x y [blur] [spread] color".
+    style.box_shadows = raw
+        .get("box-shadow")
+        .map(|value| {
+            let text = value.to_string();
+            text.split(',')
+                .filter_map(|shadow| {
+                    let mut lengths: Vec<f32> = Vec::new();
+                    let mut color = None;
+                    let mut inset = false;
+                    for piece in shadow.split_whitespace() {
+                        if piece == "inset" {
+                            inset = true;
+                            continue;
+                        }
+                        match CssValue::parse_component(piece)? {
+                            CssValue::Length(px, lumen_css::Unit::Px) => lengths.push(px),
+                            CssValue::Length(em, lumen_css::Unit::Em) => {
+                                lengths.push(em * style.font_size);
+                            }
+                            CssValue::Number(number) => lengths.push(number),
+                            CssValue::Color(parsed) => color = Some(parsed),
+                            CssValue::Keyword(keyword) => color = Color::parse(&keyword),
+                            _ => return None,
+                        }
+                    }
+                    (lengths.len() >= 2).then(|| BoxShadow {
+                        offset_x: lengths[0],
+                        offset_y: lengths[1],
+                        blur: lengths.get(2).copied().unwrap_or(0.0).max(0.0),
+                        spread: lengths.get(3).copied().unwrap_or(0.0),
+                        color: color.unwrap_or(Color::rgba(0, 0, 0, 100)),
+                        inset,
+                    })
+                })
+                .collect()
         })
-    });
+        .unwrap_or_default();
 
     style.outline_width = raw
         .get("outline-width")

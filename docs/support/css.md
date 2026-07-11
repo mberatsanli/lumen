@@ -93,7 +93,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `border-radius` | ⚠️ | ✅ | ✅ | ✅ | 1–4 value shorthand + per-corner longhands (px/em); rounds background + border; rounded border ring is single color/width; no % radii, no elliptical, no overflow clipping |
 | `box-sizing` | ✅ | ✅ | ✅ | ✅ | border-box and content-box |
 | `outline` | ⚠️ | ✅ | ✅ | ✅ | width/style/color outside the border box; no offset, square corners |
-| `box-shadow` | ⚠️ | ✅ | ✅ | ✅ | first outer shadow; blur faked with 4 layered alpha rings; no inset/multiple |
+| `box-shadow` | ⚠️ | ✅ | ✅ | ✅ | full comma lists incl. inset; blur faked with 4 layered alpha rings (inset as inward frames) |
 | Margin collapsing | ⚠️ | ✅ | ✅ | ✅ | sibling + parent/first-child top; no bottom parent-child, no empty-block collapse-through |
 
 ## Layout
@@ -126,7 +126,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Body/root background → canvas | ✅ | ✅ | ✅ | ✅ | |
 | `background-image: url()` | ⚠️ | ✅ | ✅ | ✅ | position/size (auto/cover/contain/lengths)/repeat honored, clipped to the border box; shares the 32-image page cap |
 | `linear-gradient()` | ⚠️ | ✅ | ✅ | ✅ | angles + to-side/corner, %-positioned stops; no repeating, no interpolation hints |
-| `radial-gradient()` / `conic-gradient()` | ⚠️ | ✅ | ✅ | ✅ | radial as a centered ellipse (shape/position prelude ignored); no conic |
+| `radial-gradient()` / `conic-gradient()` | ⚠️ | ✅ | ✅ | ✅ | both centered (preludes ignored); conic exact in raster, radial fallback in SVG; deg stop positions supported |
 | position/size/repeat/attachment/clip | ⚠️ | ✅ | ✅ | ✅ | position (keywords/lengths/%), size (auto/cover/contain/lengths), repeat/no-repeat/-x/-y; no attachment/clip |
 | Multiple backgrounds | ❌ | ✅ | ✅ | ✅ | |
 

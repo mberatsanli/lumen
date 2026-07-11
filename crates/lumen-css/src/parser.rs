@@ -341,9 +341,9 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
             expand_font_shorthand(value, &mut declarations, important);
             continue;
         }
-        // aspect-ratio keeps its raw text ("16 / 9" would not survive
-        // component parsing).
-        if name == "aspect-ratio" {
+        // aspect-ratio and box-shadow keep their raw text ("16 / 9" and
+        // shadow commas would not survive component parsing).
+        if name == "aspect-ratio" || name == "box-shadow" {
             declarations.push(Declaration {
                 name,
                 value: CssValue::Keyword(value.trim().to_string()),
@@ -580,7 +580,7 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
                 }
             }
         }
-        "box-shadow" | "background-position" | "background-size" => {
+        "background-position" | "background-size" => {
             let text = components
                 .iter()
                 .map(ToString::to_string)

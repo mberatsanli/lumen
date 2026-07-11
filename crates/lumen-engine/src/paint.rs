@@ -68,9 +68,19 @@ pub enum DisplayCommand {
         radius: Corners<f32>,
         angle_degrees: f32,
         stops: Vec<(Color, f32)>,
-        /// Radial (centered ellipse) instead of linear; angle ignored.
-        radial: bool,
+        /// The gradient geometry; the angle only applies to `Linear`.
+        kind: GradientKind,
     },
+}
+
+/// How a gradient sweeps its box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GradientKind {
+    Linear,
+    /// Centered ellipse.
+    Radial,
+    /// Centered sweep, 0 at top, clockwise.
+    Conic,
 }
 
 /// Flattens the layout tree into an ordered list of paint commands.
@@ -133,37 +143,40 @@ fn paint_box(
         .border_radius
         .clamped_to(border_box.width, border_box.height);
 
-    // Box shadow paints under everything: layered expanding fills fake
-    // the blur (each ring carries a share of the alpha).
-    if !anonymous
-        && visible
-        && let Some(shadow) = &layout.style.box_shadow
-    {
-        let base = Rect {
-            x: border_box.x + shadow.offset_x - shadow.spread,
-            y: border_box.y + shadow.offset_y - shadow.spread,
-            width: border_box.width + 2.0 * shadow.spread,
-            height: border_box.height + 2.0 * shadow.spread,
-        };
-        let steps = if shadow.blur > 0.0 { 4 } else { 1 };
-        for step in (0..steps).rev() {
-            let expand = shadow.blur * (step as f32 + 1.0) / steps as f32;
-            let alpha_share = 1.0 / (steps as f32);
-            commands.push(DisplayCommand::FillRect {
-                rect: Rect {
-                    x: base.x - expand,
-                    y: base.y - expand,
-                    width: base.width + 2.0 * expand,
-                    height: base.height + 2.0 * expand,
-                },
-                color: fade(shadow.color.with_alpha_factor(alpha_share)),
-                radius: Corners {
-                    top_left: radius.top_left + expand,
-                    top_right: radius.top_right + expand,
-                    bottom_right: radius.bottom_right + expand,
-                    bottom_left: radius.bottom_left + expand,
-                },
-            });
+    // Outer box shadows paint under everything, last shadow first (the
+    // first of the list sits on top). Layered expanding fills fake the
+    // blur (each ring carries a share of the alpha).
+    if !anonymous && visible {
+        for shadow in layout.style.box_shadows.iter().rev() {
+            if shadow.inset {
+                continue; // Painted over the background below.
+            }
+            let base = Rect {
+                x: border_box.x + shadow.offset_x - shadow.spread,
+                y: border_box.y + shadow.offset_y - shadow.spread,
+                width: border_box.width + 2.0 * shadow.spread,
+                height: border_box.height + 2.0 * shadow.spread,
+            };
+            let steps = if shadow.blur > 0.0 { 4 } else { 1 };
+            for step in (0..steps).rev() {
+                let expand = shadow.blur * (step as f32 + 1.0) / steps as f32;
+                let alpha_share = 1.0 / (steps as f32);
+                commands.push(DisplayCommand::FillRect {
+                    rect: Rect {
+                        x: base.x - expand,
+                        y: base.y - expand,
+                        width: base.width + 2.0 * expand,
+                        height: base.height + 2.0 * expand,
+                    },
+                    color: fade(shadow.color.with_alpha_factor(alpha_share)),
+                    radius: Corners {
+                        top_left: radius.top_left + expand,
+                        top_right: radius.top_right + expand,
+                        bottom_right: radius.bottom_right + expand,
+                        bottom_left: radius.bottom_left + expand,
+                    },
+                });
+            }
         }
     }
 
@@ -176,6 +189,39 @@ fn paint_box(
             color: fade(background),
             radius,
         });
+    }
+
+    // Inset shadows shade inward from the box edge, over the background:
+    // layered frames with alpha shares approximate the falloff.
+    if !anonymous && visible {
+        for shadow in layout.style.box_shadows.iter().rev() {
+            if !shadow.inset {
+                continue;
+            }
+            let reach = (shadow.blur + shadow.spread).max(1.0);
+            let steps = 4;
+            for step in 0..steps {
+                let inset_by = reach * step as f32 / steps as f32;
+                let thickness = reach / steps as f32 + 1.0;
+                commands.push(DisplayCommand::StrokeRect {
+                    rect: Rect {
+                        x: border_box.x + shadow.offset_x.min(0.0) + inset_by,
+                        y: border_box.y + shadow.offset_y.min(0.0) + inset_by,
+                        width: (border_box.width - 2.0 * inset_by).max(0.0),
+                        height: (border_box.height - 2.0 * inset_by).max(0.0),
+                    },
+                    widths: EdgeSizes::uniform(thickness),
+                    colors: EdgeSizes::uniform(fade(
+                        shadow
+                            .color
+                            .with_alpha_factor(1.0 - step as f32 / steps as f32)
+                            .with_alpha_factor(0.4),
+                    )),
+                    styles: EdgeSizes::uniform(BorderStyle::Solid),
+                    radius,
+                });
+            }
+        }
     }
 
     // The background image layer paints over the color. Gradients render
@@ -193,7 +239,7 @@ fn paint_box(
                         .iter()
                         .map(|(color, position)| (fade(*color), *position))
                         .collect(),
-                    radial: false,
+                    kind: GradientKind::Linear,
                 });
             }
             Some(BackgroundImage::RadialGradient(stops)) => {
@@ -205,7 +251,19 @@ fn paint_box(
                         .iter()
                         .map(|(color, position)| (fade(*color), *position))
                         .collect(),
-                    radial: true,
+                    kind: GradientKind::Radial,
+                });
+            }
+            Some(BackgroundImage::ConicGradient(stops)) => {
+                commands.push(DisplayCommand::FillGradient {
+                    rect: border_box,
+                    radius,
+                    angle_degrees: 0.0,
+                    stops: stops
+                        .iter()
+                        .map(|(color, position)| (fade(*color), *position))
+                        .collect(),
+                    kind: GradientKind::Conic,
                 });
             }
             Some(BackgroundImage::Url(_)) if layout.box_type != BoxType::Replaced => {
@@ -779,8 +837,9 @@ mod tests {
     #[test]
     fn box_shadow_paints_layered_fills_under_the_box() {
         let list = commands(
-            "<style>div { box-shadow: 5px 5px 8px #000000; background-color: #ffffff; \
-                          width: 50px; height: 20px; }</style><div></div>",
+            "<style>div { box-shadow: 5px 5px 8px #000000, 0 0 4px #ff0000; \
+                          background-color: #ffffff; width: 50px; height: 20px; }</style>\
+             <div></div>",
         );
         let fills: Vec<&Rect> = list
             .iter()
@@ -789,9 +848,33 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(fills.len(), 4, "expected 4 blur layers");
-        // The largest layer is offset by the shadow and expanded by blur.
-        assert!(fills[0].x < 5.0 && fills[0].width > 50.0);
+        assert_eq!(fills.len(), 8, "expected 4 blur layers per shadow");
+        // The largest layer of the last shadow paints first.
+        assert!(fills[0].x < 0.0 && fills[0].width > 50.0);
+    }
+
+    #[test]
+    fn inset_shadows_stroke_inside_after_the_background() {
+        let list = commands(
+            "<style>div { box-shadow: inset 0 0 6px #000000; background-color: #ffffff; \
+                          width: 50px; height: 30px; }</style><div></div>",
+        );
+        let background = list
+            .iter()
+            .position(|command| {
+                matches!(command, DisplayCommand::FillRect { color, .. } if color.a == 255)
+            })
+            .unwrap();
+        let first_ring = list
+            .iter()
+            .position(|command| matches!(command, DisplayCommand::StrokeRect { .. }))
+            .unwrap();
+        assert!(first_ring > background, "inset rings paint over the fill");
+        let rings = list
+            .iter()
+            .filter(|command| matches!(command, DisplayCommand::StrokeRect { .. }))
+            .count();
+        assert_eq!(rings, 4);
     }
 
     #[test]
