@@ -39,6 +39,8 @@ pub struct Session<L: ResourceLoader> {
     active: Option<NodeId>,
     /// Focused node (`:focus`) — the shell decides what focus means.
     focused: Option<NodeId>,
+    /// Per-element inner scroll offsets (`overflow: scroll/auto`).
+    scroll_offsets: std::collections::HashMap<NodeId, f32>,
     /// First usable `@font-face` font of the page (TTF/OTF only —
     /// fontdue cannot parse WOFF), used as the document font.
     web_font: Option<Arc<lumen_engine::SystemFont>>,
@@ -63,6 +65,7 @@ impl<L: ResourceLoader> Session<L> {
             hovered: None,
             active: None,
             focused: None,
+            scroll_offsets: std::collections::HashMap::new(),
             web_font: None,
             hover_impact: lumen_engine::HoverImpact::Nothing,
         }
@@ -278,6 +281,41 @@ impl<L: ResourceLoader> Session<L> {
         ));
     }
 
+    /// Current per-element scroll offsets.
+    #[must_use]
+    pub fn scroll_offsets(&self) -> &std::collections::HashMap<NodeId, f32> {
+        &self.scroll_offsets
+    }
+
+    /// Scrolls an `overflow: scroll/auto` element by `delta`, clamped to
+    /// its content. Returns whether the offset changed (the display list
+    /// is rebuilt in place — no relayout).
+    pub fn scroll_inner(&mut self, node: NodeId, delta: f32) -> bool {
+        let Some(page) = self.page.as_mut() else {
+            return false;
+        };
+        let Some(target) = page.layout.find_by_node(node) else {
+            return false;
+        };
+        let max = target.max_inner_scroll();
+        let current = self.scroll_offsets.get(&node).copied().unwrap_or(0.0);
+        let next = (current + delta).clamp(0.0, max);
+        if (next - current).abs() < 0.5 {
+            return false;
+        }
+        if next == 0.0 {
+            self.scroll_offsets.remove(&node);
+        } else {
+            self.scroll_offsets.insert(node, next);
+        }
+        page.display_list = lumen_engine::build_display_list_scrolled(
+            &page.layout,
+            &page.images,
+            &self.scroll_offsets,
+        );
+        true
+    }
+
     /// The page's own `@font-face` font, when one loaded.
     #[must_use]
     pub fn web_font(&self) -> Option<Arc<lumen_engine::SystemFont>> {
@@ -425,6 +463,7 @@ impl<L: ResourceLoader> Session<L> {
         self.images = Arc::new(images);
 
         self.hovered = None; // New document, new node ids.
+        self.scroll_offsets.clear();
         self.page = Some(page_from_document(
             document,
             self.author.clone(),
@@ -769,6 +808,52 @@ mod tests {
             .find_by_node(anchor)
             .map(|laid| laid.dimensions.padding.top);
         assert_eq!(hovered_width, Some(8.0));
+    }
+
+    #[test]
+    fn inner_scroll_shifts_clipped_content() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>.s { overflow: scroll; height: 50px; }\
+                 .tall { height: 200px; background-color: #ff0000; }</style>\
+                 <div class='s'><div class='tall'></div></div>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let scroller = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.has_class("s"))
+            })
+            .unwrap();
+        let red_y = |session: &Session<FakeLoader>| {
+            session
+                .page()
+                .unwrap()
+                .display_list
+                .iter()
+                .find_map(|command| match command {
+                    lumen_engine::DisplayCommand::FillRect { rect, color, .. }
+                        if color.r == 255 =>
+                    {
+                        Some(rect.y)
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let before = red_y(&session);
+        assert!(session.scroll_inner(scroller, 30.0));
+        assert_eq!(red_y(&session), before - 30.0);
+        // Clamped at the content extent (200 - 50 = 150).
+        assert!(session.scroll_inner(scroller, 1000.0));
+        assert_eq!(red_y(&session), before - 150.0);
+        assert!(!session.scroll_inner(scroller, 10.0));
     }
 
     #[test]

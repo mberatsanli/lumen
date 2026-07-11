@@ -98,6 +98,50 @@ impl LayoutBox {
         ordered
     }
 
+    /// The innermost `overflow: scroll/auto` box under a point (page
+    /// coordinates), with its maximum scroll offset. Follows current
+    /// scroll offsets while descending.
+    #[must_use]
+    pub fn scrollable_under(
+        &self,
+        x: f32,
+        y: f32,
+        scroll_offsets: &std::collections::HashMap<NodeId, f32>,
+    ) -> Option<(NodeId, f32)> {
+        let rect = self.border_box();
+        let inside =
+            x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
+        let (child_x, child_y) = match scroll_offsets.get(&self.node_id) {
+            Some(offset) if self.style.overflow.clips() => (x, y + offset),
+            _ => (x, y),
+        };
+        for child in self.children_in_paint_order().into_iter().rev() {
+            if let Some(found) = child.scrollable_under(child_x, child_y, scroll_offsets) {
+                return Some(found);
+            }
+        }
+        if inside && self.style.overflow == crate::style::Overflow::Scroll {
+            let max = self.max_inner_scroll();
+            if max > 0.0 {
+                return Some((self.node_id, max));
+            }
+        }
+        None
+    }
+
+    /// How far this box's content can scroll: the extent of its children
+    /// beyond its own content height.
+    #[must_use]
+    pub fn max_inner_scroll(&self) -> f32 {
+        let content = self.content_box();
+        let bottom = self
+            .children
+            .iter()
+            .map(|child| child.margin_box().y + child.margin_box().height)
+            .fold(content.y, f32::max);
+        (bottom - content.y - content.height).max(0.0)
+    }
+
     /// Depth-first search for the layout box of a DOM node (anonymous
     /// blocks share their container's node and are skipped).
     #[must_use]
@@ -114,8 +158,24 @@ impl LayoutBox {
     /// checking topmost paint order first.
     #[must_use]
     pub fn hit_test(&self, x: f32, y: f32) -> Option<NodeId> {
+        self.hit_test_scrolled(x, y, &std::collections::HashMap::new())
+    }
+
+    /// [`Self::hit_test`] under per-element scroll offsets: points inside
+    /// a scrolled box test its children at the scrolled position.
+    #[must_use]
+    pub fn hit_test_scrolled(
+        &self,
+        x: f32,
+        y: f32,
+        scroll_offsets: &std::collections::HashMap<NodeId, f32>,
+    ) -> Option<NodeId> {
+        let (child_x, child_y) = match scroll_offsets.get(&self.node_id) {
+            Some(offset) if self.style.overflow.clips() => (x, y + offset),
+            _ => (x, y),
+        };
         for child in self.children_in_paint_order().into_iter().rev() {
-            if let Some(hit) = child.hit_test(x, y) {
+            if let Some(hit) = child.hit_test_scrolled(child_x, child_y, scroll_offsets) {
                 return Some(hit);
             }
         }
@@ -132,7 +192,7 @@ impl LayoutBox {
             for line in lines {
                 for fragment in &line.fragments {
                     if let FragmentContent::Box(laid) = &fragment.content
-                        && let Some(hit) = laid.hit_test(x, y)
+                        && let Some(hit) = laid.hit_test_scrolled(x, y, scroll_offsets)
                     {
                         return Some(hit);
                     }

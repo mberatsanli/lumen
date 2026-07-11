@@ -565,7 +565,18 @@ fn split_top_level_commas(source: &str) -> Vec<&str> {
 pub enum Overflow {
     #[default]
     Visible,
-    Clip,
+    /// Clips without user scrolling (`hidden`/`clip`).
+    Hidden,
+    /// Clips and scrolls on wheel input (`scroll`/`auto`).
+    Scroll,
+}
+
+impl Overflow {
+    /// Whether children clip to the padding box.
+    #[must_use]
+    pub fn clips(self) -> bool {
+        self != Self::Visible
+    }
 }
 
 /// `white-space` subset: `pre` preserves spaces and newlines and never
@@ -2108,7 +2119,8 @@ fn to_computed(
     );
 
     style.overflow = match raw.get("overflow").and_then(CssValue::as_keyword) {
-        Some("hidden" | "scroll" | "auto" | "clip") => Overflow::Clip,
+        Some("hidden" | "clip") => Overflow::Hidden,
+        Some("scroll" | "auto") => Overflow::Scroll,
         _ => Overflow::Visible,
     };
 

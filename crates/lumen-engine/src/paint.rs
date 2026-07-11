@@ -6,7 +6,7 @@
 use crate::geometry::{Corners, EdgeSizes, Rect};
 use crate::image::{ImageMap, RasterImage};
 use crate::layout::{BoxType, LayoutBox, LayoutKind};
-use crate::style::{BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, Overflow};
+use crate::style::{BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle};
 use lumen_css::Color;
 use std::sync::Arc;
 
@@ -100,6 +100,17 @@ pub enum GradientKind {
 /// Flattens the layout tree into an ordered list of paint commands.
 #[must_use]
 pub fn build_display_list(layout: &LayoutBox, images: &ImageMap) -> Vec<DisplayCommand> {
+    build_display_list_scrolled(layout, images, &std::collections::HashMap::new())
+}
+
+/// [`build_display_list`] with per-element scroll offsets: children of an
+/// `overflow: scroll/auto` box shift up by its offset (clipped as usual).
+#[must_use]
+pub fn build_display_list_scrolled(
+    layout: &LayoutBox,
+    images: &ImageMap,
+    scroll_offsets: &std::collections::HashMap<lumen_html::NodeId, f32>,
+) -> Vec<DisplayCommand> {
     let mut commands = Vec::new();
     // Per CSS, the root element's background (or the body's, when the root
     // is transparent) paints the whole canvas, not just its own box.
@@ -110,7 +121,14 @@ pub fn build_display_list(layout: &LayoutBox, images: &ImageMap) -> Vec<DisplayC
             radius: Corners::uniform(0.0),
         });
     }
-    paint_box(layout, images, 1.0, &mut commands);
+    paint_box(
+        layout,
+        images,
+        1.0,
+        (0.0, 0.0),
+        scroll_offsets,
+        &mut commands,
+    );
     commands
 }
 
@@ -132,8 +150,15 @@ fn paint_box(
     layout: &LayoutBox,
     images: &ImageMap,
     parent_opacity: f32,
+    shift: (f32, f32),
+    scroll_offsets: &std::collections::HashMap<lumen_html::NodeId, f32>,
     commands: &mut Vec<DisplayCommand>,
 ) {
+    let place = |rect: Rect| Rect {
+        x: rect.x + shift.0,
+        y: rect.y + shift.1,
+        ..rect
+    };
     // Anonymous blocks carry a clone of their container's style for text
     // defaults; the container already painted its own background/border
     // and applied its own opacity.
@@ -147,7 +172,7 @@ fn paint_box(
         return;
     }
     let fade = |color: lumen_css::Color| color.with_alpha_factor(opacity);
-    let border_box = layout.border_box();
+    let border_box = place(layout.border_box());
     // `visibility: hidden` skips this box's own painting; children still
     // paint (they can set visibility: visible).
     let visible = layout.style.visible;
@@ -318,7 +343,7 @@ fn paint_box(
     if layout.box_type == BoxType::Replaced && visible {
         match images.get(&layout.node_id) {
             Some(image) => commands.push(DisplayCommand::DrawImage {
-                rect: layout.content_box(),
+                rect: place(layout.content_box()),
                 image: image.clone(),
                 alpha: (opacity * 255.0) as u8,
             }),
@@ -335,15 +360,15 @@ fn paint_box(
 
     // `overflow: hidden/scroll/auto/clip`: children (including inline
     // content) clip to the padding box; background and border stay intact.
-    let clips = !anonymous && layout.style.overflow == Overflow::Clip;
+    let clips = !anonymous && layout.style.overflow.clips();
     if clips {
         commands.push(DisplayCommand::PushClip {
-            rect: layout.dimensions.padding_box(),
+            rect: place(layout.dimensions.padding_box()),
         });
     }
 
     if let LayoutKind::Inline { lines } = &layout.kind {
-        let content = layout.content_box();
+        let content = place(layout.content_box());
         for line in lines {
             for fragment in &line.fragments {
                 match &fragment.content {
@@ -391,7 +416,7 @@ fn paint_box(
                         });
                     }
                     crate::inline::FragmentContent::Box(laid) => {
-                        paint_box(laid, images, opacity, commands);
+                        paint_box(laid, images, opacity, shift, scroll_offsets, commands);
                     }
                     crate::inline::FragmentContent::Text { .. } => {}
                 }
@@ -399,8 +424,21 @@ fn paint_box(
         }
     }
 
+    // Inner scrolling: children of a scrollable box shift up by its
+    // offset (the clip is already in place).
+    let child_shift = match scroll_offsets.get(&layout.node_id) {
+        Some(offset) if clips => (shift.0, shift.1 - offset),
+        _ => shift,
+    };
     for child in layout.children_in_paint_order() {
-        paint_box(child, images, opacity, commands);
+        paint_box(
+            child,
+            images,
+            opacity,
+            child_shift,
+            scroll_offsets,
+            commands,
+        );
     }
 
     if clips {

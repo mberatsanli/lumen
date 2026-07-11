@@ -315,6 +315,16 @@ fn apply_edit(input: &mut TextInput, key: &Key, command: bool, shift: bool) -> E
     }
 }
 
+/// The session's inner scroll offsets (empty map while loading).
+fn session_offsets(state: &SessionState) -> &std::collections::HashMap<usize, f32> {
+    static EMPTY: std::sync::OnceLock<std::collections::HashMap<usize, f32>> =
+        std::sync::OnceLock::new();
+    match state {
+        SessionState::Ready(session) => session.scroll_offsets(),
+        SessionState::Loading { .. } => EMPTY.get_or_init(std::collections::HashMap::new),
+    }
+}
+
 fn count_boxes(layout: &lumen_engine::LayoutBox) -> usize {
     1 + layout.children.iter().map(count_boxes).sum::<usize>()
 }
@@ -868,9 +878,10 @@ impl App {
     /// the pointer shape, and redraws when the hovered node changed.
     fn update_hover(&mut self) {
         let hit = self.page_cursor().and_then(|(x, y)| {
-            self.session()
-                .and_then(Session::page)
-                .and_then(|page| page.layout.hit_test(x, y))
+            self.session().and_then(Session::page).and_then(|page| {
+                page.layout
+                    .hit_test_scrolled(x, y, session_offsets(&self.state))
+            })
         });
         let over_link = hit.is_some_and(|node| {
             self.session()
@@ -919,9 +930,10 @@ impl App {
             self.request_redraw();
         }
         let node = self.page_cursor().and_then(|(x, y)| {
-            self.session()
-                .and_then(Session::page)
-                .and_then(|page| page.layout.hit_test(x, y))
+            self.session().and_then(Session::page).and_then(|page| {
+                page.layout
+                    .hit_test_scrolled(x, y, session_offsets(&self.state))
+            })
         });
         // Clicking moves :focus (cleared when clicking empty space).
         if let SessionState::Ready(session) = &mut self.state
@@ -1647,9 +1659,10 @@ impl ApplicationHandler<NavDone> for App {
                 }
                 // :active while the button is held.
                 let hit = self.page_cursor().and_then(|(x, y)| {
-                    self.session()
-                        .and_then(Session::page)
-                        .and_then(|page| page.layout.hit_test(x, y))
+                    self.session().and_then(Session::page).and_then(|page| {
+                        page.layout
+                            .hit_test_scrolled(x, y, session_offsets(&self.state))
+                    })
                 });
                 if let SessionState::Ready(session) = &mut self.state
                     && session.set_active(hit)
@@ -1692,7 +1705,22 @@ impl ApplicationHandler<NavDone> for App {
                     MouseScrollDelta::LineDelta(_, lines) => -lines * SCROLL_STEP,
                     MouseScrollDelta::PixelDelta(position) => -position.y as f32,
                 };
-                self.scroll_by(amount);
+                // Wheel over an overflow: scroll/auto box scrolls it;
+                // everything else scrolls the page.
+                let inner = self.page_cursor().and_then(|(x, y)| {
+                    let session = self.session()?;
+                    let page = session.page()?;
+                    page.layout.scrollable_under(x, y, session.scroll_offsets())
+                });
+                if let Some((node, _)) = inner
+                    && let SessionState::Ready(session) = &mut self.state
+                    && session.scroll_inner(node, amount)
+                {
+                    self.invalidate_page();
+                    self.request_redraw();
+                } else {
+                    self.scroll_by(amount);
+                }
             }
             WindowEvent::KeyboardInput {
                 event:
