@@ -12,15 +12,17 @@
 //! Keys: arrows / PageUp / PageDown / Home scroll, `r` refreshes,
 //! `[` / `]` go back / forward, `l` (or clicking the bar) edits the URL,
 //! Enter navigates, Escape cancels editing. Drag over text to select it;
-//! Cmd/Ctrl+C copies the selection. Cmd/Ctrl+F opens the find bar
-//! (type to search, Enter cycles matches, Escape closes).
+//! Cmd/Ctrl+C copies and Cmd/Ctrl+A selects the whole page. Cmd/Ctrl+F
+//! opens the find bar (type to search, Enter cycles matches, Escape
+//! closes). The address and find inputs support full editing: caret
+//! movement, Shift+arrows selection, Home/End, Cmd/Ctrl+A/C/X/V.
 
 use lumen_browser::Session;
 use lumen_engine::{
     Caret, DisplayCommand, HeuristicMeasurer, Rect, Selection, Size, SystemFont, caret_at_point,
     collect_text_runs, highlight_rects, rasterize_over, rasterize_with, selected_text,
 };
-use lumen_engine::{TextMeasurer, TextMetrics, TextStyle};
+use lumen_engine::{FontWeight, TextMeasurer, TextMetrics, TextStyle};
 use lumen_platform::{DefaultLoader, Url, url_from_user_input};
 use std::num::NonZeroU32;
 use std::rc::Rc;
@@ -104,6 +106,229 @@ impl TextMeasurer for SharedFont {
     }
 }
 
+/// A single-line editable text field (address bar, find bar): a caret
+/// and selection with the usual keyboard operations. Positions are in
+/// chars.
+struct TextInput {
+    text: String,
+    caret: usize,
+    /// Selection anchor (== caret when nothing is selected).
+    anchor: usize,
+}
+
+impl TextInput {
+    fn with_all_selected(text: String) -> Self {
+        let len = text.chars().count();
+        Self {
+            text,
+            caret: len,
+            anchor: 0,
+        }
+    }
+
+    fn empty() -> Self {
+        Self {
+            text: String::new(),
+            caret: 0,
+            anchor: 0,
+        }
+    }
+
+    fn char_count(&self) -> usize {
+        self.text.chars().count()
+    }
+
+    /// Selection bounds in document order.
+    fn selection(&self) -> (usize, usize) {
+        (self.caret.min(self.anchor), self.caret.max(self.anchor))
+    }
+
+    fn has_selection(&self) -> bool {
+        self.caret != self.anchor
+    }
+
+    fn slice(&self, start: usize, end: usize) -> String {
+        self.text.chars().skip(start).take(end - start).collect()
+    }
+
+    fn selected_text(&self) -> String {
+        let (start, end) = self.selection();
+        self.slice(start, end)
+    }
+
+    fn byte_of(&self, char_index: usize) -> usize {
+        self.text
+            .char_indices()
+            .nth(char_index)
+            .map_or(self.text.len(), |(index, _)| index)
+    }
+
+    fn delete_selection(&mut self) {
+        let (start, end) = self.selection();
+        if start == end {
+            return;
+        }
+        let (from, to) = (self.byte_of(start), self.byte_of(end));
+        self.text.replace_range(from..to, "");
+        self.caret = start;
+        self.anchor = start;
+    }
+
+    fn insert(&mut self, input: &str) {
+        self.delete_selection();
+        let at = self.byte_of(self.caret);
+        self.text.insert_str(at, input);
+        self.caret += input.chars().count();
+        self.anchor = self.caret;
+    }
+
+    fn backspace(&mut self) {
+        if self.has_selection() {
+            self.delete_selection();
+            return;
+        }
+        if self.caret == 0 {
+            return;
+        }
+        let (from, to) = (self.byte_of(self.caret - 1), self.byte_of(self.caret));
+        self.text.replace_range(from..to, "");
+        self.caret -= 1;
+        self.anchor = self.caret;
+    }
+
+    fn delete_forward(&mut self) {
+        if self.has_selection() {
+            self.delete_selection();
+            return;
+        }
+        if self.caret >= self.char_count() {
+            return;
+        }
+        let (from, to) = (self.byte_of(self.caret), self.byte_of(self.caret + 1));
+        self.text.replace_range(from..to, "");
+    }
+
+    /// Moves the caret by one; without `select`, a selection collapses to
+    /// its matching edge first (as native inputs do).
+    fn step(&mut self, forward: bool, select: bool) {
+        if !select && self.has_selection() {
+            let (start, end) = self.selection();
+            self.caret = if forward { end } else { start };
+        } else if forward {
+            self.caret = (self.caret + 1).min(self.char_count());
+        } else {
+            self.caret = self.caret.saturating_sub(1);
+        }
+        if !select {
+            self.anchor = self.caret;
+        }
+    }
+
+    fn move_to(&mut self, index: usize, select: bool) {
+        self.caret = index.min(self.char_count());
+        if !select {
+            self.anchor = self.caret;
+        }
+    }
+
+    fn select_all(&mut self) {
+        self.anchor = 0;
+        self.caret = self.char_count();
+    }
+}
+
+/// What an editing key did to a [`TextInput`].
+enum EditOutcome {
+    /// Text changed.
+    Changed,
+    /// Only the caret/selection moved.
+    Moved,
+    Submit,
+    Cancel,
+    Copy,
+    Cut,
+    Paste,
+    Ignored,
+}
+
+/// Applies one key to a text input. Clipboard actions are reported, not
+/// performed (the caller owns the clipboard).
+fn apply_edit(input: &mut TextInput, key: &Key, command: bool, shift: bool) -> EditOutcome {
+    match key {
+        Key::Named(NamedKey::Enter) => EditOutcome::Submit,
+        Key::Named(NamedKey::Escape) => EditOutcome::Cancel,
+        Key::Named(NamedKey::Backspace) => {
+            input.backspace();
+            EditOutcome::Changed
+        }
+        Key::Named(NamedKey::Delete) => {
+            input.delete_forward();
+            EditOutcome::Changed
+        }
+        Key::Named(NamedKey::ArrowLeft) if command => {
+            input.move_to(0, shift);
+            EditOutcome::Moved
+        }
+        Key::Named(NamedKey::ArrowRight) if command => {
+            input.move_to(usize::MAX, shift);
+            EditOutcome::Moved
+        }
+        Key::Named(NamedKey::ArrowLeft) => {
+            input.step(false, shift);
+            EditOutcome::Moved
+        }
+        Key::Named(NamedKey::ArrowRight) => {
+            input.step(true, shift);
+            EditOutcome::Moved
+        }
+        Key::Named(NamedKey::Home) => {
+            input.move_to(0, shift);
+            EditOutcome::Moved
+        }
+        Key::Named(NamedKey::End) => {
+            input.move_to(usize::MAX, shift);
+            EditOutcome::Moved
+        }
+        Key::Named(NamedKey::Space) => {
+            input.insert(" ");
+            EditOutcome::Changed
+        }
+        Key::Character(text) if command => match text.as_str() {
+            "a" => {
+                input.select_all();
+                EditOutcome::Moved
+            }
+            "c" => EditOutcome::Copy,
+            "x" => EditOutcome::Cut,
+            "v" => EditOutcome::Paste,
+            _ => EditOutcome::Ignored,
+        },
+        Key::Character(text) => {
+            input.insert(text);
+            EditOutcome::Changed
+        }
+        _ => EditOutcome::Ignored,
+    }
+}
+
+fn clipboard_set(text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    match arboard::Clipboard::new() {
+        Ok(mut clipboard) => {
+            if let Err(error) = clipboard.set_text(text.to_string()) {
+                eprintln!("clipboard: {error}");
+            }
+        }
+        Err(error) => eprintln!("clipboard: {error}"),
+    }
+}
+
+fn clipboard_get() -> Option<String> {
+    arboard::Clipboard::new().ok()?.get_text().ok()
+}
+
 struct App {
     input: String,
     state: SessionState,
@@ -115,7 +340,7 @@ struct App {
     /// Last cursor position in CSS pixels (window coordinates, bar included).
     cursor: Option<(f32, f32)>,
     /// The URL text being edited, when the address bar has focus.
-    url_input: Option<String>,
+    url_input: Option<TextInput>,
     /// Where the left button went down (CSS window coords), while held.
     press: Option<(f32, f32)>,
     /// Selection anchor caret while dragging.
@@ -123,7 +348,7 @@ struct App {
     selection: Option<Selection>,
     modifiers: Modifiers,
     /// The find-bar query, when Ctrl/Cmd+F is active.
-    find_input: Option<String>,
+    find_input: Option<TextInput>,
     find_matches: Vec<Selection>,
     find_index: usize,
     /// Damage tracking: bumped whenever the page raster could change.
@@ -208,14 +433,7 @@ impl App {
         if text.is_empty() {
             return;
         }
-        match arboard::Clipboard::new() {
-            Ok(mut clipboard) => {
-                if let Err(error) = clipboard.set_text(text) {
-                    eprintln!("clipboard: {error}");
-                }
-            }
-            Err(error) => eprintln!("clipboard: {error}"),
-        }
+        clipboard_set(&text);
     }
 
     fn session(&self) -> Option<&Session<DefaultLoader>> {
@@ -351,29 +569,35 @@ impl App {
                 radius: lumen_engine::Corners::uniform(6.0),
             },
         ];
-        let (text, color) = match (&self.url_input, &self.state) {
-            (Some(input), _) => (format!("{input}_"), enabled),
-            (None, SessionState::Loading { target }) => {
-                (format!("Loading {target}…"), Color::rgb(0x6a, 0x66, 0x72))
+        match (&self.url_input, &self.state) {
+            (Some(input), _) => {
+                self.draw_input(&mut commands, input, 68.0, 24.0, 14.0, enabled);
             }
-            (None, SessionState::Ready(session)) => (
-                session
+            (None, SessionState::Loading { target }) => commands.push(DisplayCommand::DrawText {
+                x: 68.0,
+                y: 24.0,
+                text: format!("Loading {target}…"),
+                color: Color::rgb(0x6a, 0x66, 0x72),
+                font_size: 14.0,
+                font_weight: 400,
+                underline: false,
+                italic: false,
+                monospace: false,
+            }),
+            (None, SessionState::Ready(session)) => commands.push(DisplayCommand::DrawText {
+                x: 68.0,
+                y: 24.0,
+                text: session
                     .current_url()
                     .map_or_else(|| self.input.clone(), ToString::to_string),
-                Color::rgb(0x6a, 0x66, 0x72),
-            ),
-        };
-        commands.push(DisplayCommand::DrawText {
-            x: 68.0,
-            y: 24.0,
-            text,
-            color,
-            font_size: 14.0,
-            font_weight: 400,
-            underline: false,
-            italic: false,
-            monospace: false,
-        });
+                color: Color::rgb(0x6a, 0x66, 0x72),
+                font_size: 14.0,
+                font_weight: 400,
+                underline: false,
+                italic: false,
+                monospace: false,
+            }),
+        }
         if let Some(query) = &self.find_input {
             let bar_width = 280.0_f32.min(width - 16.0);
             let x = width - bar_width - 8.0;
@@ -382,18 +606,38 @@ impl App {
                 color: Color::rgb(0xfd, 0xf6, 0xd8),
                 radius: lumen_engine::Corners::uniform(5.0),
             });
-            let status = if query.is_empty() {
-                String::new()
-            } else if self.find_matches.is_empty() {
-                "  0/0".to_string()
-            } else {
-                format!("  {}/{}", self.find_index + 1, self.find_matches.len())
-            };
             commands.push(DisplayCommand::DrawText {
                 x: x + 8.0,
                 y: BAR_HEIGHT + 22.0,
-                text: format!("Find: {query}_{status}"),
+                text: "Find:".to_string(),
                 color: enabled,
+                font_size: 13.0,
+                font_weight: 400,
+                underline: false,
+                italic: false,
+                monospace: false,
+            });
+            let label_width = self.chrome_text_width("Find: ", 13.0);
+            let query_width = self.draw_input(
+                &mut commands,
+                query,
+                x + 8.0 + label_width,
+                BAR_HEIGHT + 22.0,
+                13.0,
+                enabled,
+            );
+            let status = if query.text.is_empty() {
+                String::new()
+            } else if self.find_matches.is_empty() {
+                "0/0".to_string()
+            } else {
+                format!("{}/{}", self.find_index + 1, self.find_matches.len())
+            };
+            commands.push(DisplayCommand::DrawText {
+                x: x + 8.0 + label_width + query_width + 10.0,
+                y: BAR_HEIGHT + 22.0,
+                text: status,
+                color: Color::rgb(0x6a, 0x66, 0x72),
                 font_size: 13.0,
                 font_weight: 400,
                 underline: false,
@@ -402,6 +646,74 @@ impl App {
             });
         }
         commands
+    }
+
+    /// Width of chrome text at `font_size` with the shell's measurer.
+    fn chrome_text_width(&self, text: &str, font_size: f32) -> f32 {
+        self.measurer()
+            .measure(
+                text,
+                &TextStyle {
+                    font_size,
+                    font_weight: FontWeight(400),
+                    monospace: false,
+                },
+            )
+            .width
+    }
+
+    /// Draws a text input at `x`/`baseline`: selection highlight behind
+    /// the text, then a caret line. Returns the text width.
+    fn draw_input(
+        &self,
+        commands: &mut Vec<DisplayCommand>,
+        input: &TextInput,
+        x: f32,
+        baseline: f32,
+        font_size: f32,
+        color: lumen_css::Color,
+    ) -> f32 {
+        use lumen_css::Color;
+        let top = baseline - font_size;
+        let height = font_size * 1.3;
+        let (start, end) = input.selection();
+        if start != end {
+            let selection_x = x + self.chrome_text_width(&input.slice(0, start), font_size);
+            let selection_width = self.chrome_text_width(&input.slice(start, end), font_size);
+            commands.push(DisplayCommand::FillRect {
+                rect: Rect {
+                    x: selection_x,
+                    y: top,
+                    width: selection_width,
+                    height,
+                },
+                color: Color::rgb(0xb3, 0xd4, 0xfc),
+                radius: lumen_engine::Corners::uniform(0.0),
+            });
+        }
+        commands.push(DisplayCommand::DrawText {
+            x,
+            y: baseline,
+            text: input.text.clone(),
+            color,
+            font_size,
+            font_weight: 400,
+            underline: false,
+            italic: false,
+            monospace: false,
+        });
+        let caret_x = x + self.chrome_text_width(&input.slice(0, input.caret), font_size);
+        commands.push(DisplayCommand::FillRect {
+            rect: Rect {
+                x: caret_x,
+                y: top,
+                width: 1.5,
+                height,
+            },
+            color: Color::rgb(0x30, 0x30, 0x30),
+            radius: lumen_engine::Corners::uniform(0.0),
+        });
+        self.chrome_text_width(&input.text, font_size)
     }
 
     fn max_scroll(&self) -> f32 {
@@ -494,11 +806,12 @@ impl App {
     }
 
     fn focus_url_bar(&mut self) {
-        self.url_input = Some(
+        // Focusing selects the whole URL, as browsers do.
+        self.url_input = Some(TextInput::with_all_selected(
             self.session()
                 .and_then(Session::current_url)
                 .map_or_else(String::new, ToString::to_string),
-        );
+        ));
         self.request_redraw();
     }
 
@@ -506,7 +819,7 @@ impl App {
         let Some(input) = self.url_input.take() else {
             return;
         };
-        let input = input.trim().to_string();
+        let input = input.text.trim().to_string();
         if input.is_empty() {
             self.request_redraw();
             return;
@@ -543,7 +856,7 @@ impl App {
     fn refresh_find_matches(&mut self) {
         self.find_matches.clear();
         self.find_index = 0;
-        let Some(query) = &self.find_input else {
+        let Some(query) = self.find_input.as_ref().map(|input| input.text.clone()) else {
             return;
         };
         if query.is_empty() {
@@ -601,7 +914,7 @@ impl App {
     }
 
     fn open_find_bar(&mut self) {
-        self.find_input = Some(String::new());
+        self.find_input = Some(TextInput::empty());
         self.find_matches.clear();
         self.find_index = 0;
         self.request_redraw();
@@ -611,6 +924,23 @@ impl App {
         self.find_input = None;
         self.find_matches.clear();
         self.find_index = 0;
+        self.request_redraw();
+    }
+
+    /// Cmd/Ctrl+A on the page: selects all text runs.
+    fn select_all_page_text(&mut self) {
+        let Some(page) = self.session().and_then(Session::page) else {
+            return;
+        };
+        let runs = collect_text_runs(&page.layout);
+        let Some(last) = runs.last() else { return };
+        self.selection = Some(Selection {
+            anchor: Caret { run: 0, offset: 0 },
+            focus: Caret {
+                run: runs.len() - 1,
+                offset: last.text.chars().count(),
+            },
+        });
         self.request_redraw();
     }
 
@@ -772,75 +1102,87 @@ impl App {
             self.open_find_bar();
             return;
         }
-        // Find-bar editing captures input next (Ctrl/Cmd+C still copies).
-        if self.find_input.is_some() {
-            match key {
-                Key::Named(NamedKey::Escape) => self.close_find_bar(),
-                Key::Named(NamedKey::Enter) => {
+        let shift_held = self.modifiers.state().shift_key();
+        // Find-bar editing captures input next.
+        if let Some(input) = &mut self.find_input {
+            let outcome = apply_edit(input, key, command_held, shift_held);
+            match outcome {
+                EditOutcome::Changed => {
+                    self.refresh_find_matches();
+                    self.scroll_to_find_match();
+                    self.request_redraw();
+                }
+                EditOutcome::Moved => self.request_redraw(),
+                EditOutcome::Submit => {
                     if !self.find_matches.is_empty() {
                         self.find_index = (self.find_index + 1) % self.find_matches.len();
                         self.scroll_to_find_match();
                         self.request_redraw();
                     }
                 }
-                Key::Named(NamedKey::Backspace) => {
-                    if let Some(query) = &mut self.find_input {
-                        query.pop();
+                EditOutcome::Cancel => self.close_find_bar(),
+                EditOutcome::Copy => {
+                    // Copy the input selection, or the page selection when
+                    // the input has none.
+                    let selected = self.find_input.as_ref().unwrap().selected_text();
+                    if selected.is_empty() {
+                        self.copy_selection();
+                    } else {
+                        clipboard_set(&selected);
+                    }
+                }
+                EditOutcome::Cut => {
+                    let input = self.find_input.as_mut().unwrap();
+                    clipboard_set(&input.selected_text());
+                    input.delete_selection();
+                    self.refresh_find_matches();
+                    self.request_redraw();
+                }
+                EditOutcome::Paste => {
+                    if let Some(pasted) = clipboard_get() {
+                        let input = self.find_input.as_mut().unwrap();
+                        input.insert(pasted.replace(['\n', '\r'], " ").as_str());
                         self.refresh_find_matches();
                         self.scroll_to_find_match();
                         self.request_redraw();
                     }
                 }
-                Key::Character(text) if text.as_str() == "c" && command_held => {
-                    self.copy_selection();
-                }
-                Key::Named(NamedKey::Space) => {
-                    if let Some(query) = &mut self.find_input {
-                        query.push(' ');
-                        self.refresh_find_matches();
-                        self.scroll_to_find_match();
-                        self.request_redraw();
-                    }
-                }
-                Key::Character(text) if !command_held => {
-                    if let Some(query) = &mut self.find_input {
-                        query.push_str(text);
-                        self.refresh_find_matches();
-                        self.scroll_to_find_match();
-                        self.request_redraw();
-                    }
-                }
-                _ => {}
+                EditOutcome::Ignored => {}
             }
             return;
         }
         // Address-bar editing captures all input first.
-        if self.url_input.is_some() {
-            match key {
-                Key::Named(NamedKey::Enter) => self.submit_url_bar(),
-                Key::Named(NamedKey::Escape) => {
+        if let Some(input) = &mut self.url_input {
+            let outcome = apply_edit(input, key, command_held, shift_held);
+            match outcome {
+                EditOutcome::Changed | EditOutcome::Moved => self.request_redraw(),
+                EditOutcome::Submit => self.submit_url_bar(),
+                EditOutcome::Cancel => {
                     self.url_input = None;
                     self.request_redraw();
                 }
-                Key::Named(NamedKey::Backspace) => {
-                    if let Some(input) = &mut self.url_input {
-                        input.pop();
+                EditOutcome::Copy => {
+                    let selected = self.url_input.as_ref().unwrap().selected_text();
+                    if selected.is_empty() {
+                        self.copy_selection();
+                    } else {
+                        clipboard_set(&selected);
+                    }
+                }
+                EditOutcome::Cut => {
+                    let input = self.url_input.as_mut().unwrap();
+                    clipboard_set(&input.selected_text());
+                    input.delete_selection();
+                    self.request_redraw();
+                }
+                EditOutcome::Paste => {
+                    if let Some(pasted) = clipboard_get() {
+                        let input = self.url_input.as_mut().unwrap();
+                        input.insert(pasted.replace(['\n', '\r'], " ").as_str());
                         self.request_redraw();
                     }
                 }
-                Key::Named(NamedKey::Space) => {
-                    if let Some(input) = &mut self.url_input {
-                        input.push(' ');
-                        self.request_redraw();
-                    }
-                }
-                Key::Character(text) => {
-                    if let Some(input) = &mut self.url_input {
-                        input.push_str(text);
-                        self.request_redraw();
-                    }
-                }
-                _ => {}
+                EditOutcome::Ignored => {}
             }
             return;
         }
@@ -861,6 +1203,9 @@ impl App {
                         || self.modifiers.state().control_key()) =>
             {
                 self.copy_selection();
+            }
+            Key::Character(text) if text.as_str() == "a" && command_held => {
+                self.select_all_page_text();
             }
             Key::Character(text) => match text.as_str() {
                 "r" => self.start_nav(Nav::Refresh),
