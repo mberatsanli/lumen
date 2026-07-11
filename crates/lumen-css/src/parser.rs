@@ -10,6 +10,8 @@ pub struct Declaration {
     /// Lowercase property name.
     pub name: String,
     pub value: CssValue,
+    /// Declared with `!important`.
+    pub important: bool,
 }
 
 /// One rule: a selector list and its declarations.
@@ -99,6 +101,18 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
         if name.is_empty() {
             continue;
         }
+        // `!important` peels off the end of the value (case-insensitive,
+        // whitespace tolerated).
+        let trimmed = value.trim_end();
+        let (value, important) = match trimmed
+            .to_ascii_lowercase()
+            .strip_suffix("important")
+            .map(|rest| rest.trim_end())
+            .and_then(|rest| rest.strip_suffix('!').map(str::len))
+        {
+            Some(prefix_length) => (&trimmed[..prefix_length], true),
+            None => (value, false),
+        };
         let components: Vec<CssValue> = split_components(value)
             .iter()
             .filter_map(|component| CssValue::parse_component(component))
@@ -106,7 +120,13 @@ pub fn parse_declarations(source: &str) -> Vec<Declaration> {
         if components.is_empty() {
             continue;
         }
+        let start = declarations.len();
         expand_declaration(&name, components, &mut declarations);
+        if important {
+            for declaration in &mut declarations[start..] {
+                declaration.important = true;
+            }
+        }
     }
     declarations
 }
@@ -127,6 +147,7 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
         });
         if let Some(value) = color {
             output.push(Declaration {
+                important: false,
                 name: "background-color".to_string(),
                 value,
             });
@@ -141,6 +162,7 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
         };
         for (side, value) in SIDES.iter().zip(edges) {
             output.push(Declaration {
+                important: false,
                 name: suffix_for(side),
                 value,
             });
@@ -166,15 +188,18 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
                 }
             }
             output.push(Declaration {
+                important: false,
                 name: format!("border-{side}-width"),
                 value: width,
             });
             output.push(Declaration {
+                important: false,
                 name: format!("border-{side}-style"),
                 value: style,
             });
             if let Some(color) = color {
                 output.push(Declaration {
+                    important: false,
                     name: format!("border-{side}-color"),
                     value: color,
                 });
@@ -202,6 +227,7 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
             };
             for (corner, value) in corners.iter().zip(values) {
                 output.push(Declaration {
+                    important: false,
                     name: format!("border-{corner}-radius"),
                     value,
                 });
@@ -232,6 +258,7 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
                 _ => false,
             });
             output.push(Declaration {
+                important: false,
                 name: "font-family".to_string(),
                 value: CssValue::Keyword(
                     if is_mono { "monospace" } else { "sans-serif" }.to_string(),
@@ -255,10 +282,12 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
                 _ => return,
             };
             output.push(Declaration {
+                important: false,
                 name: "flex-grow".to_string(),
                 value: CssValue::Number(grow),
             });
             output.push(Declaration {
+                important: false,
                 name: "flex-shrink".to_string(),
                 value: CssValue::Number(shrink),
             });
@@ -266,6 +295,7 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
         _ => output.push(Declaration {
             name: name.to_string(),
             value: components.swap_remove(0),
+            important: false,
         }),
     }
 }
@@ -340,11 +370,13 @@ mod tests {
             vec![
                 Declaration {
                     name: "width".to_string(),
-                    value: px(400.0)
+                    value: px(400.0),
+                    important: false,
                 },
                 Declaration {
                     name: "color".to_string(),
-                    value: CssValue::Color(Color::rgb(0x22, 0x22, 0x22))
+                    value: CssValue::Color(Color::rgb(0x22, 0x22, 0x22)),
+                    important: false,
                 },
             ]
         );

@@ -1036,9 +1036,7 @@ impl App {
         // Reuse the composition buffer across redraws; only a resize forces
         // a reallocation. The cached raster is memcpy'd in, never mutated.
         let mut framebuffer = match self.compose_frame.take() {
-            Some(mut frame)
-                if frame.width == base.width && frame.height == base.height =>
-            {
+            Some(mut frame) if frame.width == base.width && frame.height == base.height => {
                 frame.pixels.copy_from_slice(&base.pixels);
                 frame
             }

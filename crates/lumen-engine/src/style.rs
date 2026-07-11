@@ -403,6 +403,7 @@ pub fn compute_styles_hovered(
         document.root(),
         author,
         &inherited,
+        DEFAULT_FONT_SIZE,
         &hover_chain,
         &mut by_node,
     );
@@ -414,6 +415,7 @@ fn compute_node(
     node_id: NodeId,
     author: &Stylesheet,
     parent_raw: &RawStyle,
+    root_font_size: f32,
     hover_chain: &HashSet<NodeId>,
     output: &mut HashMap<NodeId, ComputedStyle>,
 ) {
@@ -430,18 +432,62 @@ fn compute_node(
     };
 
     if let Some(element) = element {
-        // Weakest origin first; each stronger origin overwrites per property.
+        // Weakest origin first; each stronger origin overwrites per
+        // property — unless a weaker origin declared it `!important`
+        // (author important beats inline normal).
+        let mut important: HashSet<String> = HashSet::new();
         for sheet in [user_agent_stylesheet(), author] {
-            for (name, (_, _, value)) in
+            for (name, (is_important, _, _, value)) in
                 winning_declarations(document, node_id, element, sheet, hover_chain)
             {
-                raw.insert(Cow::Owned(name), value);
+                if is_important || !important.contains(&name) {
+                    if is_important {
+                        important.insert(name.clone());
+                    }
+                    raw.insert(Cow::Owned(name), value);
+                }
             }
         }
         if let Some(inline) = element.attributes.get("style") {
             for declaration in lumen_css::parse_declarations(inline) {
-                raw.insert(Cow::Owned(declaration.name), declaration.value);
+                if declaration.important || !important.contains(&declaration.name) {
+                    raw.insert(Cow::Owned(declaration.name), declaration.value);
+                }
             }
+        }
+    }
+
+    // CSS-wide keywords: `inherit` pulls the parent's value (works for
+    // non-inherited properties too), `initial`/`revert` reset to the
+    // default, `unset` picks by inheritedness.
+    let keyword_names: Vec<String> = raw
+        .iter()
+        .filter(|(_, value)| {
+            matches!(value, CssValue::Keyword(keyword)
+                if matches!(keyword.as_str(), "inherit" | "initial" | "unset" | "revert"))
+        })
+        .map(|(name, _)| name.clone().into_owned())
+        .collect();
+    for name in keyword_names {
+        let CssValue::Keyword(keyword) = raw[name.as_str()].clone() else {
+            continue;
+        };
+        let inherits = match keyword.as_str() {
+            "inherit" => true,
+            "unset" => INHERITED_PROPERTIES.contains(&name.as_str()),
+            _ => false, // initial | revert
+        };
+        match parent_raw.get(name.as_str()).filter(|_| inherits) {
+            Some(value) => raw.insert(Cow::Owned(name), value.clone()),
+            None => raw.remove(name.as_str()),
+        };
+    }
+
+    // `rem` resolves against the root font size here, so the rest of the
+    // pipeline only ever sees px/em/percent.
+    for value in raw.values_mut() {
+        if let CssValue::Length(size, lumen_css::Unit::Rem) = value {
+            *value = CssValue::Length(*size * root_font_size, lumen_css::Unit::Px);
         }
     }
 
@@ -456,22 +502,35 @@ fn compute_node(
         Cow::Borrowed("font-size"),
         CssValue::Length(computed.font_size, lumen_css::Unit::Px),
     );
+    // The html element's resolved font size anchors `rem` for the tree.
+    let root_font_size = match element {
+        Some(element) if element.tag_name == "html" => computed.font_size,
+        _ => root_font_size,
+    };
     output.insert(node_id, computed);
     for child in document.children(node_id) {
-        compute_node(document, *child, author, &raw, hover_chain, output);
+        compute_node(
+            document,
+            *child,
+            author,
+            &raw,
+            root_font_size,
+            hover_chain,
+            output,
+        );
     }
 }
 
-/// Per-property winner within one origin: highest (specificity, source
-/// order) pair wins; later rules win ties.
+/// Per-property winner within one origin: highest (importance,
+/// specificity, source order) triple wins; later rules win ties.
 fn winning_declarations(
     document: &Document,
     node_id: NodeId,
     element: &ElementData,
     sheet: &Stylesheet,
     hover_chain: &HashSet<NodeId>,
-) -> HashMap<String, (Specificity, usize, CssValue)> {
-    let mut winners: HashMap<String, (Specificity, usize, CssValue)> = HashMap::new();
+) -> HashMap<String, (bool, Specificity, usize, CssValue)> {
+    let mut winners: HashMap<String, (bool, Specificity, usize, CssValue)> = HashMap::new();
     for rule in &sheet.rules {
         for selector in &rule.selectors {
             if selector_matches(document, node_id, element, selector, hover_chain) {
@@ -490,13 +549,14 @@ fn winning_declarations(
                         Some(_) => continue,
                     };
                     let candidate = (
+                        declaration.important,
                         selector.specificity(),
                         rule.source_order,
                         declaration.value.clone(),
                     );
-                    let replace = winners
-                        .get(&name)
-                        .is_none_or(|current| (candidate.0, candidate.1) >= (current.0, current.1));
+                    let replace = winners.get(&name).is_none_or(|current| {
+                        (candidate.0, candidate.1, candidate.2) >= (current.0, current.1, current.2)
+                    });
                     if replace {
                         winners.insert(name, candidate);
                     }
@@ -1286,6 +1346,55 @@ mod tests {
         assert_eq!(styles.by_node[&items[2]].color.to_string(), "#123456");
         assert_eq!(styles.by_node[&items[0]].font_weight.0, 700);
         assert_ne!(styles.by_node[&items[1]].font_weight.0, 700);
+    }
+
+    #[test]
+    fn rem_resolves_against_the_root_font_size() {
+        let (document, styles) = styles_for(
+            "<html><head><style>html { font-size: 20px; } p { width: 2rem; font-size: 1.5rem; }\
+             </style></head><body><p>x</p></body></html>",
+        );
+        let p = style_of(&document, &styles, "p");
+        assert_eq!(p.width, Dimension::Px(40.0));
+        assert_eq!(p.font_size, 30.0);
+    }
+
+    #[test]
+    fn inherit_and_initial_keywords_resolve() {
+        let (document, styles) = styles_for(
+            "<style>div { width: 300px; color: #ff0000; }\
+                    p { width: inherit; color: initial; }</style>\
+             <div><p>x</p></div>",
+        );
+        let p = style_of(&document, &styles, "p");
+        assert_eq!(p.width, Dimension::Px(300.0));
+        // color would inherit red; `initial` resets it to the default.
+        assert_eq!(p.color.to_string(), "#111111");
+    }
+
+    #[test]
+    fn important_beats_specificity_and_inline() {
+        let (document, styles) = styles_for(
+            "<style>p { color: #ff0000 !important; }\
+                    #target { color: #00ff00; }</style>\
+             <p id='target' style='color: #0000ff'>x</p>",
+        );
+        assert_eq!(
+            style_of(&document, &styles, "p").color.to_string(),
+            "#ff0000"
+        );
+    }
+
+    #[test]
+    fn inline_important_beats_author_important() {
+        let (document, styles) = styles_for(
+            "<style>p { color: #ff0000 !important; }</style>\
+             <p style='color: #0000ff !important'>x</p>",
+        );
+        assert_eq!(
+            style_of(&document, &styles, "p").color.to_string(),
+            "#0000ff"
+        );
     }
 
     #[test]

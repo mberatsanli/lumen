@@ -8,6 +8,8 @@ pub enum Unit {
     Px,
     /// Relative to the element's font size (parent's, for `font-size`).
     Em,
+    /// Relative to the root (html) font size.
+    Rem,
     /// Percent of the viewport width / height.
     Vw,
     Vh,
@@ -378,6 +380,12 @@ impl CssValue {
                 .ok()
                 .map(|v| Self::Length(v, Unit::Px));
         }
+        if let Some(number) = source.strip_suffix("rem") {
+            return number
+                .parse()
+                .ok()
+                .map(|value| Self::Length(value, Unit::Rem));
+        }
         if let Some(number) = source.strip_suffix("em") {
             return number
                 .trim()
@@ -459,6 +467,7 @@ impl fmt::Display for CssValue {
             Self::Keyword(keyword) => write!(formatter, "{keyword}"),
             Self::Length(value, Unit::Px) => write!(formatter, "{value}px"),
             Self::Length(value, Unit::Em) => write!(formatter, "{value}em"),
+            Self::Length(value, Unit::Rem) => write!(formatter, "{value}rem"),
             Self::Length(value, Unit::Vw) => write!(formatter, "{value}vw"),
             Self::Length(value, Unit::Vh) => write!(formatter, "{value}vh"),
             Self::Length(value, Unit::Percent) => write!(formatter, "{value}%"),

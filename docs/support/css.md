@@ -39,8 +39,8 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Source-order tie-break | ✅ | ✅ | ✅ | ✅ | |
 | Origins UA < author < inline | ✅ | ✅ | ✅ | ✅ | |
 | Inheritance | ⚠️ | ✅ | ✅ | ✅ | 6 props; text-decoration approximated as inherited |
-| `!important` | ❌ | ✅ | ✅ | ✅ | |
-| `inherit`/`initial`/`unset`/`revert` | ❌ | ✅ | ✅ | ✅ | |
+| `!important` | ✅ | ✅ | ✅ | ✅ | author important beats inline normal; inline important wins |
+| `inherit`/`initial`/`unset`/`revert` | ⚠️ | ✅ | ✅ | ✅ | revert behaves as initial |
 | Custom properties `--x` / `var()` | ❌ | ✅ | ✅ | ✅ | |
 | `calc()`, `min()`, `max()`, `clamp()` | ❌ | ✅ | ✅ | ✅ | |
 | `@media` | ❌ | ✅ | ✅ | ✅ | blocks skipped safely, never applied |
@@ -56,7 +56,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `vw` / `vh` | ✅ | ✅ | ✅ | ✅ | |
 | Unitless `0` | ✅ | ✅ | ✅ | ✅ | |
 | Unitless numbers | ✅ | ✅ | ✅ | ✅ | line-height, font-weight |
-| `rem` | ❌ | ✅ | ✅ | ✅ | |
+| `rem` | ✅ | ✅ | ✅ | ✅ | resolves against the html font-size |
 | `vmin`/`vmax`, `dvh`/`svh`/`lvh` | ❌ | ✅ | ✅ | ✅ | |
 | `pt cm mm in pc ch ex Q` | ❌ | ✅ | ✅ | ✅ | |
 
