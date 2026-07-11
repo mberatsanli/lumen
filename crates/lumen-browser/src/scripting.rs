@@ -859,6 +859,8 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
     let value_set = NativeFunction::from_fn_ptr(value_set_).to_js_function(context.realm());
     let id_get = NativeFunction::from_fn_ptr(id_get_).to_js_function(context.realm());
     let class_get = NativeFunction::from_fn_ptr(class_name_get).to_js_function(context.realm());
+    let html_get = NativeFunction::from_fn_ptr(inner_html_get).to_js_function(context.realm());
+    let html_set = NativeFunction::from_fn_ptr(inner_html_set).to_js_function(context.realm());
     let class_set = NativeFunction::from_fn_ptr(class_name_set).to_js_function(context.realm());
     let class_list = ObjectInitializer::new(context)
         .property(
@@ -936,7 +938,41 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
             Attribute::all(),
         )
         .property(js_string!("classList"), class_list, Attribute::all())
+        .accessor(
+            js_string!("innerHTML"),
+            Some(html_get),
+            Some(html_set),
+            Attribute::all(),
+        )
         .build()
+}
+
+fn inner_html_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context) else {
+        return Ok(JsValue::undefined());
+    };
+    let html = with_bridge(|bridge| {
+        bridge
+            .page
+            .as_ref()
+            .map(|page| page.document.inner_html(node))
+            .unwrap_or_default()
+    });
+    Ok(JsValue::from(js_string!(html.as_str())))
+}
+
+fn inner_html_set(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context) else {
+        return Ok(JsValue::undefined());
+    };
+    let html = string_arg(args, 0, context);
+    with_bridge(|bridge| {
+        if let Some(page) = bridge.page.as_mut() {
+            page.document.set_inner_html(node, &html);
+            bridge.dirty = true;
+        }
+    });
+    Ok(JsValue::undefined())
 }
 
 fn class_name_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {

@@ -280,6 +280,59 @@ impl Document {
         }
     }
 
+    /// Replaces a node's children with the parse of an HTML fragment
+    /// (the innerHTML setter). Scripts inside the fragment become inert
+    /// nodes, as in real browsers.
+    pub fn set_inner_html(&mut self, parent: NodeId, html: &str) {
+        for child in std::mem::take(&mut self.nodes[parent].children) {
+            self.nodes[child].parent = None;
+        }
+        // Generated value/pseudo text under the old children is stale now.
+        self.generated.retain(|(host, _), _| *host != parent);
+        let fragment = crate::parse_document(html);
+        let mut stack: Vec<(NodeId, NodeId)> = fragment
+            .children(fragment.root())
+            .iter()
+            .rev()
+            .map(|child| (*child, parent))
+            .collect();
+        while let Some((source, target_parent)) = stack.pop() {
+            let copy = self.append(target_parent, fragment.node(source).kind.clone());
+            for child in fragment.children(source).iter().rev() {
+                stack.push((*child, copy));
+            }
+        }
+    }
+
+    /// Serializes a node's children back to HTML (the innerHTML getter).
+    pub fn inner_html(&self, parent: NodeId) -> String {
+        let mut output = String::new();
+        for child in self.children(parent) {
+            self.serialize_node(*child, &mut output);
+        }
+        output
+    }
+
+    fn serialize_node(&self, node: NodeId, output: &mut String) {
+        match &self.node(node).kind {
+            NodeKind::Document => {}
+            NodeKind::Text(text) => {
+                output.push_str(&text.replace('&', "&amp;").replace('<', "&lt;"));
+            }
+            NodeKind::Element(element) => {
+                let _ = write!(output, "<{}", element.tag_name);
+                for (name, value) in element.attributes.iter() {
+                    let _ = write!(output, " {name}=\"{}\"", value.replace('"', "&quot;"));
+                }
+                output.push('>');
+                for child in self.children(node) {
+                    self.serialize_node(*child, output);
+                }
+                let _ = write!(output, "</{}>", element.tag_name);
+            }
+        }
+    }
+
     #[must_use]
     pub fn parent(&self, id: NodeId) -> Option<NodeId> {
         self.node(id).parent
@@ -491,5 +544,26 @@ mod tests {
         document.append(document.root(), element("p", &[("id", "x")]));
         assert_eq!(document.get_element_by_id("x"), Some(first));
         assert_eq!(document.get_element_by_id("missing"), None);
+    }
+}
+
+#[cfg(test)]
+mod inner_html_tests {
+    use super::*;
+
+    #[test]
+    fn set_inner_html_replaces_children_and_serializes_back() {
+        let mut document = crate::parse_document("<ul id='l'><li>eski</li></ul>");
+        let list = document.get_element_by_id("l").unwrap();
+        document.set_inner_html(list, "<li class='a'>bir</li><li>iki &amp; buçuk</li>");
+        assert_eq!(document.children(list).len(), 2);
+        assert_eq!(document.text_content(list), "biriki & buçuk");
+        assert_eq!(
+            document.inner_html(list),
+            "<li class=\"a\">bir</li><li>iki &amp; buçuk</li>"
+        );
+        // Old children are detached, and nested fragments nest.
+        document.set_inner_html(list, "<li><b>kalın</b></li>");
+        assert_eq!(document.text_content(list), "kalın");
     }
 }
