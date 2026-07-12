@@ -20,7 +20,7 @@ fn main() {
 /// Reads an input that may be a filesystem path or an http(s)/file URL.
 fn read_input(input: &str) -> Result<String, Box<dyn std::error::Error>> {
     let url = url_from_user_input(input)?;
-    Ok(DefaultLoader.load(&ResourceRequest { url })?.text())
+    Ok(DefaultLoader.load(&ResourceRequest::get(url))?.text())
 }
 
 /// Loads a full page (external stylesheets and images included) through a

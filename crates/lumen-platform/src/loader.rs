@@ -11,6 +11,23 @@ pub use url::Url;
 #[derive(Debug, Clone)]
 pub struct ResourceRequest {
     pub url: Url,
+    /// `Cookie` header to send, when the caller's jar has matches.
+    pub cookie: Option<String>,
+    /// POST body as (content type, bytes); the request is a GET when
+    /// `None`.
+    pub body: Option<(String, Vec<u8>)>,
+}
+
+impl ResourceRequest {
+    /// A plain GET with no cookies.
+    #[must_use]
+    pub fn get(url: Url) -> Self {
+        Self {
+            url,
+            cookie: None,
+            body: None,
+        }
+    }
 }
 
 /// A loaded resource.
@@ -21,6 +38,8 @@ pub struct ResourceResponse {
     /// `Content-Type` header value, or a guess from the file extension.
     pub content_type: Option<String>,
     pub body: Vec<u8>,
+    /// Raw `Set-Cookie` header values, in response order.
+    pub set_cookies: Vec<String>,
 }
 
 impl ResourceResponse {
@@ -87,6 +106,7 @@ impl ResourceLoader for FileLoader {
             final_url: request.url.clone(),
             content_type: guess_content_type(&path).map(str::to_string),
             body,
+            set_cookies: Vec::new(),
         })
     }
 }
@@ -112,10 +132,28 @@ fn agent() -> &'static ureq::Agent {
 impl ResourceLoader for HttpLoader {
     fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
         use ureq::ResponseExt as _;
-        let mut response = agent()
-            .get(request.url.as_str())
-            .call()
-            .map_err(|error| LoadError::Http(error.to_string()))?;
+        let mut response = match &request.body {
+            Some((content_type, body)) => {
+                let mut builder = agent()
+                    .post(request.url.as_str())
+                    .header("Content-Type", content_type);
+                if let Some(cookie) = &request.cookie {
+                    builder = builder.header("Cookie", cookie);
+                }
+                builder
+                    .send(&body[..])
+                    .map_err(|error| LoadError::Http(error.to_string()))?
+            }
+            None => {
+                let mut builder = agent().get(request.url.as_str());
+                if let Some(cookie) = &request.cookie {
+                    builder = builder.header("Cookie", cookie);
+                }
+                builder
+                    .call()
+                    .map_err(|error| LoadError::Http(error.to_string()))?
+            }
+        };
         let final_url = response
             .get_uri()
             .to_string()
@@ -126,6 +164,13 @@ impl ResourceLoader for HttpLoader {
             .get("content-type")
             .and_then(|value| value.to_str().ok())
             .map(str::to_string);
+        let set_cookies: Vec<String> = response
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .map(str::to_string)
+            .collect();
         let body = response
             .body_mut()
             .read_to_vec()
@@ -134,6 +179,7 @@ impl ResourceLoader for HttpLoader {
             final_url,
             content_type,
             body,
+            set_cookies,
         })
     }
 }
@@ -186,7 +232,7 @@ mod tests {
     fn file_loader_reads_local_files() {
         let path = std::path::absolute("../../examples/hello.html").unwrap();
         let url = Url::from_file_path(&path).unwrap();
-        let response = FileLoader.load(&ResourceRequest { url }).unwrap();
+        let response = FileLoader.load(&ResourceRequest::get(url)).unwrap();
         assert!(response.text().contains("Hello from Lumen"));
         assert_eq!(response.content_type.as_deref(), Some("text/html"));
     }
@@ -194,14 +240,14 @@ mod tests {
     #[test]
     fn missing_file_is_an_io_error() {
         let url = Url::from_file_path("/definitely/not/here.html").unwrap();
-        let error = FileLoader.load(&ResourceRequest { url }).unwrap_err();
+        let error = FileLoader.load(&ResourceRequest::get(url)).unwrap_err();
         assert!(matches!(error, LoadError::Io(_)));
     }
 
     #[test]
     fn default_loader_rejects_unknown_schemes() {
         let url = Url::parse("ftp://example.com/x").unwrap();
-        let error = DefaultLoader.load(&ResourceRequest { url }).unwrap_err();
+        let error = DefaultLoader.load(&ResourceRequest::get(url)).unwrap_err();
         assert!(matches!(error, LoadError::UnsupportedScheme(scheme) if scheme == "ftp"));
     }
 

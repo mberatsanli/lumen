@@ -14,7 +14,7 @@
 //! property; `textContent`/`value` are accessor properties reading and
 //! writing the live page.
 
-use crate::{Page, ResourceLoader, ResourceRequest, Session, resolve as resolve_url};
+use crate::{Page, ResourceLoader, Session, resolve as resolve_url};
 use boa_engine::object::ObjectInitializer;
 use boa_engine::object::builtins::{JsPromise, JsProxyBuilder};
 use boa_engine::property::Attribute;
@@ -44,6 +44,10 @@ struct Bridge {
     pending_fetches: Vec<(String, JsObject, JsObject)>,
     /// The page URL (feeds location.href reads).
     url: String,
+    /// The Cookie header for the page URL (document.cookie reads).
+    cookie_header: String,
+    /// document.cookie writes, stored into the jar after the entry.
+    pending_cookies: Vec<String>,
     /// A navigation a script requested (location.href = ..., reload()).
     pending_navigation: Option<String>,
 }
@@ -286,8 +290,7 @@ impl PageScripts {
                         })
                         .and_then(|url| {
                             session
-                                .loader
-                                .load(&ResourceRequest { url })
+                                .fetch_resource(url, None)
                                 .map(|response| response.text())
                                 .map_err(|error| error.to_string())
                         });
@@ -332,16 +335,18 @@ impl PageScripts {
         action: impl FnOnce(&mut Context),
     ) {
         let now_ms = self.now_ms;
-        let url = session
-            .current_url()
-            .map(ToString::to_string)
+        let url = session.current_url().cloned();
+        let cookie_header = url
+            .as_ref()
+            .and_then(|url| session.cookies.header_for(url))
             .unwrap_or_default();
         with_bridge(|bridge| {
             bridge.page = session.page.take();
             bridge.form_values = std::mem::take(&mut session.form_values);
             bridge.dirty = false;
             bridge.now_ms = now_ms;
-            bridge.url = url;
+            bridge.url = url.as_ref().map(ToString::to_string).unwrap_or_default();
+            bridge.cookie_header = cookie_header;
         });
         action(&mut self.context);
         // Drain the microtask queue (promise .then/await continuations)
@@ -370,8 +375,15 @@ impl PageScripts {
             if let Some(target) = bridge.pending_navigation.take() {
                 self.navigation = Some(target);
             }
-            bridge.dirty
+            let pending_cookies = std::mem::take(&mut bridge.pending_cookies);
+            (bridge.dirty, pending_cookies)
         });
+        let (dirty, pending_cookies) = dirty;
+        if let Some(url) = &url {
+            for header in pending_cookies {
+                session.cookies.store(url, &header);
+            }
+        }
         if dirty {
             session.relayout();
         }
@@ -415,8 +427,7 @@ fn script_sources<L: ResourceLoader>(session: &mut Session<L>) -> Vec<String> {
             Some(src) => {
                 let url = resolve_url(&base, &src).ok()?;
                 session
-                    .loader
-                    .load(&ResourceRequest { url })
+                    .fetch_resource(url, None)
                     .ok()
                     .map(|response| response.text())
             }
@@ -439,7 +450,15 @@ fn install_globals(context: &mut Context) {
         .expect("fresh context");
 
     let body_get = NativeFunction::from_fn_ptr(document_body_get).to_js_function(context.realm());
+    let cookie_get = NativeFunction::from_fn_ptr(cookie_get_).to_js_function(context.realm());
+    let cookie_set = NativeFunction::from_fn_ptr(cookie_set_).to_js_function(context.realm());
     let document = ObjectInitializer::new(context)
+        .accessor(
+            js_string!("cookie"),
+            Some(cookie_get),
+            Some(cookie_set),
+            Attribute::all(),
+        )
         .property(js_string!("__node"), JsValue::from(0.0), Attribute::empty())
         .function(
             NativeFunction::from_fn_ptr(add_event_listener),
@@ -539,6 +558,28 @@ fn install_globals(context: &mut Context) {
     context
         .register_global_property(js_string!("window"), global, Attribute::all())
         .expect("fresh context");
+}
+
+fn cookie_get_(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {
+    let header = with_bridge(|bridge| bridge.cookie_header.clone());
+    Ok(JsValue::from(js_string!(header.as_str())))
+}
+
+fn cookie_set_(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let header = string_arg(args, 0, context);
+    with_bridge(|bridge| {
+        // Reads within the same entry see the write too.
+        let pair = header.split(';').next().unwrap_or("").trim().to_string();
+        if !pair.is_empty() {
+            if bridge.cookie_header.is_empty() {
+                bridge.cookie_header = pair;
+            } else {
+                bridge.cookie_header = format!("{}; {}", bridge.cookie_header, pair);
+            }
+        }
+        bridge.pending_cookies.push(header);
+    });
+    Ok(JsValue::undefined())
 }
 
 fn document_body_get(_this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {

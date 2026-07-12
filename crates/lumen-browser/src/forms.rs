@@ -402,7 +402,7 @@ impl<L: ResourceLoader> Session<L> {
     /// pairs of its controls become the action URL's query.
     pub fn submit_form(&mut self, node: NodeId) -> Result<&Page, LoadError> {
         let base = self.require_current()?;
-        let (action, pairs) = {
+        let (action, method, pairs) = {
             let page = self
                 .page
                 .as_ref()
@@ -421,6 +421,11 @@ impl<L: ResourceLoader> Session<L> {
                 .and_then(|element| element.attributes.get("action"))
                 .unwrap_or("")
                 .to_string();
+            let method = document
+                .element(form)
+                .and_then(|element| element.attributes.get("method"))
+                .unwrap_or("get")
+                .to_ascii_lowercase();
             let mut pairs: Vec<(String, String)> = Vec::new();
             for control in document.descendants(form) {
                 let Some(element) = document.element(control) else {
@@ -471,15 +476,25 @@ impl<L: ResourceLoader> Session<L> {
                     _ => pairs.push((name.to_string(), self.form_value(control))),
                 }
             }
-            (action, pairs)
+            (action, method, pairs)
         };
         let mut url = resolve(&base, &action)?;
-        let query: String = pairs
+        let encoded: String = pairs
             .iter()
             .map(|(name, value)| format!("{}={}", url_encode(name), url_encode(value)))
             .collect::<Vec<_>>()
             .join("&");
-        url.set_query(if query.is_empty() { None } else { Some(&query) });
+        if method == "post" {
+            // POST: the pairs travel as an urlencoded body, not the URL.
+            return self.load_with_body(
+                url,
+                Some((
+                    "application/x-www-form-urlencoded".to_string(),
+                    encoded.into_bytes(),
+                )),
+            );
+        }
+        url.set_query(if encoded.is_empty() { None } else { Some(&encoded) });
         self.load(url)
     }
 }

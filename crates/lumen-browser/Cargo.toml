@@ -10,6 +10,7 @@ lumen-css = { path = "../lumen-css" }
 lumen-html = { path = "../lumen-html" }
 lumen-platform = { path = "../lumen-platform" }
 boa_engine = "0.21"
+cookie = "0.18.1"
 
 
 

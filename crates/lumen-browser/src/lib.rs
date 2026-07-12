@@ -10,12 +10,13 @@ use lumen_engine::{
     collect_image_sources,
 };
 use lumen_html::NodeId;
-use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, Url, resolve};
+use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, ResourceResponse, Url, resolve};
 
 pub use editor::{EditOp, EditOverlay, EditResult, Motion, TextBuffer};
 pub use scripting::{DispatchOutcome, PageScripts};
 use std::sync::Arc;
 
+mod cookies;
 mod editor;
 mod forms;
 mod scripting;
@@ -60,6 +61,8 @@ pub struct Session<L: ResourceLoader> {
     pub(crate) scroll_offsets: std::collections::HashMap<NodeId, f32>,
     /// Editing state of the focused text control.
     pub(crate) editor: Option<editor::TextEdit>,
+    /// Session cookies (Set-Cookie in, Cookie header out).
+    pub(crate) cookies: cookies::CookieJar,
     /// First usable `@font-face` font of the page (TTF/OTF only —
     /// fontdue cannot parse WOFF), used as the document font.
     web_font: Option<Arc<lumen_engine::SystemFont>>,
@@ -123,6 +126,7 @@ impl<L: ResourceLoader> Session<L> {
             has_transitions: false,
             scroll_offsets: std::collections::HashMap::new(),
             editor: None,
+            cookies: cookies::CookieJar::default(),
             web_font: None,
             hover_impact: lumen_engine::HoverImpact::Nothing,
         }
@@ -138,7 +142,18 @@ impl<L: ResourceLoader> Session<L> {
     /// Navigates to `url`: fetches, renders, pushes a history entry and
     /// drops any forward entries.
     pub fn load(&mut self, url: Url) -> Result<&Page, LoadError> {
-        let final_url = self.fetch_and_render(url)?;
+        self.load_with_body(url, None)
+    }
+
+    /// [`Self::load`] with an optional POST body (form submission).
+    /// History records the URL only: back/refresh re-GET, like early
+    /// browsers before re-POST prompts.
+    pub(crate) fn load_with_body(
+        &mut self,
+        url: Url,
+        body: Option<(String, Vec<u8>)>,
+    ) -> Result<&Page, LoadError> {
+        let final_url = self.fetch_and_render_with(url, body)?;
         if let Some(index) = self.index {
             self.history.truncate(index + 1);
         }
@@ -602,6 +617,26 @@ impl<L: ResourceLoader> Session<L> {
         }
     }
 
+    /// Loads a resource with the session's cookies attached, storing any
+    /// `Set-Cookie` headers from the response. Every network access of
+    /// the session funnels through here.
+    pub(crate) fn fetch_resource(
+        &mut self,
+        url: Url,
+        body: Option<(String, Vec<u8>)>,
+    ) -> Result<ResourceResponse, LoadError> {
+        let request = ResourceRequest {
+            cookie: self.cookies.header_for(&url),
+            url,
+            body,
+        };
+        let response = self.loader.load(&request)?;
+        for header in &response.set_cookies {
+            self.cookies.store(&response.final_url, header);
+        }
+        Ok(response)
+    }
+
     #[must_use]
     pub fn page(&self) -> Option<&Page> {
         self.page.as_ref()
@@ -653,7 +688,16 @@ impl<L: ResourceLoader> Session<L> {
     /// Fetches `url` and rebuilds the page. Returns the final URL after
     /// redirects (which is what history should record).
     fn fetch_and_render(&mut self, url: Url) -> Result<Url, LoadError> {
-        let response = self.loader.load(&ResourceRequest { url })?;
+        self.fetch_and_render_with(url, None)
+    }
+
+    /// [`Self::fetch_and_render`] with an optional POST body.
+    fn fetch_and_render_with(
+        &mut self,
+        url: Url,
+        body: Option<(String, Vec<u8>)>,
+    ) -> Result<Url, LoadError> {
+        let response = self.fetch_resource(url, body)?;
         let source = response.text();
         let document = lumen_html::parse_document(&source);
 
@@ -662,8 +706,7 @@ impl<L: ResourceLoader> Session<L> {
         let base = response.final_url.clone();
         let author_css = collect_author_css(&document, |href| {
             let url = resolve(&base, href).ok()?;
-            self.loader
-                .load(&ResourceRequest { url })
+            self.fetch_resource(url, None)
                 .ok()
                 .map(|response| response.text())
         });
@@ -679,28 +722,33 @@ impl<L: ResourceLoader> Session<L> {
         // @font-face: fetch the first source fontdue can parse (ttf/otf;
         // woff/woff2 are skipped) and use it as the document font.
         self.web_font = None;
-        'faces: for face in &self.author.font_faces {
-            for (source, format) in &face.sources {
-                let usable = match format.as_deref() {
-                    Some("truetype" | "opentype") => true,
-                    Some(_) => false,
-                    None => {
-                        let lower = source.to_ascii_lowercase();
-                        lower.ends_with(".ttf") || lower.ends_with(".otf")
-                    }
-                };
-                if !usable {
-                    continue;
+        // Collect candidate sources first: fetching needs &mut self.
+        let face_sources: Vec<(String, Option<String>)> = self
+            .author
+            .font_faces
+            .iter()
+            .flat_map(|face| face.sources.clone())
+            .collect();
+        'faces: for (source, format) in &face_sources {
+            let usable = match format.as_deref() {
+                Some("truetype" | "opentype") => true,
+                Some(_) => false,
+                None => {
+                    let lower = source.to_ascii_lowercase();
+                    lower.ends_with(".ttf") || lower.ends_with(".otf")
                 }
-                let Ok(url) = resolve(&base, source) else {
-                    continue;
-                };
-                if let Ok(response) = self.loader.load(&ResourceRequest { url })
-                    && let Some(font) = lumen_engine::SystemFont::from_bytes(&response.body)
-                {
-                    self.web_font = Some(Arc::new(font));
-                    break 'faces;
-                }
+            };
+            if !usable {
+                continue;
+            }
+            let Ok(url) = resolve(&base, source) else {
+                continue;
+            };
+            if let Ok(response) = self.fetch_resource(url, None)
+                && let Some(font) = lumen_engine::SystemFont::from_bytes(&response.body)
+            {
+                self.web_font = Some(Arc::new(font));
+                break 'faces;
             }
         }
 
@@ -731,7 +779,7 @@ impl<L: ResourceLoader> Session<L> {
             let Ok(url) = resolve(&base, &src) else {
                 continue;
             };
-            if let Ok(response) = self.loader.load(&ResourceRequest { url })
+            if let Ok(response) = self.fetch_resource(url, None)
                 && let Some(image) = RasterImage::decode(&response.body)
             {
                 images.insert(node, Arc::new(image));
@@ -776,6 +824,12 @@ mod tests {
     struct FakeLoader {
         pages: HashMap<String, Vec<u8>>,
         loads: RefCell<Vec<String>>,
+        /// POST bodies per load (None for GETs).
+        bodies: RefCell<Vec<Option<String>>>,
+        /// Cookie headers per load.
+        cookies_sent: RefCell<Vec<Option<String>>>,
+        /// Set-Cookie headers served per URL.
+        serve_cookies: HashMap<String, Vec<String>>,
     }
 
     impl FakeLoader {
@@ -786,7 +840,18 @@ mod tests {
                     .map(|(url, html)| ((*url).to_string(), html.as_bytes().to_vec()))
                     .collect(),
                 loads: RefCell::new(Vec::new()),
+                bodies: RefCell::new(Vec::new()),
+                cookies_sent: RefCell::new(Vec::new()),
+                serve_cookies: HashMap::new(),
             }
+        }
+
+        fn with_set_cookie(mut self, url: &str, header: &str) -> Self {
+            self.serve_cookies
+                .entry(url.to_string())
+                .or_default()
+                .push(header.to_string());
+            self
         }
 
         fn with_bytes(mut self, url: &str, bytes: &[u8]) -> Self {
@@ -798,6 +863,13 @@ mod tests {
     impl ResourceLoader for FakeLoader {
         fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
             self.loads.borrow_mut().push(request.url.to_string());
+            self.bodies.borrow_mut().push(
+                request
+                    .body
+                    .as_ref()
+                    .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned()),
+            );
+            self.cookies_sent.borrow_mut().push(request.cookie.clone());
             let body = self
                 .pages
                 .get(request.url.as_str())
@@ -806,6 +878,11 @@ mod tests {
                 final_url: request.url.clone(),
                 content_type: None,
                 body: body.clone(),
+                set_cookies: self
+                    .serve_cookies
+                    .get(request.url.as_str())
+                    .cloned()
+                    .unwrap_or_default(),
             })
         }
     }
@@ -1322,6 +1399,88 @@ mod tests {
         assert!(scripts.tick(&mut session, 150.0));
         assert_eq!(text(&session), "n=2!");
         assert!(!scripts.has_timers());
+    }
+
+    #[test]
+    fn post_forms_send_urlencoded_bodies() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                (
+                    "https://a.test/",
+                    "<form method='post' action='/giris'>\
+                     <input type='text' name='ad' value='lumen'>\
+                     <input type='hidden' name='k' value='1'></form>",
+                ),
+                ("https://a.test/giris", "<p>girildi</p>"),
+            ]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let field = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+            .unwrap();
+        session.submit_form(field).unwrap();
+        // The action URL carries no query; the body carries the pairs.
+        assert_eq!(
+            session.current_url().unwrap().as_str(),
+            "https://a.test/giris"
+        );
+        let bodies = session.loader.bodies.borrow();
+        assert_eq!(bodies.last().unwrap().as_deref(), Some("ad=lumen&k=1"));
+    }
+
+    #[test]
+    fn cookies_persist_across_navigations() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                ("https://a.test/", "<a href='/ic'>gir</a>"),
+                ("https://a.test/ic", "<p>ic</p>"),
+            ])
+            .with_set_cookie("https://a.test/", "sid=gizli; Path=/"),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        session.follow("/ic").unwrap();
+        let cookies = session.loader.cookies_sent.borrow();
+        // First request: no cookie yet; second carries the session id.
+        assert_eq!(cookies[0], None);
+        assert_eq!(cookies[1].as_deref(), Some("sid=gizli"));
+    }
+
+    #[test]
+    fn document_cookie_reads_and_writes_the_jar() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<p id='out'>-</p>\
+                 <script>\
+                 document.cookie = 'tema=koyu; Path=/';\
+                 document.getElementById('out').textContent = document.cookie;\
+                 </script>",
+            )])
+            .with_set_cookie("https://a.test/", "sid=abc; Path=/"),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let document = &session.page().unwrap().document;
+        let out = document.get_element_by_id("out").unwrap();
+        // The script saw the network cookie plus its own write.
+        assert_eq!(document.text_content(out), "sid=abc; tema=koyu");
+        // And the write landed in the jar for future requests.
+        assert_eq!(
+            session
+                .cookies
+                .header_for(&url("https://a.test/x"))
+                .unwrap(),
+            "sid=abc; tema=koyu"
+        );
     }
 
     #[test]

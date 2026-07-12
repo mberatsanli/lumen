@@ -8,5 +8,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+cookie = "0.18.1"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 url = "2.5.8"

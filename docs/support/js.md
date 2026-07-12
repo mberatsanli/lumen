@@ -36,6 +36,7 @@ loader thread); the whole world drops on navigation.
 | `el.getBoundingClientRect` | ✅ | real border-box geometry from the layout tree |
 | `keydown` / `keyup` | ⚠️ | dispatched to the focused control (else the document) with `event.key`; preventDefault skips shell defaults |
 | `fetch` | ⚠️ | GET only; blocking under the hood, resolved between script entries; `response.text()`/`.json()`; no headers/status detail |
+| `document.cookie` | ⚠️ | reads the jar for the page URL, writes store through it (Path/Domain/Max-Age honored); HttpOnly not hidden |
 | `window` / `location` | ⚠️ | `window` aliases the global object; `location.href` read/write (write navigates) and `location.reload()`; no `history` |
 
 `<script>` elements (inline or `src=`) run once after the page first

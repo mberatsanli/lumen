@@ -78,7 +78,7 @@ interaction) — not just a DOM node.
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
 | `<table>` family | ⚠️ | ✅ | ✅ | ✅ | real column/row layout with colspan/rowspan; thead/tbody/tfoot flattened; caption ignored; no border-collapse |
-| `<form>` submission | ⚠️ | ✅ | ✅ | ✅ | GET only (Enter or submit click): name=value pairs URL-encoded onto the action (multiple selects submit one pair per selection); no POST |
+| `<form>` submission | ⚠️ | ✅ | ✅ | ✅ | GET and POST (urlencoded body): name=value pairs from all controls (multiple selects submit one pair per selection); history re-GETs POSTed pages |
 | `<progress>` / `<meter>` / range | ⚠️ | ✅ | ✅ | ✅ | vector value bars; range thumb click-to-set and draggable |
 | `<input>` (all types) | ⚠️ | ✅ | ✅ | ✅ | text inputs editable (caret/selection/clipboard, click-to-position; long values clip and scroll horizontally to follow the caret), checkbox/radio toggle, submit buttons submit, number steps with ↑/↓ (step/min/max), color opens a swatch palette; date/file etc render as text boxes |
 | `<textarea> <select> <button>` | ⚠️ | ✅ | ✅ | ✅ | select opens a shell-drawn dropdown (`multiple` renders an inline list box: click selects, Cmd/Ctrl+click toggles, rows highlight via `:checked`), `<optgroup>` labels shown; textarea edits multiline (Enter = newline, inner scroll follows the caret line), button submits; label clicks focus their control |
@@ -118,4 +118,5 @@ interaction) — not just a DOM node.
 | Relative URL resolution | ✅ | ✅ | ✅ | ✅ | against final URL |
 | History back/forward/refresh | ⚠️ | ✅ | ✅ | ✅ | re-fetches; no cache; desktop: address bar + nav buttons, loads on background thread |
 | Fragment `#anchor` scroll | ⚠️ | ✅ | ✅ | ✅ | scrolls to `id` targets after navigation; no :target styling |
-| Cookies / cache / compression | ❌ | ✅ | ✅ | ✅ | |
+| Cookies | ⚠️ | ✅ | ✅ | ✅ | session jar (RFC 6265 core: domain/path/Secure, Max-Age deletion via the cookie crate); document.cookie read/write; no persistence, no HttpOnly distinction for scripts |
+| Cache / compression | ❌ | ✅ | ✅ | ✅ | |
