@@ -16,7 +16,7 @@ interaction) — not just a DOM node.
 | Void elements | ✅ | ✅ | ✅ | ✅ | 13-element set |
 | Comments | ✅ | ✅ | ✅ | ✅ | dropped from DOM |
 | Doctype | ✅ | ✅ | ✅ | ✅ | recognized, dropped; no quirks mode |
-| Character references | ⚠️ | ✅ | ✅ | ✅ | ~80 common named + numeric forms; full 2200-entry table missing |
+| Character references | ✅ | ✅ | ✅ | ✅ | the full WHATWG named table (via htmlize) + numeric forms; semicolon required |
 | Raw text (`script/style/title/textarea`) | ✅ | ✅ | ✅ | ✅ | |
 | Error recovery | ✅ | ✅ | ✅ | ✅ | mismatched tags, stray `<`, EOF cases |
 | Case normalization, duplicate attrs | ✅ | ✅ | ✅ | ✅ | first attribute wins |

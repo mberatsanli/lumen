@@ -508,7 +508,9 @@ impl Tokenizer {
         debug_assert_eq!(self.chars.get(self.position), Some(&'&'));
         let start = self.position;
         let mut end = self.position + 1;
-        let limit = (start + 32).min(self.chars.len());
+        // The longest WHATWG name (CounterClockwiseContourIntegral) is
+        // 31 chars; allow &name; up to 40.
+        let limit = (start + 40).min(self.chars.len());
         while end < limit {
             let current = self.chars[end];
             if current == ';' {
@@ -530,106 +532,32 @@ impl Tokenizer {
 }
 
 fn decode_reference(body: &str) -> Option<String> {
-    // The common subset of HTML named references (full table is ~2200
-    // entries; these cover real-world pages).
-    let named = match body {
-        "amp" => Some('&'),
-        "lt" => Some('<'),
-        "gt" => Some('>'),
-        "quot" => Some('"'),
-        "apos" => Some('\''),
-        "nbsp" => Some('\u{a0}'),
-        "copy" => Some('©'),
-        "reg" => Some('®'),
-        "trade" => Some('™'),
-        "mdash" => Some('—'),
-        "ndash" => Some('–'),
-        "hellip" => Some('…'),
-        "laquo" => Some('«'),
-        "raquo" => Some('»'),
-        "ldquo" => Some('“'),
-        "rdquo" => Some('”'),
-        "lsquo" => Some('‘'),
-        "rsquo" => Some('’'),
-        "sbquo" => Some('‚'),
-        "bdquo" => Some('„'),
-        "bull" => Some('•'),
-        "middot" => Some('·'),
-        "sdot" => Some('⋅'),
-        "deg" => Some('°'),
-        "plusmn" => Some('±'),
-        "times" => Some('×'),
-        "divide" => Some('÷'),
-        "minus" => Some('−'),
-        "frac12" => Some('½'),
-        "frac14" => Some('¼'),
-        "frac34" => Some('¾'),
-        "sup1" => Some('¹'),
-        "sup2" => Some('²'),
-        "sup3" => Some('³'),
-        "euro" => Some('€'),
-        "pound" => Some('£'),
-        "yen" => Some('¥'),
-        "cent" => Some('¢'),
-        "curren" => Some('¤'),
-        "sect" => Some('§'),
-        "para" => Some('¶'),
-        "dagger" => Some('†'),
-        "Dagger" => Some('‡'),
-        "permil" => Some('‰'),
-        "prime" => Some('′'),
-        "Prime" => Some('″'),
-        "larr" => Some('←'),
-        "rarr" => Some('→'),
-        "uarr" => Some('↑'),
-        "darr" => Some('↓'),
-        "harr" => Some('↔'),
-        "infin" => Some('∞'),
-        "ne" => Some('≠'),
-        "le" => Some('≤'),
-        "ge" => Some('≥'),
-        "asymp" => Some('≈'),
-        "shy" => Some('\u{ad}'),
-        "ensp" => Some('\u{2002}'),
-        "emsp" => Some('\u{2003}'),
-        "thinsp" => Some('\u{2009}'),
-        "zwnj" => Some('\u{200c}'),
-        "zwj" => Some('\u{200d}'),
-        "iexcl" => Some('¡'),
-        "iquest" => Some('¿'),
-        "szlig" => Some('ß'),
-        "agrave" => Some('à'),
-        "aacute" => Some('á'),
-        "eacute" => Some('é'),
-        "egrave" => Some('è'),
-        "iacute" => Some('í'),
-        "oacute" => Some('ó'),
-        "uacute" => Some('ú'),
-        "ntilde" => Some('ñ'),
-        "ccedil" => Some('ç'),
-        "ouml" => Some('ö'),
-        "uuml" => Some('ü'),
-        "auml" => Some('ä'),
-        "Ouml" => Some('Ö'),
-        "Uuml" => Some('Ü'),
-        "Auml" => Some('Ä'),
-        _ => None,
-    };
-    if let Some(character) = named {
-        return Some(character.to_string());
+    // Numeric references: &#38; and &#x26;.
+    if let Some(digits) = body.strip_prefix('#') {
+        let code = if let Some(hex) = digits.strip_prefix(['x', 'X']) {
+            u32::from_str_radix(hex, 16).ok()?
+        } else {
+            digits.parse().ok()?
+        };
+        return char::from_u32(code).map(|character| character.to_string());
     }
-
-    let digits = body.strip_prefix('#')?;
-    let code = if let Some(hex) = digits.strip_prefix(['x', 'X']) {
-        u32::from_str_radix(hex, 16).ok()?
-    } else {
-        digits.parse().ok()?
-    };
-    char::from_u32(code).map(|character| character.to_string())
+    // Named references: the full WHATWG table via htmlize.
+    let candidate = format!("&{body};");
+    let unescaped = htmlize::unescape(&candidate);
+    (unescaped != candidate).then(|| unescaped.into_owned())
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn full_entity_table_decodes_exotic_names() {
+        let tokens = tokenize("&alpha;&spades;&CounterClockwiseContourIntegral;&notin;");
+        let HtmlToken::Text(text) = &tokens[0] else {
+            panic!("expected text");
+        };
+        assert_eq!(text, "\u{3b1}\u{2660}\u{2233}\u{2209}");
+    }
+
     use super::*;
 
     fn start_tag(name: &str, attributes: &[(&str, &str)], self_closing: bool) -> HtmlToken {

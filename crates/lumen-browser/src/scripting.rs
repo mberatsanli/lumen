@@ -542,14 +542,19 @@ fn install_globals(context: &mut Context) {
 }
 
 fn document_body_get(_this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    // Pages without an explicit <body> fall back to the root, so
+    // document.body.appendChild and friends still work.
     let body = with_bridge(|bridge| {
         let page = bridge.page.as_ref()?;
         let document = &page.document;
-        document.descendants(document.root()).find(|node| {
-            document
-                .element(*node)
-                .is_some_and(|element| element.tag_name == "body")
-        })
+        document
+            .descendants(document.root())
+            .find(|node| {
+                document
+                    .element(*node)
+                    .is_some_and(|element| element.tag_name == "body")
+            })
+            .or_else(|| Some(document.root()))
     });
     Ok(match body {
         Some(node) => element_object(node, context).into(),
