@@ -428,12 +428,40 @@ fn rasterize_clipped(
                 decoration_color,
                 decoration_style,
             } => {
+                // Rotated/skewed text: draw glyphs through the matrix.
+                if let (Some(matrix), Some(font)) = (current, font)
+                    && !(matrix.b.abs() < 1e-6 && matrix.c.abs() < 1e-6)
+                {
+                    draw_text_transformed(
+                        framebuffer,
+                        font,
+                        matrix,
+                        scale,
+                        scroll_y,
+                        *x,
+                        *y,
+                        text,
+                        pack(*color),
+                        color.a,
+                        *font_size,
+                        *font_weight,
+                        *monospace,
+                        *letter_spacing,
+                    );
+                    continue;
+                }
                 let (page_x, page_y) = match current {
                     Some(matrix) => matrix.apply(*x, *y),
                     None => (*x, *y),
                 };
+                // Row-vector lengths give the true scale factor (the old
+                // |a|,|d| average shrank text under rotation).
                 let text_scale = match current {
-                    Some(matrix) => (matrix.a.abs() + matrix.d.abs()) / 2.0,
+                    Some(matrix) => {
+                        ((matrix.a * matrix.a + matrix.b * matrix.b).sqrt()
+                            + (matrix.c * matrix.c + matrix.d * matrix.d).sqrt())
+                            / 2.0
+                    }
                     None => 1.0,
                 };
                 let (x, y, font_size) = (
@@ -868,6 +896,100 @@ fn fill_transformed_rect(
             framebuffer.pixels[position] =
                 blend(framebuffer.pixels[position], pack(color), alpha);
         }
+    }
+}
+
+/// Draws a text run under an arbitrary transform: every glyph bitmap is
+/// inverse-sampled through the matrix, so the glyphs rotate with their
+/// box. Decorations (underline/strike) are skipped in this path.
+#[allow(clippy::too_many_arguments)]
+fn draw_text_transformed(
+    framebuffer: &mut Framebuffer,
+    font: &SystemFont,
+    matrix: Transform2D,
+    scale: f32,
+    scroll_y: f32,
+    x_local: f32,
+    y_local: f32,
+    text: &str,
+    color: u32,
+    alpha_multiplier: u8,
+    font_size: f32,
+    font_weight: u16,
+    monospace: bool,
+    letter_spacing: f32,
+) {
+    let Some(inverse) = matrix.inverse() else {
+        return;
+    };
+    let device_size = font_size * scale;
+    let bold = font_weight >= 600;
+    let mut pen = x_local; // page units along the local baseline
+    for character in text.chars() {
+        let glyph = font.rasterize(character, device_size, monospace);
+        let width = glyph.metrics.width;
+        let height = glyph.metrics.height;
+        if width > 0 && height > 0 {
+            // The bitmap's rect in local page units.
+            let gx = pen + glyph.metrics.xmin as f32 / scale;
+            let gy = y_local - (glyph.metrics.ymin + glyph.metrics.height as i32) as f32 / scale;
+            let gw = width as f32 / scale;
+            let gh = height as f32 / scale;
+            // Device bounding box of the transformed bitmap rect.
+            let corners = [
+                matrix.apply(gx, gy),
+                matrix.apply(gx + gw, gy),
+                matrix.apply(gx, gy + gh),
+                matrix.apply(gx + gw, gy + gh),
+            ];
+            let min_x = corners.iter().map(|(x, _)| *x).fold(f32::INFINITY, f32::min);
+            let max_x = corners
+                .iter()
+                .map(|(x, _)| *x)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let min_y = corners.iter().map(|(_, y)| *y).fold(f32::INFINITY, f32::min);
+            let max_y = corners
+                .iter()
+                .map(|(_, y)| *y)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let x0 = ((min_x * scale) - 1.0).max(0.0) as u32;
+            let y0 = (((min_y - scroll_y) * scale) - 1.0).max(0.0) as u32;
+            let x1 = (((max_x * scale) + 1.0).ceil().max(0.0) as u32).min(framebuffer.width);
+            let y1 = ((((max_y - scroll_y) * scale) + 1.0).ceil().max(0.0) as u32)
+                .min(framebuffer.height);
+            for pixel_y in y0..y1 {
+                for pixel_x in x0..x1 {
+                    if !framebuffer.admits(pixel_x, pixel_y) {
+                        continue;
+                    }
+                    let page_x = (pixel_x as f32 + 0.5) / scale;
+                    let page_y = (pixel_y as f32 + 0.5) / scale + scroll_y;
+                    let (local_x, local_y) = inverse.apply(page_x, page_y);
+                    let u = (local_x - gx) * scale;
+                    let v = (local_y - gy) * scale;
+                    if u < 0.0 || v < 0.0 || u >= width as f32 || v >= height as f32 {
+                        continue;
+                    }
+                    let coverage = glyph.coverage[v as usize * width + u as usize];
+                    // A synthetic bold double-strike is approximated by a
+                    // second sample one device pixel to the left.
+                    let coverage = if bold && u >= 1.0 {
+                        coverage.max(glyph.coverage[v as usize * width + (u as usize - 1)])
+                    } else {
+                        coverage
+                    };
+                    let alpha =
+                        (u32::from(coverage) * u32::from(alpha_multiplier) / 255) as u8;
+                    if alpha == 0 {
+                        continue;
+                    }
+                    let position = (pixel_y * framebuffer.width + pixel_x) as usize;
+                    framebuffer.pixels[position] =
+                        blend(framebuffer.pixels[position], color, alpha);
+                }
+            }
+        }
+        pen += glyph.metrics.advance_width / scale + letter_spacing;
     }
 }
 
