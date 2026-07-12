@@ -1580,7 +1580,7 @@ mod tests {
         let _scripts = PageScripts::new(&mut session).expect("page has scripts");
         let document = &session.page().unwrap().document;
         let list = document.get_element_by_id("list").unwrap();
-        assert_eq!(document.text_content(list).trim(), "yeni");
+        assert_eq!(document.text_content(list).trim(), "\u{2022} yeni");
         assert_eq!(document.children(list).len(), 1);
         // The removed node left the tree entirely.
         assert!(document.get_element_by_id("eski").is_none());

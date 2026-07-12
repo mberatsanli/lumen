@@ -43,7 +43,7 @@ interaction) — not just a DOM node.
 | `<h1>`–`<h6>` | ✅ | ✅ | ✅ | ✅ | UA sizes/weights/margins for all six |
 | `<p> <div>` | ✅ | ✅ | ✅ | ✅ | |
 | `<section> <article> <header> <footer> <main> <nav> <aside> <blockquote>` | ✅ | ✅ | ✅ | ✅ | block flow |
-| `<ul> <ol> <li>` | ⚠️ | ✅ | ✅ | ✅ | block only; no bullets/numbers/indent |
+| `<ul> <ol> <li>` | ⚠️ | ✅ | ✅ | ✅ | bullets and 1. 2. numbering as inline markers + UA indent; `list-style: none` suppresses; no marker styling/`start` attr |
 | `<dl> <dt> <dd>` | ❌ | ✅ | ✅ | ✅ | |
 | `<pre>` | ⚠️ | ✅ | ✅ | ✅ | whitespace still collapses; not monospace |
 | `<hr>` | ✅ | ✅ | ✅ | ✅ | UA: 1px solid top border |

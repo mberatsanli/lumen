@@ -110,6 +110,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `display: list-item` | ❌ | ✅ | ✅ | ✅ | no markers |
 | `position` + offsets + `z-index` | ⚠️ | ✅ | ✅ | ✅ | relative/absolute/fixed; containing block = nearest positioned ancestor (viewport at root); absolute `bottom` works under explicit heights; fixed scrolls with the page; z-index = sibling sort, no full stacking contexts |
 | `float` / `clear` | ⚠️ | ✅ | ✅ | ✅ | simplified: floats narrow inline lines in the same container only; block siblings ignore floats except clear |
+| `list-style(-type)` | ⚠️ | ✅ | ✅ | ✅ | only `none` is honored (marker suppression); disc/decimal are the defaults |
 | `overflow` | ⚠️ | ✅ | ✅ | ✅ | hidden/clip clip; scroll/auto wheel-scroll with a thumb indicator (offsets honored by hit testing); no overflow-x/y split |
 | `vertical-align` | ⚠️ | ✅ | ✅ | ✅ | baseline/top/middle/bottom/sub/super on inline boxes and text; treated as inherited (deviation) |
 | `direction: rtl` / writing modes | ❌ | ✅ | ✅ | ✅ | |

@@ -33,6 +33,8 @@ pub const PROPERTIES: &[PropertyMeta] = &[
     row("font-style", true, false),
     row("font-weight", true, false),
     row("letter-spacing", true, false),
+    row("list-style", true, false),
+    row("list-style-type", true, false),
     row("line-height", true, false),
     row("text-align", true, false),
     row("text-decoration", true, false),

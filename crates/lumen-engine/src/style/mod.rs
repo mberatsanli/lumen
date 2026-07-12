@@ -998,6 +998,12 @@ fn to_computed(
         })
         .unwrap_or_default();
 
+    style.list_style_none = matches!(
+        raw.get("list-style-type")
+            .or_else(|| raw.get("list-style"))
+            .and_then(CssValue::as_keyword),
+        Some("none")
+    );
     style.mark = match raw.get("--lumen-mark").map(CssValue::raw_text).as_deref() {
         Some("check") => Some(Mark::Check),
         Some("dot") => Some(Mark::Dot),

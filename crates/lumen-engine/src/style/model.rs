@@ -193,6 +193,8 @@ pub struct ComputedStyle {
     /// Origin as (x, y); percents resolve against the border box.
     pub transform_origin: (Dimension, Dimension),
     pub transitions: Vec<TransitionSpec>,
+    /// `list-style(-type): none` suppresses the li marker.
+    pub list_style_none: bool,
     /// Geometric control mark (from the internal `--lumen-mark` UA hook).
     pub mark: Option<Mark>,
     pub width: Dimension,
@@ -786,6 +788,7 @@ impl Default for ComputedStyle {
             height: Dimension::Auto,
             min_width: Dimension::Auto,
             max_width: Dimension::Auto,
+            list_style_none: false,
             min_height: Dimension::Auto,
             max_height: Dimension::Auto,
             margin: EdgeSizes::uniform(Dimension::Px(0.0)),

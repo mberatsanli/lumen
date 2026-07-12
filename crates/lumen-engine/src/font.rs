@@ -22,6 +22,9 @@ pub struct SystemFont {
     /// Monospace face for `font-family: monospace`; falls back to the
     /// regular face when no monospace font was found.
     mono: Option<fontdue::Font>,
+    /// Wide-coverage faces consulted when the chosen face lacks a glyph
+    /// (symbols, exotic scripts) — otherwise text shows notdef boxes.
+    fallbacks: Vec<fontdue::Font>,
     glyph_cache: Mutex<HashMap<(char, u32, bool), Arc<Glyph>>>,
 }
 
@@ -44,6 +47,19 @@ const MONO_CANDIDATE_PATHS: [&str; 8] = [
     // Windows
     "C:\\Windows\\Fonts\\consola.ttf",
     "C:\\Windows\\Fonts\\cour.ttf",
+];
+
+/// Wide-coverage fallback faces per platform, tried in order (all that
+/// parse are kept).
+const FALLBACK_CANDIDATE_PATHS: [&str; 5] = [
+    // macOS
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    "/System/Library/Fonts/Apple Symbols.ttf",
+    // Linux
+    "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    // Windows
+    "C:\\Windows\\Fonts\\seguisym.ttf",
 ];
 
 /// Common system font locations per platform, tried in order.
@@ -70,6 +86,7 @@ impl SystemFont {
             .map(|font| Self {
                 font,
                 mono: None,
+                fallbacks: Vec::new(),
                 glyph_cache: Mutex::new(HashMap::new()),
             })
     }
@@ -88,9 +105,17 @@ impl SystemFont {
                 })
         };
         let font = load(&CANDIDATE_PATHS)?;
+        let fallbacks = FALLBACK_CANDIDATE_PATHS
+            .iter()
+            .filter_map(|path| std::fs::read(path).ok())
+            .filter_map(|data| {
+                fontdue::Font::from_bytes(data.as_slice(), fontdue::FontSettings::default()).ok()
+            })
+            .collect();
         Some(Self {
             font,
             mono: load(&MONO_CANDIDATE_PATHS),
+            fallbacks,
             glyph_cache: Mutex::new(HashMap::new()),
         })
     }
@@ -104,12 +129,32 @@ impl SystemFont {
         }
     }
 
+    /// The face that actually has a glyph for `character`: the requested
+    /// face, else the other face, else the first covering fallback.
+    fn face_for(&self, character: char, monospace: bool) -> &fontdue::Font {
+        let preferred = self.face(monospace);
+        let has = |font: &fontdue::Font| font.lookup_glyph_index(character) != 0;
+        if has(preferred) {
+            return preferred;
+        }
+        let other = self.face(!monospace);
+        if has(other) {
+            return other;
+        }
+        self.fallbacks
+            .iter()
+            .find(|font| has(font))
+            .unwrap_or(preferred)
+    }
+
     /// Rasterizes one character at `font_size` (cached), returning metrics
     /// and an 8-bit coverage bitmap (row-major, `metrics.width` per row).
     #[must_use]
     pub fn rasterize(&self, character: char, font_size: f32, monospace: bool) -> Arc<Glyph> {
         let rasterize = || {
-            let (metrics, coverage) = self.face(monospace).rasterize(character, font_size);
+            let (metrics, coverage) = self
+                .face_for(character, monospace)
+                .rasterize(character, font_size);
             Arc::new(Glyph { metrics, coverage })
         };
         match self.glyph_cache.lock() {
@@ -134,11 +179,13 @@ impl SystemFont {
 
 impl TextMeasurer for SystemFont {
     fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics {
-        let face = self.face(style.monospace);
         let width = text
             .chars()
             .map(|character| {
-                face.metrics(character, style.font_size).advance_width + style.letter_spacing
+                self.face_for(character, style.monospace)
+                    .metrics(character, style.font_size)
+                    .advance_width
+                    + style.letter_spacing
             })
             .sum();
         TextMetrics { width }

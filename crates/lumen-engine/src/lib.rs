@@ -148,6 +148,7 @@ pub fn page_from_document_interactive(
     let effective = stylesheet.for_width(viewport.width);
     let mut styles = compute_styles_interactive(&document, &effective, interaction);
     apply_generated_content(&mut document, &mut styles);
+    materialize_list_markers(&mut document, &mut styles);
     let layout = layout_document(&document, &styles, viewport, measurer, &images);
     let display_list = build_display_list(&layout, &images);
 
@@ -265,6 +266,59 @@ fn materialize_form_values(document: &mut Document) {
         if document.generated_text(id, true).is_none() {
             document.upsert_generated_text(id, true, &text);
         }
+    }
+}
+
+/// Gives each `<li>` its marker — a bullet for `<ul>`, "1." numbering
+/// for `<ol>` — as generated leading text (skipped when a `::before`
+/// already occupies that slot or `list-style: none` applies).
+fn materialize_list_markers(document: &mut Document, styles: &mut crate::style::StyleMap) {
+    let items: Vec<(lumen_html::NodeId, String)> = document
+        .descendants(document.root())
+        .filter_map(|id| {
+            let element = document.element(id)?;
+            if element.tag_name != "li" {
+                return None;
+            }
+            if styles
+                .by_node
+                .get(&id)
+                .is_some_and(|style| style.list_style_none)
+            {
+                return None;
+            }
+            let parent = document.parent(id)?;
+            let marker = match document.element(parent)?.tag_name.as_str() {
+                "ul" => "\u{2022} ".to_string(),
+                "ol" => {
+                    let index = document
+                        .children(parent)
+                        .iter()
+                        .filter(|child| {
+                            document
+                                .element(**child)
+                                .is_some_and(|element| element.tag_name == "li")
+                        })
+                        .position(|child| *child == id)?
+                        + 1;
+                    format!("{index}. ")
+                }
+                _ => return None,
+            };
+            Some((id, marker))
+        })
+        .collect();
+    for (id, marker) in items {
+        // A ::before already registered a style for its generated node —
+        // the pseudo wins the leading slot.
+        if let Some(existing) = document.generated_text(id, true)
+            && styles.by_node.contains_key(&existing)
+        {
+            continue;
+        }
+        let node = document.upsert_generated_text(id, true, &marker);
+        let style = styles.by_node.get(&id).cloned().unwrap_or_default();
+        styles.by_node.insert(node, style);
     }
 }
 
@@ -740,5 +794,33 @@ mod tests {
         let p = &page.layout.children[0];
         let text = &p.children[0];
         assert_eq!(text.content_box().height, 40.0);
+    }
+}
+
+#[cfg(test)]
+mod list_marker_tests {
+    use super::*;
+
+    #[test]
+    fn lists_get_bullets_and_numbers() {
+        let page = build_page(
+            "<ul><li>a</li><li>b</li></ul>\
+             <ol><li>x</li><li style='list-style: none'>y</li><li>z</li></ol>",
+            Size { width: 400.0, height: 300.0 },
+        );
+        let document = &page.document;
+        let texts: Vec<String> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "li")
+            })
+            .map(|li| document.text_content(li))
+            .collect();
+        assert_eq!(
+            texts,
+            vec!["\u{2022} a", "\u{2022} b", "1. x", "y", "3. z"]
+        );
     }
 }

@@ -27,6 +27,7 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             em, i { font-style: italic; }
             pre { white-space: pre; font-family: monospace; margin-top: 8px; margin-bottom: 8px; }
             code, kbd, samp, tt { font-family: monospace; font-size: 0.875em; }
+            ul, ol { padding-left: 22px; margin-top: 8px; margin-bottom: 8px; }
             center { text-align: center; }
             td, th { padding: 2px 4px; }
             th { font-weight: 700; text-align: center; }
