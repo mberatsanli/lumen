@@ -32,10 +32,11 @@ pub use selection::{
     selected_text,
 };
 pub use style::{
-    BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, ComputedStyle, Dimension,
-    Display, FontWeight, HoverImpact, InteractionState, LinearGradient, Mark, Overflow, StyleMap,
-    TextAlign, Transform2D, compute_styles, compute_styles_hovered, compute_styles_interactive,
-    hover_impact, hover_styles_may_change, interaction_styles_may_change,
+    AnimationSpec, BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, ComputedStyle,
+    Dimension, Display, FontWeight, HoverImpact, InteractionState, LinearGradient, Mark, Overflow,
+    StyleMap, TextAlign, Transform2D, compute_styles, compute_styles_hovered,
+    compute_styles_interactive, hover_impact, hover_styles_may_change,
+    interaction_styles_may_change, parse_transform_value,
 };
 pub use svg::render_svg;
 pub use text::{HeuristicMeasurer, TextMeasurer, TextMetrics, TextStyle};
@@ -800,6 +801,7 @@ mod tests {
 #[cfg(test)]
 mod list_marker_tests {
     use super::*;
+
 
     #[test]
     fn lists_get_bullets_and_numbers() {

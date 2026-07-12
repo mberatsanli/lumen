@@ -84,10 +84,19 @@ pub struct FontFace {
     pub sources: Vec<(String, Option<String>)>,
 }
 
+/// One `@keyframes` block: a name plus (offset 0..=1, declarations)
+/// frames sorted by offset.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Keyframes {
+    pub name: String,
+    pub frames: Vec<(f32, Vec<Declaration>)>,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Stylesheet {
     pub rules: Vec<Rule>,
     pub font_faces: Vec<FontFace>,
+    pub keyframes: Vec<Keyframes>,
 }
 
 impl Stylesheet {
@@ -107,7 +116,14 @@ impl Stylesheet {
                 .cloned()
                 .collect(),
             font_faces: self.font_faces.clone(),
+            keyframes: self.keyframes.clone(),
         }
+    }
+
+    /// The `@keyframes` block for an animation name, if declared.
+    #[must_use]
+    pub fn keyframes(&self, name: &str) -> Option<&Keyframes> {
+        self.keyframes.iter().rev().find(|block| block.name == name)
     }
 }
 
@@ -181,6 +197,26 @@ fn parse_rule_list(
             }
             break;
         }
+        if let Some(after_keyword) = rest
+            .strip_prefix("@keyframes")
+            .or_else(|| rest.strip_prefix("@-webkit-keyframes"))
+        {
+            if let Some(open) = after_keyword.find('{') {
+                let name = after_keyword[..open].trim().to_string();
+                let block_start = &after_keyword[open..];
+                let block_end = balanced_block_len(block_start);
+                let inner = &block_start[1..block_end.saturating_sub(1)];
+                if !name.is_empty() {
+                    let block = parse_keyframes(&name, inner);
+                    if !block.frames.is_empty() {
+                        sheet.keyframes.push(block);
+                    }
+                }
+                rest = &after_keyword[open + block_end..];
+                continue;
+            }
+            break;
+        }
         // Other at-rules (`@import`, ...) are unsupported:
         // skip the whole construct with balanced braces so nested rules
         // inside the block cannot desynchronize the parser.
@@ -217,6 +253,40 @@ fn parse_rule_list(
             media,
         });
         *source_order += 1;
+    }
+}
+
+/// Parses the body of a `@keyframes` block: `from`/`to`/percent frame
+/// selectors (comma lists share declarations), sorted by offset.
+fn parse_keyframes(name: &str, source: &str) -> Keyframes {
+    let mut frames: Vec<(f32, Vec<Declaration>)> = Vec::new();
+    let mut rest = source;
+    loop {
+        rest = rest.trim_start();
+        let Some(open) = rest.find('{') else { break };
+        let selector_source = rest[..open].trim();
+        let after_open = &rest[open + 1..];
+        let close = after_open.find('}').unwrap_or(after_open.len());
+        let declarations = parse_declarations(&after_open[..close]);
+        rest = &after_open[(close + 1).min(after_open.len())..];
+        for frame_selector in selector_source.split(',') {
+            let offset = match frame_selector.trim() {
+                "from" => Some(0.0),
+                "to" => Some(1.0),
+                other => other
+                    .strip_suffix('%')
+                    .and_then(|percent| percent.trim().parse::<f32>().ok())
+                    .map(|percent| percent / 100.0),
+            };
+            if let Some(offset) = offset {
+                frames.push((offset.clamp(0.0, 1.0), declarations.clone()));
+            }
+        }
+    }
+    frames.sort_by(|a, b| a.0.total_cmp(&b.0));
+    Keyframes {
+        name: name.to_string(),
+        frames,
     }
 }
 

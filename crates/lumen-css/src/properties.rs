@@ -58,6 +58,7 @@ pub const PROPERTIES: &[PropertyMeta] = &[
     row("text-shadow", true, true),
     row("transition", true, true),
     // Raw-kept only.
+    row("animation", false, true),
     row("aspect-ratio", false, true),
     row("box-shadow", false, true),
     row("background-image", false, true),

@@ -55,6 +55,8 @@ pub struct Session<L: ResourceLoader> {
     visited: std::collections::HashSet<String>,
     /// Running property transitions, stepped by [`Session::tick`].
     transitions: Vec<ActiveTransition>,
+    /// Declared `@keyframes` animations, driven by [`Session::tick`].
+    animations: Vec<ActiveAnimation>,
     /// Whether the current stylesheet declares any `transition` at all.
     has_transitions: bool,
     /// Per-element inner scroll offsets (`overflow: scroll/auto`).
@@ -83,6 +85,19 @@ struct ActiveTransition {
     duration_ms: f64,
     delay_ms: f64,
     ease: bool,
+}
+
+/// A running `@keyframes` animation: per-property keyframe tracks.
+struct ActiveAnimation {
+    node: NodeId,
+    duration_ms: f64,
+    delay_ms: f64,
+    iterations: f32,
+    ease: bool,
+    /// (property, sorted (offset, value) frames) — only animatable
+    /// properties with at least two frames.
+    tracks: Vec<(&'static str, Vec<(f32, AnimatedValue)>)>,
+    start_ms: Option<f64>,
 }
 
 /// One value being animated.
@@ -123,6 +138,7 @@ impl<L: ResourceLoader> Session<L> {
             form_checked: std::collections::HashMap::new(),
             visited: std::collections::HashSet::new(),
             transitions: Vec::new(),
+            animations: Vec::new(),
             has_transitions: false,
             scroll_offsets: std::collections::HashMap::new(),
             editor: None,
@@ -472,11 +488,12 @@ impl<L: ResourceLoader> Session<L> {
     /// patching styles and repainting. Returns whether animation frames
     /// are still needed.
     pub fn tick(&mut self, now_ms: f64) -> bool {
-        if self.transitions.is_empty() {
+        if self.transitions.is_empty() && self.animations.is_empty() {
             return false;
         }
         let Some(page) = self.page.as_mut() else {
             self.transitions.clear();
+            self.animations.clear();
             return false;
         };
         let mut any_active = false;
@@ -516,6 +533,65 @@ impl<L: ResourceLoader> Session<L> {
                 any_active = true;
             }
         }
+        // @keyframes animations: find the surrounding frames for the
+        // current cycle position and interpolate.
+        for animation in &mut self.animations {
+            let start = *animation.start_ms.get_or_insert(now_ms);
+            let elapsed = (now_ms - start - animation.delay_ms).max(0.0);
+            let cycles = elapsed / animation.duration_ms.max(0.001);
+            let finished = cycles as f32 >= animation.iterations;
+            let t = if finished {
+                1.0
+            } else {
+                (cycles.fract()) as f32
+            };
+            if let Some(style) = page.styles.by_node.get_mut(&animation.node) {
+                for (property, frames) in &animation.tracks {
+                    let after = frames
+                        .iter()
+                        .position(|(offset, _)| *offset >= t)
+                        .unwrap_or(frames.len() - 1);
+                    let before = after.saturating_sub(if frames[after].0 > t { 1 } else { 0 });
+                    let (from_offset, from) = frames[before];
+                    let (to_offset, to) = frames[after.max(before)];
+                    let span = (to_offset - from_offset).max(f32::EPSILON);
+                    let local = ((t - from_offset) / span).clamp(0.0, 1.0);
+                    let eased = if animation.ease {
+                        local * local * (3.0 - 2.0 * local)
+                    } else {
+                        local
+                    };
+                    match (from, to) {
+                        (AnimatedValue::Number(from), AnimatedValue::Number(to)) => {
+                            style.opacity = from + (to - from) * eased;
+                        }
+                        (AnimatedValue::Color(from), AnimatedValue::Color(to)) => {
+                            let value = lerp_color(from, to, eased);
+                            if *property == "color" {
+                                style.color = value;
+                            } else {
+                                style.background_color = (value.a > 0).then_some(value);
+                            }
+                        }
+                        (AnimatedValue::Transform(from), AnimatedValue::Transform(to)) => {
+                            let value = lumen_engine::Transform2D::lerp(from, to, eased);
+                            style.transform = (!value.is_identity()).then_some(value);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if !finished {
+                any_active = true;
+            }
+        }
+        self.animations.retain(|animation| {
+            animation.start_ms.is_none_or(|start| {
+                let cycles =
+                    ((now_ms - start - animation.delay_ms).max(0.0)) / animation.duration_ms.max(0.001);
+                (cycles as f32) < animation.iterations
+            })
+        });
         lumen_engine::refresh_paint(page);
         self.transitions.retain(|transition| {
             transition.start_ms.is_none_or(|start| {
@@ -791,6 +867,7 @@ impl<L: ResourceLoader> Session<L> {
         self.active = None;
         self.focused = None;
         self.editor = None;
+        self.animations.clear();
         self.transitions.clear();
         self.scroll_offsets.clear();
         self.form_values.clear();
@@ -810,7 +887,86 @@ impl<L: ResourceLoader> Session<L> {
             &interaction,
         ));
         self.source = Some(source);
+        self.spawn_animations();
         Ok(response.final_url)
+    }
+
+    /// Builds animation tracks from `@keyframes` for every node whose
+    /// computed style names one.
+    fn spawn_animations(&mut self) {
+        self.animations.clear();
+        let Some(page) = self.page.as_ref() else {
+            return;
+        };
+        for (node, style) in &page.styles.by_node {
+            let Some(spec) = &style.animation else {
+                continue;
+            };
+            let Some(block) = page.stylesheet.keyframes(&spec.name) else {
+                continue;
+            };
+            let font_size = style.font_size;
+            let mut tracks: Vec<(&'static str, Vec<(f32, AnimatedValue)>)> = Vec::new();
+            for property in ["opacity", "transform", "background-color", "color"] {
+                let mut frames: Vec<(f32, AnimatedValue)> = Vec::new();
+                for (offset, declarations) in &block.frames {
+                    let Some(declaration) = declarations
+                        .iter()
+                        .rev()
+                        .find(|declaration| declaration.name == property)
+                    else {
+                        continue;
+                    };
+                    let value = match property {
+                        // A bare `0` parses as a zero length, not a number.
+                        "opacity" => match &declaration.value {
+                            lumen_css::CssValue::Number(value)
+                            | lumen_css::CssValue::Length(value, _) => {
+                                Some(AnimatedValue::Number(*value))
+                            }
+                            _ => None,
+                        },
+                        "transform" => lumen_engine::parse_transform_value(
+                            &declaration.value.raw_text(),
+                            font_size,
+                        )
+                        .map(AnimatedValue::Transform),
+                        _ => match &declaration.value {
+                            lumen_css::CssValue::Color(color) => {
+                                Some(AnimatedValue::Color(*color))
+                            }
+                            lumen_css::CssValue::Keyword(keyword) => {
+                                lumen_css::Color::parse(keyword).map(AnimatedValue::Color)
+                            }
+                            _ => None,
+                        },
+                    };
+                    if let Some(value) = value {
+                        frames.push((*offset, value));
+                    }
+                }
+                if frames.len() >= 2 {
+                    let name: &'static str = match property {
+                        "opacity" => "opacity",
+                        "transform" => "transform",
+                        "background-color" => "background-color",
+                        _ => "color",
+                    };
+                    tracks.push((name, frames));
+                }
+            }
+            if !tracks.is_empty() {
+                self.animations.push(ActiveAnimation {
+                    node: *node,
+                    duration_ms: f64::from(spec.duration) * 1000.0,
+                    delay_ms: f64::from(spec.delay) * 1000.0,
+                    iterations: spec.iterations,
+                    ease: spec.ease,
+                    tracks,
+                    start_ms: None,
+                });
+            }
+        }
     }
 }
 
@@ -1399,6 +1555,37 @@ mod tests {
         assert!(scripts.tick(&mut session, 150.0));
         assert_eq!(text(&session), "n=2!");
         assert!(!scripts.has_timers());
+    }
+
+    #[test]
+    fn keyframes_animations_drive_styles_and_finish() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>@keyframes belir { from { opacity: 0; } to { opacity: 1; } }\
+                 .kut { animation: belir 1s linear 1; }</style>\
+                 <div class='kut' id='k'>x</div>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let node = document.get_element_by_id("k").unwrap();
+        let opacity = |session: &Session<FakeLoader>| {
+            session.page().unwrap().styles.by_node[&node].opacity
+        };
+        assert!(session.tick(0.0)); // starts the clock
+        assert!(opacity(&session) < 0.05, "{}", opacity(&session));
+        session.tick(500.0);
+        assert!(
+            (opacity(&session) - 0.5).abs() < 0.05,
+            "{}",
+            opacity(&session)
+        );
+        session.tick(2000.0);
+        assert!((opacity(&session) - 1.0).abs() < 0.01);
+        // One iteration only: the animation retires.
+        assert!(!session.tick(3000.0));
     }
 
     #[test]

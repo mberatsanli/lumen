@@ -52,6 +52,13 @@ pub struct PseudoText {
     pub style: ComputedStyle,
 }
 
+/// Parses a `transform` value list into a matrix (public for the
+/// browser's keyframe interpolation).
+#[must_use]
+pub fn parse_transform_value(source: &str, font_size: f32) -> Option<Transform2D> {
+    parse_transform(source, font_size)
+}
+
 /// Computes styles for the whole document with no hover state.
 #[must_use]
 pub fn compute_styles(document: &Document, author: &Stylesheet) -> StyleMap {
@@ -997,6 +1004,49 @@ fn to_computed(
                 .collect()
         })
         .unwrap_or_default();
+
+    // animation: name duration [delay] [iterations] [timing] (first
+    // comma-separated entry only).
+    style.animation = raw.get("animation").map(CssValue::raw_text).and_then(|text| {
+        let entry = text.split(',').next()?;
+        let mut name = String::new();
+        let mut times: Vec<f32> = Vec::new();
+        let mut iterations = 1.0f32;
+        let mut ease = true;
+        for piece in entry.split_whitespace() {
+            if let Some(millis) = piece.strip_suffix("ms") {
+                if let Ok(value) = millis.parse::<f32>() {
+                    times.push(value / 1000.0);
+                }
+            } else if let Some(seconds) = piece.strip_suffix('s')
+                && let Ok(value) = seconds.parse::<f32>()
+            {
+                times.push(value);
+            } else if piece == "infinite" {
+                iterations = f32::INFINITY;
+            } else if let Ok(count) = piece.parse::<f32>() {
+                iterations = count;
+            } else if piece == "linear" {
+                ease = false;
+            } else if matches!(piece, "ease" | "ease-in" | "ease-out" | "ease-in-out")
+                || piece.starts_with("cubic-bezier")
+                || matches!(piece, "normal" | "forwards" | "backwards" | "both" | "alternate")
+            {
+                // Timing keywords keep the default; fill/direction modes
+                // are accepted but not modeled.
+            } else {
+                name = piece.to_string();
+            }
+        }
+        let duration = times.first().copied()?;
+        (duration > 0.0 && !name.is_empty()).then_some(AnimationSpec {
+            name,
+            duration,
+            delay: times.get(1).copied().unwrap_or(0.0),
+            iterations,
+            ease,
+        })
+    });
 
     style.list_style_none = matches!(
         raw.get("list-style-type")

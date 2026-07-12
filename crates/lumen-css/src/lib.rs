@@ -11,7 +11,8 @@ pub mod selector;
 pub mod value;
 
 pub use parser::{
-    Declaration, FontFace, MediaQuery, Rule, Stylesheet, parse_declarations, parse_stylesheet,
+    Declaration, FontFace, Keyframes, MediaQuery, Rule, Stylesheet, parse_declarations,
+    parse_stylesheet,
 };
 pub use selector::{
     AttributeOperation, AttributeSelector, Combinator, CompoundSelector, PseudoClass, Selector,

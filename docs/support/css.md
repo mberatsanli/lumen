@@ -158,12 +158,12 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
 | `opacity` | ⚠️ | ✅ | ✅ | ✅ | per-command alpha multiply (approximation of group compositing; overlapping children double-blend) |
-| `visibility: hidden` | ❌ | ✅ | ✅ | ✅ | |
+| `visibility: hidden` | ✅ | ✅ | ✅ | ✅ | hidden/collapse skip painting, keep layout |
 | `transform` | ⚠️ | ✅ | ✅ | ✅ | translate/scale/rotate/matrix + transform-origin, paint-only; SVG exact, raster exact for translate/scale (rotation → bounding box, text stays upright) |
 | `filter` / `backdrop-filter` | ❌ | ✅ | ✅ | ✅ | |
 | `clip-path` / `mask` | ❌ | ✅ | ✅ | ✅ | |
 | `transition` | ⚠️ | ✅ | ✅ | ✅ | opacity/color/background-color/transform; linear + smoothstep ease; driven by interaction restyles |
-| `animation` / `@keyframes` | ❌ | ✅ | ✅ | ✅ | |
+| `animation` / `@keyframes` | ⚠️ | ✅ | ✅ | ✅ | opacity/transform/color/background-color tracks; duration, delay, iteration count/infinite, linear/ease; no fill modes, direction, or pause |
 | `cursor` | ⚠️ | ✅ | ✅ | ✅ | pointer over links only; property ignored |
 | `user-select: none` | ✅ | ✅ | ✅ | ✅ | treated as inherited |
 | `pointer-events` | ❌ | ✅ | ✅ | ✅ | |

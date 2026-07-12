@@ -195,6 +195,8 @@ pub struct ComputedStyle {
     pub transitions: Vec<TransitionSpec>,
     /// `list-style(-type): none` suppresses the li marker.
     pub list_style_none: bool,
+    /// `animation` shorthand (name + timing), driven by the session.
+    pub animation: Option<AnimationSpec>,
     /// Geometric control mark (from the internal `--lumen-mark` UA hook).
     pub mark: Option<Mark>,
     pub width: Dimension,
@@ -486,6 +488,18 @@ pub(crate) fn parse_transform(source: &str, font_size: f32) -> Option<Transform2
 }
 
 /// One transition: property (or "all"), duration and delay in seconds,
+/// One `animation` shorthand: `name duration [delay] [iterations]
+/// [timing]`. Durations in seconds; `iterations` is `f32::INFINITY`
+/// for `infinite`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnimationSpec {
+    pub name: String,
+    pub duration: f32,
+    pub delay: f32,
+    pub iterations: f32,
+    pub ease: bool,
+}
+
 /// plus whether the ease timing curve applies (else linear).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransitionSpec {
@@ -789,6 +803,7 @@ impl Default for ComputedStyle {
             min_width: Dimension::Auto,
             max_width: Dimension::Auto,
             list_style_none: false,
+            animation: None,
             min_height: Dimension::Auto,
             max_height: Dimension::Auto,
             margin: EdgeSizes::uniform(Dimension::Px(0.0)),
