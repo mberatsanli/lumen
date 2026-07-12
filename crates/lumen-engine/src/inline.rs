@@ -525,6 +525,10 @@ impl LineBuilder<'_> {
             }
         }
         height = height.max(baseline);
+        // Half-leading: CSS distributes extra line-height evenly above
+        // and below the content, so a tall line-height centers its text
+        // (and baseline-aligned atomic boxes) vertically.
+        baseline += (height - baseline) / 2.0;
 
         let leftover = (self.line_width - self.pen_x).max(0.0);
         // Justify: wrapped lines stretch, spreading the leftover across

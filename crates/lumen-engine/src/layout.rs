@@ -1814,9 +1814,10 @@ mod tests {
         let FragmentContent::Box(chip_box) = &chip.content else {
             panic!("expected an atomic box");
         };
-        // Bottom sits on the baseline (= its own 20px height here... baseline
-        // is max(text 16, box 20) = 20): top = line.y + 20 - 20 = 0.
-        assert_eq!(chip_box.border_box().y, 0.0);
+        // Bottom sits on the baseline: content baseline is max(text 16,
+        // box 20) = 20, and half-leading centers it in the 22.4px line
+        // ((22.4 - 20) / 2 = 1.2), so the chip tops out at 1.2.
+        assert!((chip_box.border_box().y - 1.2).abs() < 0.01);
         assert_eq!(chip_box.border_box().x, 56.0);
         // Text after the chip continues on the same line.
         assert_eq!(lines[0].fragments[2].x, 56.0 + 60.0 + 8.0);
