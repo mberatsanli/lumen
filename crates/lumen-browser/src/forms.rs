@@ -334,10 +334,20 @@ impl<L: ResourceLoader> Session<L> {
     /// stay visible, so the rendered text is a tail slice).
     pub fn set_form_value_display(&mut self, node: NodeId, value: &str, display: &str) {
         self.form_values.insert(node, value.to_string());
+        // When the generated text node already existed (and thus already
+        // has a computed style), only its text changes — reuse the cached
+        // styles and skip the selector cascade. A first-time creation needs
+        // a full relayout to style the new node.
+        let mut node_existed = false;
         if let Some(page) = self.page.as_mut() {
+            node_existed = page.document.generated_text(node, true).is_some();
             page.document.upsert_generated_text(node, true, display);
         }
-        self.relayout();
+        if node_existed {
+            self.relayout_reusing_styles();
+        } else {
+            self.relayout();
+        }
     }
 
     fn is_textarea_document(&self, document: &lumen_html::Document, node: NodeId) -> bool {

@@ -660,6 +660,31 @@ impl<L: ResourceLoader> Session<L> {
         ));
     }
 
+    /// Re-lays out the page reusing the already-computed styles, skipping
+    /// selector matching and generated-content/list-marker passes. Valid
+    /// only when the edit changed a node's text but not the document
+    /// structure or anything a selector matches — i.e. live text-input
+    /// value updates. Layout itself still runs in full, so geometry stays
+    /// correct even for content-sized controls; only the expensive style
+    /// cascade is skipped.
+    fn relayout_reusing_styles(&mut self) {
+        let Some(mut page) = self.page.take() else {
+            return;
+        };
+        {
+            let measurer = self.effective_measurer();
+            page.layout = lumen_engine::layout_document(
+                &page.document,
+                &page.styles,
+                page.viewport,
+                measurer,
+                &page.images,
+            );
+            page.display_list = lumen_engine::build_display_list(&page.layout, &page.images);
+        }
+        self.page = Some(page);
+    }
+
     /// Current per-element scroll offsets.
     #[must_use]
     pub fn scroll_offsets(&self) -> &std::collections::HashMap<NodeId, f32> {
@@ -1922,6 +1947,54 @@ mod tests {
             before,
             height(&session)
         );
+    }
+
+    #[test]
+    fn typing_reuses_styles_but_matches_full_layout() {
+        // Live typing takes the style-reuse fast path; its geometry must
+        // match a full build of the same final value, including where a
+        // following sibling lands.
+        let typed = {
+            let mut session = Session::new(
+                FakeLoader::new(&[(
+                    "https://a.test/",
+                    "<form><input id='q' type='text' value=''><p id='after'>x</p></form>",
+                )]),
+                VIEWPORT,
+            );
+            session.load(url("https://a.test/")).unwrap();
+            let field = session.page().unwrap().document.get_element_by_id("q").unwrap();
+            assert!(session.begin_edit(field, None));
+            session.edit(EditOp::Insert("hello world".to_string()));
+            session
+        };
+        let baked = {
+            let mut session = Session::new(
+                FakeLoader::new(&[(
+                    "https://a.test/",
+                    "<form><input id='q' type='text' value='hello world'><p id='after'>x</p></form>",
+                )]),
+                VIEWPORT,
+            );
+            session.load(url("https://a.test/")).unwrap();
+            session
+        };
+        let box_of = |session: &Session<FakeLoader>, id: &str| {
+            let page = session.page().unwrap();
+            let node = page.document.get_element_by_id(id).unwrap();
+            page.layout.find_by_node(node).unwrap().border_box()
+        };
+        for id in ["q", "after"] {
+            let (fast, full) = (box_of(&typed, id), box_of(&baked, id));
+            assert!(
+                (fast.x - full.x).abs() < 0.5
+                    && (fast.y - full.y).abs() < 0.5
+                    && (fast.width - full.width).abs() < 0.5
+                    && (fast.height - full.height).abs() < 0.5,
+                "fast-path box for #{id} {fast:?} != full {full:?}"
+            );
+        }
+        assert_eq!(typed.form_value(typed.page().unwrap().document.get_element_by_id("q").unwrap()), "hello world");
     }
 
     #[test]
