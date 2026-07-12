@@ -7,20 +7,20 @@
 <rect x="999" y="24" width="1" height="300.8" fill="#d8d2c6"/>
 <rect x="24" y="323.8" width="976" height="1" fill="#d8d2c6"/>
 <rect x="24" y="24" width="1" height="300.8" fill="#d8d2c6"/>
-<text x="41" y="65" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Outer panel</text>
-<text x="41" y="96.2" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This panel contains another panel. Borders, paddings and margins all take real space in the box model.</text>
+<text x="41" y="61" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Outer panel</text>
+<text x="41" y="93" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This panel contains another panel. Borders, paddings and margins all take real space in the box model.</text>
 <rect x="41" y="107.4" width="942" height="200.4" fill="#faf8f4"/>
 <rect x="41" y="107.4" width="942" height="1" fill="#d8d2c6"/>
 <rect x="982" y="107.4" width="1" height="200.4" fill="#d8d2c6"/>
 <rect x="41" y="306.8" width="942" height="1" fill="#d8d2c6"/>
 <rect x="41" y="107.4" width="1" height="200.4" fill="#d8d2c6"/>
-<text x="58" y="148.4" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Inner panel</text>
-<text x="58" y="179.59999" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Nested one level deeper, with its own border and padding.</text>
+<text x="58" y="144.4" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="20" font-weight="700">Inner panel</text>
+<text x="58" y="176.4" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Nested one level deeper, with its own border and padding.</text>
 <rect x="58" y="190.79999" width="908" height="100" fill="#faf8f4"/>
 <rect x="58" y="190.79999" width="908" height="1" fill="#d8d2c6"/>
 <rect x="965" y="190.79999" width="1" height="100" fill="#d8d2c6"/>
 <rect x="58" y="289.8" width="908" height="1" fill="#d8d2c6"/>
 <rect x="58" y="190.79999" width="1" height="100" fill="#d8d2c6"/>
-<text x="75" y="234.99998" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="16" font-weight="400">And one more level, because layout bugs love depth.</text>
-<text x="823" y="262.99997" fill="#8a8272" font-family="system-ui, sans-serif" font-size="14" font-weight="400">right-aligned note</text>
+<text x="75" y="231.79999" fill="#2d2a24" font-family="system-ui, sans-serif" font-size="16" font-weight="400">And one more level, because layout bugs love depth.</text>
+<text x="823" y="260.19998" fill="#8a8272" font-family="system-ui, sans-serif" font-size="14" font-weight="400">right-aligned note</text>
 </svg>

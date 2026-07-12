@@ -1602,9 +1602,10 @@ mod tests {
         let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
             panic!("expected inline content");
         };
-        // Default 16px text line-height is 22.4; the span's is 32.
+        // Default 16px text line-height is 22.4; the span's is 32. The
+        // baseline sits at the 32px span's ascent (0.8 × 32).
         assert_eq!(lines[0].height, 32.0);
-        assert_eq!(lines[0].baseline, 32.0);
+        assert!((lines[0].baseline - 25.6).abs() < 0.01);
     }
 
     #[test]
@@ -1814,10 +1815,10 @@ mod tests {
         let FragmentContent::Box(chip_box) = &chip.content else {
             panic!("expected an atomic box");
         };
-        // Bottom sits on the baseline: content baseline is max(text 16,
-        // box 20) = 20, and half-leading centers it in the 22.4px line
-        // ((22.4 - 20) / 2 = 1.2), so the chip tops out at 1.2.
-        assert!((chip_box.border_box().y - 1.2).abs() < 0.01);
+        // Bottom sits on the baseline: the chip's 20px height dominates
+        // the ascent, text descent (3.2) hangs below, so the line is
+        // 23.2 tall with the baseline at 20 — the chip tops out at 0.
+        assert!(chip_box.border_box().y.abs() < 0.01);
         assert_eq!(chip_box.border_box().x, 56.0);
         // Text after the chip continues on the same line.
         assert_eq!(lines[0].fragments[2].x, 56.0 + 60.0 + 8.0);

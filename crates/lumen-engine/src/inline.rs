@@ -509,26 +509,31 @@ impl LineBuilder<'_> {
             fragments = kept;
         }
 
+        // Content extent around the baseline: text contributes an
+        // 0.8/0.2 ascent/descent split of its font size (a practical
+        // approximation of real font metrics), atomic boxes sit with
+        // their full height above the baseline.
         let mut height = self.container.line_height;
-        let mut baseline = self.container.font_size;
+        let mut ascent = self.container.font_size * 0.8;
+        let mut descent = self.container.font_size * 0.2;
         for fragment in &fragments {
             match &fragment.content {
                 FragmentContent::Text { style, .. } => {
                     height = height.max(style.line_height);
-                    baseline = baseline.max(style.font_size);
+                    ascent = ascent.max(style.font_size * 0.8);
+                    descent = descent.max(style.font_size * 0.2);
                 }
                 FragmentContent::Box(laid) => {
-                    let box_height = laid.margin_box().height;
-                    baseline = baseline.max(box_height);
-                    height = height.max(box_height);
+                    ascent = ascent.max(laid.margin_box().height);
                 }
             }
         }
-        height = height.max(baseline);
-        // Half-leading: CSS distributes extra line-height evenly above
-        // and below the content, so a tall line-height centers its text
-        // (and baseline-aligned atomic boxes) vertically.
-        baseline += (height - baseline) / 2.0;
+        let content = ascent + descent;
+        height = height.max(content);
+        // Half-leading: CSS splits the extra line-height evenly above and
+        // below the content, so a tall line-height centers its text (and
+        // baseline-aligned atomic boxes) vertically.
+        let baseline = (height - content) / 2.0 + ascent;
 
         let leftover = (self.line_width - self.pen_x).max(0.0);
         // Justify: wrapped lines stretch, spreading the leftover across
@@ -568,7 +573,7 @@ impl LineBuilder<'_> {
                 }
                 // Text fragments carry a baseline offset for painting.
                 FragmentContent::Text { style, .. } => {
-                    let ascent = style.font_size;
+                    let ascent = style.font_size * 0.8;
                     fragment.dy = match style.vertical_align {
                         VerticalAlign::Baseline => 0.0,
                         VerticalAlign::Top => -(baseline - ascent),
