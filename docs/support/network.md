@@ -30,7 +30,7 @@ Normative references: [URL](https://url.spec.whatwg.org/),
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
 | HTTP/HTTPS GET | ✅ | ✅ | ✅ | ✅ | `ureq` transport with Rustls |
-| Redirect following | ✅ | ✅ | ✅ | ✅ | Final URL is recorded |
+| Redirect following | ✅ | ✅ | ✅ | ✅ | Followed by hand (up to 10 hops); every hop's `Set-Cookie` is captured, 301/302/303 downgrade to GET; final URL recorded |
 | Response body bytes | ✅ | ✅ | ✅ | ✅ | Fully buffered in memory |
 | `Content-Type` capture | ⚠️ | ✅ | ✅ | ✅ | Stored but not used to choose a parser |
 | HTTP error pages | ❌ | ✅ | ✅ | ✅ | Non-success responses surface as load errors |
@@ -40,8 +40,8 @@ Normative references: [URL](https://url.spec.whatwg.org/),
 | Request headers and user agent | ❌ | ✅ | ✅ | ✅ | No browser-level header policy |
 | MIME sniffing | ❌ | ✅ | ✅ | ✅ | All loaded documents are treated as HTML |
 | HTTP cache and validation | ❌ | ✅ | ✅ | ✅ | Back/forward/refresh re-fetch |
-| Cookies | ❌ | ✅ | ✅ | ✅ | |
-| Authentication | ❌ | ✅ | ✅ | ✅ | |
+| Cookies | ⚠️ | ✅ | ✅ | ✅ | Session jar; redirect-hop `Set-Cookie` captured so POST-login flows keep their session |
+| Authentication | ⚠️ | ✅ | ✅ | ✅ | Form-based login works (POST + session cookie); no HTTP Basic/Digest |
 | Proxy support | ❌ | ✅ | ✅ | ✅ | |
 
 ## Navigation and security

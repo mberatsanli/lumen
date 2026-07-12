@@ -111,76 +111,143 @@ impl ResourceLoader for FileLoader {
     }
 }
 
-/// Serves `http://` and `https://` URLs. Follows redirects (ureq default)
-/// and reports the final URL.
+/// Serves `http://` and `https://` URLs. Redirects are followed by hand
+/// (ureq's auto-follow is disabled) so every hop's `Set-Cookie` is
+/// captured — a login flow's session cookie lives on the 3xx response,
+/// not the final page.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HttpLoader;
 
+/// Most redirect hops any one request will follow before giving up.
+const MAX_REDIRECTS: usize = 10;
+
 /// Shared HTTP agent: 5s connect / 20s total per request, so a stalled
-/// server can never hang a caller indefinitely.
+/// server can never hang a caller indefinitely. Auto-redirects are off;
+/// [`HttpLoader`] follows them itself to keep intermediate cookies.
 fn agent() -> &'static ureq::Agent {
     static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
     AGENT.get_or_init(|| {
         ureq::Agent::config_builder()
             .timeout_connect(Some(std::time::Duration::from_secs(5)))
             .timeout_global(Some(std::time::Duration::from_secs(20)))
+            .max_redirects(0)
             .build()
             .into()
+    })
+}
+
+/// Merges the caller's `Cookie` header with cookies collected along the
+/// redirect chain (later hops override earlier same-name values). The
+/// redirects here stay on one host, so `name=value` pairs suffice without
+/// full domain/path matching.
+fn chain_cookie_header(base: Option<&str>, chain: &[(String, String)]) -> Option<String> {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    if let Some(base) = base {
+        for part in base.split(';') {
+            if let Some((name, value)) = part.trim().split_once('=') {
+                pairs.push((name.to_string(), value.to_string()));
+            }
+        }
+    }
+    for (name, value) in chain {
+        pairs.retain(|(existing, _)| existing != name);
+        pairs.push((name.clone(), value.clone()));
+    }
+    (!pairs.is_empty()).then(|| {
+        pairs
+            .iter()
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join("; ")
     })
 }
 
 impl ResourceLoader for HttpLoader {
     fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
         use ureq::ResponseExt as _;
-        let mut response = match &request.body {
-            Some((content_type, body)) => {
-                let mut builder = agent()
-                    .post(request.url.as_str())
-                    .header("Content-Type", content_type);
-                if let Some(cookie) = &request.cookie {
-                    builder = builder.header("Cookie", cookie);
+        let mut url = request.url.clone();
+        // POST body only rides the first hop; a 301/302/303 turns the
+        // follow-up into a GET.
+        let mut body = request.body.clone();
+        // Every `Set-Cookie` across the whole chain, for the caller's jar.
+        let mut all_set_cookies: Vec<String> = Vec::new();
+        // Name=value pairs to replay as `Cookie` on the next hop.
+        let mut chain: Vec<(String, String)> = Vec::new();
+
+        for _ in 0..=MAX_REDIRECTS {
+            let cookie = chain_cookie_header(request.cookie.as_deref(), &chain);
+            let mut response = match &body {
+                Some((content_type, bytes)) => {
+                    let mut builder = agent()
+                        .post(url.as_str())
+                        .header("Content-Type", content_type);
+                    if let Some(cookie) = &cookie {
+                        builder = builder.header("Cookie", cookie);
+                    }
+                    builder
+                        .send(&bytes[..])
+                        .map_err(|error| LoadError::Http(error.to_string()))?
                 }
-                builder
-                    .send(&body[..])
-                    .map_err(|error| LoadError::Http(error.to_string()))?
-            }
-            None => {
-                let mut builder = agent().get(request.url.as_str());
-                if let Some(cookie) = &request.cookie {
-                    builder = builder.header("Cookie", cookie);
+                None => {
+                    let mut builder = agent().get(url.as_str());
+                    if let Some(cookie) = &cookie {
+                        builder = builder.header("Cookie", cookie);
+                    }
+                    builder
+                        .call()
+                        .map_err(|error| LoadError::Http(error.to_string()))?
                 }
-                builder
-                    .call()
-                    .map_err(|error| LoadError::Http(error.to_string()))?
+            };
+
+            for value in response.headers().get_all("set-cookie") {
+                let Ok(raw) = value.to_str() else { continue };
+                if let Some((name, val)) = raw.split(';').next().and_then(|p| p.split_once('=')) {
+                    let (name, val) = (name.trim().to_string(), val.trim().to_string());
+                    chain.retain(|(existing, _)| *existing != name);
+                    chain.push((name, val));
+                }
+                all_set_cookies.push(raw.to_string());
             }
-        };
-        let final_url = response
-            .get_uri()
-            .to_string()
-            .parse()
-            .unwrap_or_else(|_| request.url.clone());
-        let content_type = response
-            .headers()
-            .get("content-type")
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
-        let set_cookies: Vec<String> = response
-            .headers()
-            .get_all("set-cookie")
-            .iter()
-            .filter_map(|value| value.to_str().ok())
-            .map(str::to_string)
-            .collect();
-        let body = response
-            .body_mut()
-            .read_to_vec()
-            .map_err(|error| LoadError::Http(error.to_string()))?;
-        Ok(ResourceResponse {
-            final_url,
-            content_type,
-            body,
-            set_cookies,
-        })
+
+            let status = response.status().as_u16();
+            let location = response
+                .headers()
+                .get("location")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            if let (301..=303 | 307 | 308, Some(location)) = (status, location.as_deref()) {
+                url = resolve(&url, location)?;
+                // 301/302/303 downgrade the method to GET; 307/308 keep it.
+                if matches!(status, 301..=303) {
+                    body = None;
+                }
+                continue;
+            }
+
+            let final_url = response
+                .get_uri()
+                .to_string()
+                .parse()
+                .unwrap_or_else(|_| url.clone());
+            let content_type = response
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            let bytes = response
+                .body_mut()
+                .read_to_vec()
+                .map_err(|error| LoadError::Http(error.to_string()))?;
+            return Ok(ResourceResponse {
+                final_url,
+                content_type,
+                body: bytes,
+                set_cookies: all_set_cookies,
+            });
+        }
+        Err(LoadError::Http(format!(
+            "too many redirects (>{MAX_REDIRECTS})"
+        )))
     }
 }
 
