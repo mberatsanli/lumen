@@ -1374,13 +1374,7 @@ impl App {
             self.request_redraw();
             return;
         }
-        match url_from_user_input(&input) {
-            Ok(url) => self.start_nav(Nav::Load(url)),
-            Err(error) => {
-                eprintln!("address bar: {error}");
-                self.request_redraw();
-            }
-        }
+        self.start_nav(Nav::Load(resolve_omnibox(&input)));
     }
 
     /// Scrolls to the element whose `id` matches the current URL fragment.
@@ -2619,5 +2613,75 @@ impl ApplicationHandler<NavDone> for App {
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}
         }
+    }
+}
+
+/// Turns address-bar text into a URL the way a browser omnibox does: an
+/// explicit `http`/`https`/`file` URL is used verbatim, an existing local
+/// path opens as a file, a bare dotted token (or `localhost`) becomes an
+/// `https://` host, and anything else is a web search.
+fn resolve_omnibox(input: &str) -> Url {
+    if let Ok(url) = Url::parse(input) {
+        if matches!(url.scheme(), "http" | "https" | "file") {
+            return url;
+        }
+    }
+    let single_token = input.split_whitespace().count() == 1;
+    if single_token {
+        // An existing local file (relative or absolute) opens directly.
+        if let Ok(url) = url_from_user_input(input) {
+            let on_disk = url
+                .to_file_path()
+                .map(|path| path.exists())
+                .unwrap_or(false);
+            if url.scheme() == "file" && on_disk {
+                return url;
+            }
+        }
+        // A dotted token or `localhost[:port]` is a bare hostname.
+        let host_like = input.contains('.') || input == "localhost" || input.starts_with("localhost:");
+        if host_like {
+            if let Ok(url) = Url::parse(&format!("https://{input}")) {
+                if url.host().is_some() {
+                    return url;
+                }
+            }
+        }
+    }
+    // Fall back to a search; query_pairs_mut handles percent-encoding.
+    let mut url = Url::parse("https://duckduckgo.com/html/").expect("static search URL");
+    url.query_pairs_mut().append_pair("q", input);
+    url
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_omnibox;
+
+    #[test]
+    fn omnibox_routes_urls_hosts_and_searches() {
+        // Explicit scheme is kept.
+        assert_eq!(
+            resolve_omnibox("https://example.com/x").as_str(),
+            "https://example.com/x"
+        );
+        // Bare dotted host gets https://.
+        assert_eq!(resolve_omnibox("example.com").as_str(), "https://example.com/");
+        assert_eq!(
+            resolve_omnibox("localhost:8080").as_str(),
+            "https://localhost:8080/"
+        );
+        // Free text becomes a search.
+        let search = resolve_omnibox("rust async runtime");
+        assert_eq!(search.host_str(), Some("duckduckgo.com"));
+        assert_eq!(
+            search.query_pairs().find(|(k, _)| k == "q").unwrap().1,
+            "rust async runtime"
+        );
+        // A single word with no dot is a search, not a host.
+        assert_eq!(
+            resolve_omnibox("weather").host_str(),
+            Some("duckduckgo.com")
+        );
     }
 }
