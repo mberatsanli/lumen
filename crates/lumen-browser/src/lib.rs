@@ -106,6 +106,9 @@ enum AnimatedValue {
     Number(f32),
     Color(lumen_css::Color),
     Transform(lumen_engine::Transform2D),
+    /// A pure rotation in degrees — matrix lerp cannot represent spins
+    /// (rotate(0) and rotate(360) are the same matrix), angles can.
+    Angle(f32),
 }
 
 fn lerp_color(from: lumen_css::Color, to: lumen_css::Color, t: f32) -> lumen_css::Color {
@@ -577,6 +580,14 @@ impl<L: ResourceLoader> Session<L> {
                             let value = lumen_engine::Transform2D::lerp(from, to, eased);
                             style.transform = (!value.is_identity()).then_some(value);
                         }
+                        (AnimatedValue::Angle(from), AnimatedValue::Angle(to)) => {
+                            let degrees = from + (to - from) * eased;
+                            style.transform = lumen_engine::parse_transform_value(
+                                &format!("rotate({degrees}deg)"),
+                                style.font_size,
+                            )
+                            .filter(|value| !value.is_identity());
+                        }
                         _ => {}
                     }
                 }
@@ -926,11 +937,21 @@ impl<L: ResourceLoader> Session<L> {
                             }
                             _ => None,
                         },
-                        "transform" => lumen_engine::parse_transform_value(
-                            &declaration.value.raw_text(),
-                            font_size,
-                        )
-                        .map(AnimatedValue::Transform),
+                        "transform" => {
+                            let raw = declaration.value.raw_text();
+                            let trimmed = raw.trim();
+                            let angle = trimmed
+                                .strip_prefix("rotate(")
+                                .and_then(|rest| rest.strip_suffix(')'))
+                                .and_then(|inner| {
+                                    inner.trim().strip_suffix("deg")?.trim().parse::<f32>().ok()
+                                });
+                            match angle {
+                                Some(degrees) => Some(AnimatedValue::Angle(degrees)),
+                                None => lumen_engine::parse_transform_value(trimmed, font_size)
+                                    .map(AnimatedValue::Transform),
+                            }
+                        }
                         _ => match &declaration.value {
                             lumen_css::CssValue::Color(color) => {
                                 Some(AnimatedValue::Color(*color))
@@ -1586,6 +1607,31 @@ mod tests {
         assert!((opacity(&session) - 1.0).abs() < 0.01);
         // One iteration only: the animation retires.
         assert!(!session.tick(3000.0));
+    }
+
+    #[test]
+    fn rotation_animations_spin_through_midpoints() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>@keyframes don { from { transform: rotate(0deg); }\
+                 to { transform: rotate(360deg); } }\
+                 .d { animation: don 1s linear infinite; }</style>\
+                 <div class='d' id='k'>x</div>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let node = document.get_element_by_id("k").unwrap();
+        session.tick(0.0);
+        session.tick(250.0); // quarter turn: rotate(90deg), b ≈ 1
+        let transform = session.page().unwrap().styles.by_node[&node]
+            .transform
+            .expect("mid-spin transform");
+        assert!((transform.b - 1.0).abs() < 0.01, "{transform:?}");
+        // Infinite animations never retire.
+        assert!(session.tick(10_000.0));
     }
 
     #[test]
