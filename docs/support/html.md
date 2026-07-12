@@ -118,6 +118,7 @@ interaction) — not just a DOM node.
 | Relative URL resolution | ✅ | ✅ | ✅ | ✅ | against final URL |
 | History back/forward/refresh | ⚠️ | ✅ | ✅ | ✅ | re-fetches; no cache; desktop: address bar + nav buttons, loads on background thread |
 | Omnibox (URL vs search) | ⚠️ | ✅ | ✅ | ✅ | desktop: explicit scheme/existing file/dotted host load directly, free text searches DuckDuckGo |
+| Tabs | ⚠️ | ✅ | ✅ | ✅ | desktop: strip below the address bar; Cmd/Ctrl+T new, +W close, +1–9 switch, +Tab cycle; each tab its own session/cookies/scroll |
 | Fragment `#anchor` scroll | ⚠️ | ✅ | ✅ | ✅ | scrolls to `id` targets after navigation; no :target styling |
 | Cookies | ⚠️ | ✅ | ✅ | ✅ | session jar (RFC 6265 core: domain/path/Secure, Max-Age deletion via the cookie crate); document.cookie read/write; no persistence, no HttpOnly distinction for scripts |
 | Cache / compression | ❌ | ✅ | ✅ | ✅ | |

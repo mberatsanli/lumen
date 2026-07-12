@@ -50,6 +50,11 @@ use winit::window::{Window, WindowId};
 const SCROLL_STEP: f32 = 48.0;
 /// Address-bar height in CSS pixels.
 const BAR_HEIGHT: f32 = 36.0;
+/// The tab strip sits directly below the address bar.
+const TAB_HEIGHT: f32 = 30.0;
+/// Total chrome height above the page: address bar + tab strip. The page
+/// content and every page-space overlay are offset by this.
+const CHROME_HEIGHT: f32 = BAR_HEIGHT + TAB_HEIGHT;
 
 /// A navigation action executed on a background thread, so slow servers
 /// never freeze the UI.
@@ -86,6 +91,17 @@ struct NavDone {
 enum SessionState {
     Ready(Box<Session<DefaultLoader>>),
     Loading { target: String },
+}
+
+/// One browser tab's swappable state. The active tab's copy lives in the
+/// `App` fields directly (`state`, `scroll_y`, `input`, `page_scripts`);
+/// this holds the parked state of every other tab. Only the active tab
+/// may be loading, so no loader results ever target a parked tab.
+struct Tab {
+    state: SessionState,
+    scroll_y: f32,
+    input: String,
+    page_scripts: Option<lumen_browser::PageScripts>,
 }
 
 fn main() {
@@ -209,7 +225,7 @@ fn draw_inner_scrollbars(
         framebuffer.blend_fill(
             lumen_engine::Rect {
                 x: (content.x + content.width - 5.0) * scale,
-                y: (y - page_scroll + BAR_HEIGHT) * scale,
+                y: (y - page_scroll + CHROME_HEIGHT) * scale,
                 width: 3.0 * scale,
                 height: thumb * scale,
             },
@@ -305,6 +321,12 @@ struct App {
     /// so the cached page raster stays pristine without a fresh allocation
     /// on every frame.
     compose_frame: Option<lumen_engine::Framebuffer>,
+    /// Parked tabs (all except the active one, whose live state is in the
+    /// fields above). Indexed positionally; `active` selects the live one.
+    tabs: Vec<Tab>,
+    /// Index of the active tab within the strip. The parked entry at this
+    /// index is a placeholder — the live state is in the `App` fields.
+    active: usize,
 }
 
 impl App {
@@ -354,6 +376,143 @@ impl App {
             rss_checked: None,
             page_frame: None,
             compose_frame: None,
+            // A single placeholder tab; its parked fields are overwritten by
+            // `park_active` before they are ever read.
+            tabs: vec![Tab {
+                state: SessionState::Loading {
+                    target: String::new(),
+                },
+                scroll_y: 0.0,
+                input: String::new(),
+                page_scripts: None,
+            }],
+            active: 0,
+        }
+    }
+
+    /// A fresh, measurer-equipped session for a new tab.
+    fn blank_session(&self) -> Session<DefaultLoader> {
+        let size = self.viewport();
+        let mut session = Session::new(DefaultLoader, size);
+        if let Some(font) = &self.font {
+            session.set_measurer(Box::new(SharedFont(font.clone())));
+        }
+        session
+    }
+
+    /// Stashes the live active-tab state into its parked slot.
+    fn park_active(&mut self) {
+        let placeholder = SessionState::Loading {
+            target: String::new(),
+        };
+        let tab = &mut self.tabs[self.active];
+        tab.state = std::mem::replace(&mut self.state, placeholder);
+        tab.scroll_y = self.scroll_y;
+        tab.input = std::mem::take(&mut self.input);
+        tab.page_scripts = self.page_scripts.take();
+    }
+
+    /// Pulls the parked state at `self.active` into the live fields.
+    fn unpark_active(&mut self) {
+        let placeholder = SessionState::Loading {
+            target: String::new(),
+        };
+        let tab = &mut self.tabs[self.active];
+        self.state = std::mem::replace(&mut tab.state, placeholder);
+        self.scroll_y = tab.scroll_y;
+        self.input = std::mem::take(&mut tab.input);
+        self.page_scripts = tab.page_scripts.take();
+    }
+
+    /// Clears per-page transient UI when switching tabs (selection, find,
+    /// popups, cached raster).
+    fn reset_transient(&mut self) {
+        self.url_input = None;
+        self.find_input = None;
+        self.find_matches.clear();
+        self.find_index = 0;
+        self.selection = None;
+        self.select_anchor = None;
+        self.select_popup = None;
+        self.color_popup = None;
+        self.range_drag = None;
+        self.page_frame = None;
+        self.invalidate_page();
+        self.request_redraw();
+    }
+
+    /// Switches to the tab at `index`, parking the current one.
+    fn switch_tab(&mut self, index: usize) {
+        if index == self.active || index >= self.tabs.len() {
+            return;
+        }
+        self.park_active();
+        self.active = index;
+        self.unpark_active();
+        self.reset_transient();
+    }
+
+    /// Opens a blank tab, switches to it, and focuses the address bar.
+    fn new_tab(&mut self) {
+        let session = self.blank_session();
+        self.park_active();
+        self.tabs.push(Tab {
+            state: SessionState::Ready(Box::new(session)),
+            scroll_y: 0.0,
+            input: String::new(),
+            page_scripts: None,
+        });
+        self.active = self.tabs.len() - 1;
+        self.unpark_active();
+        self.reset_transient();
+        self.focus_url_bar();
+    }
+
+    /// Closes the tab at `index`; the last tab is never closed.
+    fn close_tab(&mut self, index: usize) {
+        if self.tabs.len() <= 1 || index >= self.tabs.len() {
+            return;
+        }
+        if index == self.active {
+            // Park so the vec slot is real, then drop it and adopt a
+            // neighbour.
+            self.park_active();
+            self.tabs.remove(index);
+            self.active = index.min(self.tabs.len() - 1);
+            self.unpark_active();
+            self.reset_transient();
+        } else {
+            self.tabs.remove(index);
+            if index < self.active {
+                self.active -= 1;
+            }
+            self.request_redraw();
+        }
+    }
+
+    /// A short label for the tab at `index` (host, or "New Tab").
+    fn tab_title(&self, index: usize) -> String {
+        let from_state = |state: &SessionState, input: &str| -> String {
+            match state {
+                SessionState::Ready(session) => session
+                    .current_url()
+                    .and_then(|url| url.host_str().map(str::to_string))
+                    .or_else(|| (!input.is_empty()).then(|| input.to_string()))
+                    .unwrap_or_else(|| "New Tab".to_string()),
+                SessionState::Loading { target } => {
+                    if target.is_empty() {
+                        "New Tab".to_string()
+                    } else {
+                        target.clone()
+                    }
+                }
+            }
+        };
+        if index == self.active {
+            from_state(&self.state, &self.input)
+        } else {
+            let tab = &self.tabs[index];
+            from_state(&tab.state, &tab.input)
         }
     }
 
@@ -484,7 +643,7 @@ impl App {
                 let scale = window.scale_factor() as f32;
                 Size {
                     width: size.width.max(1) as f32 / scale,
-                    height: (size.height.max(1) as f32 / scale - BAR_HEIGHT).max(1.0),
+                    height: (size.height.max(1) as f32 / scale - CHROME_HEIGHT).max(1.0),
                 }
             },
         )
@@ -494,10 +653,161 @@ impl App {
     /// the page area (below the address bar).
     fn page_cursor(&self) -> Option<(f32, f32)> {
         let (x, y) = self.cursor?;
-        (y >= BAR_HEIGHT).then_some((x, y - BAR_HEIGHT + self.scroll_y))
+        (y >= CHROME_HEIGHT).then_some((x, y - CHROME_HEIGHT + self.scroll_y))
     }
 
     /// Paint commands for the browser chrome (address bar, nav buttons).
+    /// Geometry of the tab strip: one `Rect` per tab (in order) plus the
+    /// trailing "+" new-tab button, all in CSS window coordinates.
+    fn tab_layout(&self) -> (Vec<Rect>, Rect) {
+        let width = self.viewport().width;
+        let plus = 30.0;
+        let gap = 2.0;
+        let available = (width - plus - 8.0).max(0.0);
+        let count = self.tabs.len().max(1) as f32;
+        let tab_width = (((available - gap * (count - 1.0)) / count).min(200.0)).max(40.0);
+        let mut rects = Vec::with_capacity(self.tabs.len());
+        let mut x = 4.0;
+        for _ in 0..self.tabs.len() {
+            rects.push(Rect {
+                x,
+                y: BAR_HEIGHT + 3.0,
+                width: tab_width,
+                height: TAB_HEIGHT - 4.0,
+            });
+            x += tab_width + gap;
+        }
+        let plus_rect = Rect {
+            x: x + 2.0,
+            y: BAR_HEIGHT + 3.0,
+            width: plus - 6.0,
+            height: TAB_HEIGHT - 4.0,
+        };
+        (rects, plus_rect)
+    }
+
+    /// Appends the tab strip (backdrop, tabs, close buttons, "+") to the
+    /// chrome display list.
+    fn draw_tab_strip(&self, commands: &mut Vec<DisplayCommand>) {
+        use lumen_css::Color;
+        let width = self.viewport().width;
+        commands.push(DisplayCommand::FillRect {
+            rect: Rect {
+                x: 0.0,
+                y: BAR_HEIGHT,
+                width,
+                height: TAB_HEIGHT,
+            },
+            color: Color::rgb(0xe4, 0xe1, 0xe8),
+            radius: lumen_engine::Corners::uniform(0.0),
+        });
+        let (rects, plus) = self.tab_layout();
+        for (index, rect) in rects.iter().enumerate() {
+            let active = index == self.active;
+            commands.push(DisplayCommand::FillRect {
+                rect: *rect,
+                color: if active {
+                    Color::rgb(0xf8, 0xf7, 0xfa)
+                } else {
+                    Color::rgb(0xd3, 0xcf, 0xd9)
+                },
+                radius: lumen_engine::Corners {
+                    top_left: 6.0,
+                    top_right: 6.0,
+                    bottom_right: 0.0,
+                    bottom_left: 0.0,
+                },
+            });
+            // Title, clipped by a shorter width; the close box sits at the
+            // right edge.
+            let max_text = (rect.width - 34.0).max(0.0);
+            let title = self.clip_chrome_text(&self.tab_title(index), 12.0, max_text);
+            commands.push(DisplayCommand::DrawText {
+                x: rect.x + 10.0,
+                y: rect.y + 17.0,
+                text: title,
+                color: Color::rgb(0x2a, 0x27, 0x30),
+                font_size: 12.0,
+                font_weight: if active { 600 } else { 400 },
+                underline: false,
+                italic: false,
+                monospace: false,
+                line_through: false,
+                letter_spacing: 0.0,
+                decoration_color: Color::rgb(0, 0, 0),
+                decoration_style: lumen_engine::BorderStyle::Solid,
+            });
+            if self.tabs.len() > 1 {
+                commands.push(DisplayCommand::DrawText {
+                    x: rect.x + rect.width - 18.0,
+                    y: rect.y + 17.0,
+                    text: "×".to_string(),
+                    color: Color::rgb(0x6a, 0x66, 0x72),
+                    font_size: 15.0,
+                    font_weight: 500,
+                    underline: false,
+                    italic: false,
+                    monospace: false,
+                    line_through: false,
+                    letter_spacing: 0.0,
+                    decoration_color: Color::rgb(0, 0, 0),
+                    decoration_style: lumen_engine::BorderStyle::Solid,
+                });
+            }
+        }
+        commands.push(DisplayCommand::DrawText {
+            x: plus.x + 5.0,
+            y: plus.y + 18.0,
+            text: "+".to_string(),
+            color: Color::rgb(0x30, 0x30, 0x30),
+            font_size: 18.0,
+            font_weight: 500,
+            underline: false,
+            italic: false,
+            monospace: false,
+            line_through: false,
+            letter_spacing: 0.0,
+            decoration_color: Color::rgb(0, 0, 0),
+            decoration_style: lumen_engine::BorderStyle::Solid,
+        });
+    }
+
+    /// Truncates chrome text with an ellipsis so it fits `max_width`.
+    fn clip_chrome_text(&self, text: &str, font_size: f32, max_width: f32) -> String {
+        if self.chrome_text_width(text, font_size) <= max_width {
+            return text.to_string();
+        }
+        let mut clipped = String::new();
+        for ch in text.chars() {
+            let candidate = format!("{clipped}{ch}…");
+            if self.chrome_text_width(&candidate, font_size) > max_width {
+                break;
+            }
+            clipped.push(ch);
+        }
+        format!("{clipped}…")
+    }
+
+    /// Routes a click within the tab strip (switch, close, or new tab).
+    fn tab_strip_click(&mut self, x: f32, y: f32) {
+        let (rects, plus) = self.tab_layout();
+        if rect_contains(plus, x, y) {
+            self.new_tab();
+            return;
+        }
+        for (index, rect) in rects.iter().enumerate() {
+            if rect_contains(*rect, x, y) {
+                // The close box is the right ~22px of a tab.
+                if self.tabs.len() > 1 && x >= rect.x + rect.width - 22.0 {
+                    self.close_tab(index);
+                } else {
+                    self.switch_tab(index);
+                }
+                return;
+            }
+        }
+    }
+
     fn chrome_commands(&self) -> Vec<DisplayCommand> {
         use lumen_css::Color;
         let width = self.viewport().width;
@@ -603,13 +913,13 @@ impl App {
             let bar_width = 280.0_f32.min(width - 16.0);
             let x = width - bar_width - 8.0;
             commands.push(DisplayCommand::FillRect {
-                rect: bar(x, BAR_HEIGHT + 4.0, bar_width, 26.0),
+                rect: bar(x, CHROME_HEIGHT + 4.0, bar_width, 26.0),
                 color: Color::rgb(0xfd, 0xf6, 0xd8),
                 radius: lumen_engine::Corners::uniform(5.0),
             });
             commands.push(DisplayCommand::DrawText {
                 x: x + 8.0,
-                y: BAR_HEIGHT + 22.0,
+                y: CHROME_HEIGHT + 22.0,
                 text: "Find:".to_string(),
                 color: enabled,
                 font_size: 13.0,
@@ -627,7 +937,7 @@ impl App {
                 &mut commands,
                 query,
                 x + 8.0 + label_width,
-                BAR_HEIGHT + 22.0,
+                CHROME_HEIGHT + 22.0,
                 13.0,
                 enabled,
             );
@@ -640,7 +950,7 @@ impl App {
             };
             commands.push(DisplayCommand::DrawText {
                 x: x + 8.0 + label_width + query_width + 10.0,
-                y: BAR_HEIGHT + 22.0,
+                y: CHROME_HEIGHT + 22.0,
                 text: status,
                 color: Color::rgb(0x6a, 0x66, 0x72),
                 font_size: 13.0,
@@ -654,6 +964,7 @@ impl App {
                 decoration_style: lumen_engine::BorderStyle::Solid,
             });
         }
+        self.draw_tab_strip(&mut commands);
         commands
     }
 
@@ -781,13 +1092,13 @@ impl App {
             shifted.pixels.copy_within(0..kept * row, up * row);
             (0, (-delta) as u32)
         };
-        let bar_rows = ((BAR_HEIGHT * scale).ceil() as u32).min(height);
+        let bar_rows = ((CHROME_HEIGHT * scale).ceil() as u32).min(height);
         for region in [(0, exposed.0, width, exposed.1), (0, 0, width, bar_rows)] {
             if region.3 > region.1 {
                 rasterize_region(
                     &mut shifted,
                     &page.display_list,
-                    self.scroll_y - BAR_HEIGHT,
+                    self.scroll_y - CHROME_HEIGHT,
                     scale,
                     self.effective_font().as_deref(),
                     region,
@@ -867,6 +1178,12 @@ impl App {
             && y < BAR_HEIGHT
         {
             self.chrome_click(x);
+            return;
+        }
+        if let Some((x, y)) = self.cursor
+            && y < CHROME_HEIGHT
+        {
+            self.tab_strip_click(x, y);
             return;
         }
         // An open color palette captures the click: a swatch picks it,
@@ -1565,7 +1882,7 @@ impl App {
         let panel_width = 300.0;
         let panel_height = lines.len() as f32 * line_height + 12.0;
         let x = (viewport.width - panel_width - 8.0).max(0.0);
-        let y = BAR_HEIGHT + 8.0;
+        let y = CHROME_HEIGHT + 8.0;
         let mut commands = vec![DisplayCommand::FillRect {
             rect: Rect {
                 x,
@@ -1689,7 +2006,7 @@ impl App {
                             &page.display_list,
                             size.width,
                             size.height,
-                            self.scroll_y - BAR_HEIGHT,
+                            self.scroll_y - CHROME_HEIGHT,
                             scale,
                             self.effective_font().as_deref(),
                         ),
@@ -1729,7 +2046,7 @@ impl App {
                 framebuffer.blend_fill(
                     Rect {
                         x: region.rect.x * scale,
-                        y: (region.rect.y - self.scroll_y + BAR_HEIGHT) * scale,
+                        y: (region.rect.y - self.scroll_y + CHROME_HEIGHT) * scale,
                         width: region.rect.width * scale,
                         height: region.rect.height * scale,
                     },
@@ -1755,7 +2072,7 @@ impl App {
                     framebuffer.blend_fill(
                         Rect {
                             x: region.rect.x * scale,
-                            y: (region.rect.y - self.scroll_y + BAR_HEIGHT) * scale,
+                            y: (region.rect.y - self.scroll_y + CHROME_HEIGHT) * scale,
                             width: region.rect.width * scale,
                             height: region.rect.height * scale,
                         },
@@ -1770,7 +2087,7 @@ impl App {
         if let Some(overlay) = self.session().and_then(Session::edit_overlay) {
             let to_device = |rect: Rect| Rect {
                 x: rect.x * scale,
-                y: (rect.y - self.scroll_y + BAR_HEIGHT) * scale,
+                y: (rect.y - self.scroll_y + CHROME_HEIGHT) * scale,
                 width: rect.width * scale,
                 height: rect.height * scale,
             };
@@ -1875,7 +2192,7 @@ impl App {
             rasterize_over(
                 &mut framebuffer,
                 &commands,
-                self.scroll_y - BAR_HEIGHT,
+                self.scroll_y - CHROME_HEIGHT,
                 scale,
                 self.effective_font().as_deref(),
             );
@@ -1934,7 +2251,7 @@ impl App {
             rasterize_over(
                 &mut framebuffer,
                 &commands,
-                self.scroll_y - BAR_HEIGHT,
+                self.scroll_y - CHROME_HEIGHT,
                 scale,
                 self.effective_font().as_deref(),
             );
@@ -1945,7 +2262,7 @@ impl App {
             let viewport = self.viewport();
             let content_height = viewport.height + max_scroll;
             let thumb_height = (viewport.height * viewport.height / content_height).max(24.0);
-            let thumb_y = BAR_HEIGHT
+            let thumb_y = CHROME_HEIGHT
                 + (viewport.height - thumb_height) * (self.scroll_y / max_scroll).clamp(0.0, 1.0);
             framebuffer.blend_fill(
                 Rect {
@@ -2265,6 +2582,45 @@ impl App {
         }
         let shift_held = self.modifiers.state().shift_key();
         let alt_held = self.modifiers.state().alt_key();
+        // Tab management shortcuts (before bar editing so they are not typed).
+        if command_held {
+            if matches!(key, Key::Named(NamedKey::Tab)) {
+                let len = self.tabs.len();
+                let next = if shift_held {
+                    (self.active + len - 1) % len
+                } else {
+                    (self.active + 1) % len
+                };
+                self.switch_tab(next);
+                return;
+            }
+            if let Key::Character(text) = key {
+                match text.as_str() {
+                    "t" => {
+                        self.new_tab();
+                        return;
+                    }
+                    "w" => {
+                        self.close_tab(self.active);
+                        return;
+                    }
+                    digit if digit.len() == 1 && digit.as_bytes()[0].is_ascii_digit() => {
+                        let n = (digit.as_bytes()[0] - b'0') as usize;
+                        if n >= 1 {
+                            // Cmd+9 jumps to the last tab, as browsers do.
+                            let index = if n == 9 {
+                                self.tabs.len() - 1
+                            } else {
+                                (n - 1).min(self.tabs.len() - 1)
+                            };
+                            self.switch_tab(index);
+                        }
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        }
         // Bar editing captures input first: the find bar, then the address
         // bar. Both share one handler; only Submit/Cancel and the post-edit
         // refresh differ per bar.
@@ -2424,7 +2780,7 @@ impl ApplicationHandler<NavDone> for App {
                 if let Some(popup) = &mut self.select_popup
                     && let Some((x, y)) = self
                         .cursor
-                        .map(|(x, y)| (x, y - BAR_HEIGHT + self.scroll_y))
+                        .map(|(x, y)| (x, y - CHROME_HEIGHT + self.scroll_y))
                     && rect_contains(popup.rect, x, y)
                 {
                     let row = (((y - popup.rect.y - 6.0).max(0.0) / SELECT_ROW_HEIGHT) as usize)
@@ -2437,7 +2793,7 @@ impl ApplicationHandler<NavDone> for App {
                 if let Some(popup) = &mut self.color_popup
                     && let Some((x, y)) = self
                         .cursor
-                        .map(|(x, y)| (x, y - BAR_HEIGHT + self.scroll_y))
+                        .map(|(x, y)| (x, y - CHROME_HEIGHT + self.scroll_y))
                 {
                     let hovered = (0..COLOR_SWATCHES.len())
                         .find(|index| rect_contains(swatch_rect(popup.rect, *index), x, y));
@@ -2487,7 +2843,7 @@ impl ApplicationHandler<NavDone> for App {
             } => {
                 self.press = self.cursor;
                 self.clear_selection();
-                if self.cursor.is_some_and(|(_, y)| y >= BAR_HEIGHT) {
+                if self.cursor.is_some_and(|(_, y)| y >= CHROME_HEIGHT) {
                     self.select_anchor = self.caret_at_cursor();
                 }
                 // :active while the button is held.
