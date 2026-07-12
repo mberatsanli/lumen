@@ -2105,6 +2105,62 @@ impl App {
         }
     }
 
+    /// The DOM `event.key` name for a winit key.
+    fn dom_key_name(key: &Key) -> Option<String> {
+        match key {
+            Key::Character(text) => Some(text.to_string()),
+            Key::Named(named) => {
+                let name = match named {
+                    NamedKey::Enter => "Enter",
+                    NamedKey::Escape => "Escape",
+                    NamedKey::Backspace => "Backspace",
+                    NamedKey::Delete => "Delete",
+                    NamedKey::Tab => "Tab",
+                    NamedKey::Space => " ",
+                    NamedKey::ArrowLeft => "ArrowLeft",
+                    NamedKey::ArrowRight => "ArrowRight",
+                    NamedKey::ArrowUp => "ArrowUp",
+                    NamedKey::ArrowDown => "ArrowDown",
+                    NamedKey::Home => "Home",
+                    NamedKey::End => "End",
+                    NamedKey::PageUp => "PageUp",
+                    NamedKey::PageDown => "PageDown",
+                    NamedKey::Shift => "Shift",
+                    NamedKey::Control => "Control",
+                    NamedKey::Alt => "Alt",
+                    _ => return None,
+                };
+                Some(name.to_string())
+            }
+            _ => None,
+        }
+    }
+
+    /// Dispatches keydown/keyup to the focused control (else the
+    /// document). Returns whether a handler prevented the default.
+    fn dispatch_key_event(&mut self, event: &str, key: &Key) -> bool {
+        let Some(name) = Self::dom_key_name(key) else {
+            return false;
+        };
+        let target = self
+            .session()
+            .and_then(Session::editing)
+            .unwrap_or(0);
+        let mut prevented = false;
+        if let (Some(scripts), SessionState::Ready(session)) =
+            (&mut self.page_scripts, &mut self.state)
+        {
+            let outcome = scripts.dispatch_with_key(session, target, event, Some(&name));
+            if outcome.handled {
+                self.invalidate_page();
+                self.request_redraw();
+            }
+            prevented = outcome.prevented;
+        }
+        self.follow_script_navigation();
+        prevented
+    }
+
     fn handle_key(&mut self, key: &Key) {
         let command_held =
             self.modifiers.state().super_key() || self.modifiers.state().control_key();
@@ -2130,6 +2186,11 @@ impl App {
             if self.handle_bar_key(bar, key, command_held, shift_held, alt_held) {
                 return;
             }
+        }
+        // Script keydown listeners see page-level keys first (the
+        // chrome's own bars already returned above).
+        if self.dispatch_key_event("keydown", key) {
+            return;
         }
         // An open select dropdown or color palette: Escape closes it.
         if self.select_popup.is_some() || self.color_popup.is_some() {
@@ -2447,6 +2508,17 @@ impl ApplicationHandler<NavDone> for App {
                     },
                 ..
             } => self.handle_key(&logical_key),
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        logical_key,
+                        state: ElementState::Released,
+                        ..
+                    },
+                ..
+            } => {
+                self.dispatch_key_event("keyup", &logical_key);
+            }
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}
         }

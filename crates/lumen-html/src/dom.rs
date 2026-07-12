@@ -549,8 +549,6 @@ mod tests {
 
 #[cfg(test)]
 mod inner_html_tests {
-    use super::*;
-
     #[test]
     fn set_inner_html_replaces_children_and_serializes_back() {
         let mut document = crate::parse_document("<ul id='l'><li>eski</li></ul>");

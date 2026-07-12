@@ -50,6 +50,12 @@
     </div>
 
     <div class="row">
+      <button id="boya">style ile boya</button>
+      <span id="kutu" style="padding: 4px 10px; border: 1px solid #b9b2a2;">renk hedefi</span>
+      <span class="hint" id="tus">bir tuşa bas…</span>
+    </div>
+
+    <div class="row">
       <a href="forms.html" id="engelli">Bu link engelli (preventDefault)</a>
       — <a href="#" id="jsgit">location.href ile formlara git</a>
     </div>
@@ -115,6 +121,18 @@
     document.getElementById('jsgit').addEventListener('click', (e) => {
       e.preventDefault();
       location.href = 'forms.html';
+    });
+
+    const kutu = document.getElementById('kutu');
+    const renkler = ['#b3261e', '#2e7d32', '#2266aa', '#e8590c'];
+    let renkIndex = 0;
+    document.getElementById('boya').addEventListener('click', () => {
+      kutu.style.backgroundColor = renkler[renkIndex % renkler.length];
+      kutu.style.color = '#ffffff';
+      renkIndex++;
+    });
+    document.addEventListener('keydown', (e) => {
+      document.getElementById('tus').textContent = `keydown: ${e.key}`;
     });
 
     console.log('page script ready:', typeof sayac, [1,2,3].map(x => x * x).join('+'));

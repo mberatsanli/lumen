@@ -16,7 +16,7 @@
 
 use crate::{Page, ResourceLoader, ResourceRequest, Session, resolve as resolve_url};
 use boa_engine::object::ObjectInitializer;
-use boa_engine::object::builtins::JsPromise;
+use boa_engine::object::builtins::{JsPromise, JsProxyBuilder};
 use boa_engine::property::Attribute;
 use boa_engine::{Context, JsObject, JsResult, JsValue, NativeFunction, Source, js_string};
 use lumen_html::NodeId;
@@ -145,6 +145,18 @@ impl PageScripts {
         node: NodeId,
         event: &str,
     ) -> DispatchOutcome {
+        self.dispatch_with_key(session, node, event, None)
+    }
+
+    /// [`Self::dispatch`] with a `key` property on the event (keydown /
+    /// keyup).
+    pub fn dispatch_with_key<L: ResourceLoader>(
+        &mut self,
+        session: &mut Session<L>,
+        node: NodeId,
+        event: &str,
+        key: Option<&str>,
+    ) -> DispatchOutcome {
         let mut targets: Vec<NodeId> = vec![node];
         if let Some(page) = session.page() {
             targets.extend(page.document.ancestors(node));
@@ -171,10 +183,13 @@ impl PageScripts {
             bridge.stopped = false;
         });
         let event_name = event.to_string();
+        let key = key.map(str::to_string);
         for (target, callback) in handlers {
+            let key = key.clone();
             self.enter(session, |context| {
                 let target = element_object(target, context);
-                let event_object = ObjectInitializer::new(context)
+                let mut initializer = ObjectInitializer::new(context);
+                initializer
                     .property(
                         js_string!("type"),
                         js_string!(event_name.as_str()),
@@ -190,8 +205,15 @@ impl PageScripts {
                         NativeFunction::from_fn_ptr(stop_propagation),
                         js_string!("stopPropagation"),
                         0,
-                    )
-                    .build();
+                    );
+                if let Some(key) = &key {
+                    initializer.property(
+                        js_string!("key"),
+                        js_string!(key.as_str()),
+                        Attribute::all(),
+                    );
+                }
+                let event_object = initializer.build();
                 if let Err(error) =
                     callback.call(&JsValue::undefined(), &[event_object.into()], context)
                 {
@@ -728,14 +750,19 @@ fn selector_matches(document: &lumen_html::Document, node: NodeId, selector: &st
 }
 
 fn query_nodes(selector: &str) -> Vec<NodeId> {
+    query_nodes_scoped(selector, None)
+}
+
+fn query_nodes_scoped(selector: &str, scope: Option<NodeId>) -> Vec<NodeId> {
     with_bridge(|bridge| {
         let Some(page) = bridge.page.as_ref() else {
             return Vec::new();
         };
         let document = &page.document;
+        let root = scope.unwrap_or_else(|| document.root());
         document
-            .descendants(document.root())
-            .filter(|node| selector_matches(document, *node, selector))
+            .descendants(root)
+            .filter(|node| *node != root && selector_matches(document, *node, selector))
             .collect()
     })
 }
@@ -861,6 +888,10 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
     let class_get = NativeFunction::from_fn_ptr(class_name_get).to_js_function(context.realm());
     let html_get = NativeFunction::from_fn_ptr(inner_html_get).to_js_function(context.realm());
     let html_set = NativeFunction::from_fn_ptr(inner_html_set).to_js_function(context.realm());
+    let parent_get = NativeFunction::from_fn_ptr(parent_element_get).to_js_function(context.realm());
+    let children_get = NativeFunction::from_fn_ptr(children_get_).to_js_function(context.realm());
+    let style = node_proxy(node, style_get_trap, style_set_trap, context);
+    let dataset = node_proxy(node, dataset_get_trap, dataset_set_trap, context);
     let class_set = NativeFunction::from_fn_ptr(class_name_set).to_js_function(context.realm());
     let class_list = ObjectInitializer::new(context)
         .property(
@@ -944,7 +975,293 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
             Some(html_set),
             Attribute::all(),
         )
+        .accessor(
+            js_string!("parentElement"),
+            Some(parent_get),
+            None,
+            Attribute::all(),
+        )
+        .accessor(
+            js_string!("children"),
+            Some(children_get),
+            None,
+            Attribute::all(),
+        )
+        .property(js_string!("style"), style, Attribute::all())
+        .property(js_string!("dataset"), dataset, Attribute::all())
+        .function(
+            NativeFunction::from_fn_ptr(element_query_selector),
+            js_string!("querySelector"),
+            1,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(element_query_selector_all),
+            js_string!("querySelectorAll"),
+            1,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(bounding_client_rect),
+            js_string!("getBoundingClientRect"),
+            0,
+        )
         .build()
+}
+
+/// A proxy whose traps see the element's node id (via the target's
+/// hidden `__node`) — powers `el.style.x = ...` and `el.dataset.x`.
+type Trap = fn(&JsValue, &[JsValue], &mut Context) -> JsResult<JsValue>;
+
+fn node_proxy(node: NodeId, get: Trap, set: Trap, context: &mut Context) -> JsObject {
+    let target = ObjectInitializer::new(context)
+        .property(
+            js_string!("__node"),
+            JsValue::from(node as f64),
+            Attribute::empty(),
+        )
+        .build();
+    JsProxyBuilder::new(target)
+        .get(get)
+        .set(set)
+        .build(context)
+        .into()
+}
+
+/// Proxy traps receive [target, key, (value), receiver].
+fn trap_context(args: &[JsValue], context: &mut Context) -> Option<(NodeId, String)> {
+    let node = this_node(args.first()?, context)?;
+    let key = args
+        .get(1)
+        .and_then(|value| value.to_string(context).ok())
+        .map(|value| value.to_std_string_escaped())?;
+    Some((node, key))
+}
+
+/// camelCase to kebab-case (backgroundColor -> background-color).
+fn kebab(name: &str) -> String {
+    let mut output = String::with_capacity(name.len() + 4);
+    for character in name.chars() {
+        if character.is_ascii_uppercase() {
+            output.push('-');
+            output.push(character.to_ascii_lowercase());
+        } else {
+            output.push(character);
+        }
+    }
+    output
+}
+
+fn style_decls(attribute: &str) -> Vec<(String, String)> {
+    attribute
+        .split(';')
+        .filter_map(|declaration| {
+            let (name, value) = declaration.split_once(':')?;
+            Some((name.trim().to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+fn style_get_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some((node, key)) = trap_context(args, context) else {
+        return Ok(JsValue::undefined());
+    };
+    let property = kebab(&key);
+    let value = with_bridge(|bridge| {
+        let attribute = bridge
+            .page
+            .as_ref()
+            .and_then(|page| page.document.element(node))
+            .and_then(|element| element.attributes.get("style"))
+            .unwrap_or_default()
+            .to_string();
+        if key == "cssText" {
+            return attribute;
+        }
+        style_decls(&attribute)
+            .into_iter()
+            .rev()
+            .find(|(name, _)| *name == property)
+            .map(|(_, value)| value)
+            .unwrap_or_default()
+    });
+    Ok(JsValue::from(js_string!(value.as_str())))
+}
+
+fn style_set_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some((node, key)) = trap_context(args, context) else {
+        return Ok(JsValue::from(true));
+    };
+    let value = args
+        .get(2)
+        .and_then(|value| value.to_string(context).ok())
+        .map(|value| value.to_std_string_escaped())
+        .unwrap_or_default();
+    let property = kebab(&key);
+    with_bridge(|bridge| {
+        let Some(page) = bridge.page.as_mut() else {
+            return;
+        };
+        let merged = if key == "cssText" {
+            value.clone()
+        } else {
+            let attribute = page
+                .document
+                .element(node)
+                .and_then(|element| element.attributes.get("style"))
+                .unwrap_or_default()
+                .to_string();
+            let mut declarations: Vec<(String, String)> = style_decls(&attribute)
+                .into_iter()
+                .filter(|(name, _)| *name != property)
+                .collect();
+            if !value.is_empty() {
+                declarations.push((property.clone(), value.clone()));
+            }
+            declarations
+                .into_iter()
+                .map(|(name, value)| format!("{name}: {value}"))
+                .collect::<Vec<_>>()
+                .join("; ")
+        };
+        page.document.set_attribute(node, "style", &merged);
+        bridge.dirty = true;
+    });
+    Ok(JsValue::from(true))
+}
+
+fn dataset_get_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some((node, key)) = trap_context(args, context) else {
+        return Ok(JsValue::undefined());
+    };
+    let attribute = format!("data-{}", kebab(&key));
+    let value = with_bridge(|bridge| {
+        bridge
+            .page
+            .as_ref()
+            .and_then(|page| page.document.element(node))
+            .and_then(|element| element.attributes.get(&attribute))
+            .map(str::to_string)
+    });
+    Ok(value.map_or(JsValue::undefined(), |value| {
+        JsValue::from(js_string!(value.as_str()))
+    }))
+}
+
+fn dataset_set_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some((node, key)) = trap_context(args, context) else {
+        return Ok(JsValue::from(true));
+    };
+    let value = args
+        .get(2)
+        .and_then(|value| value.to_string(context).ok())
+        .map(|value| value.to_std_string_escaped())
+        .unwrap_or_default();
+    let attribute = format!("data-{}", kebab(&key));
+    with_bridge(|bridge| {
+        if let Some(page) = bridge.page.as_mut() {
+            page.document.set_attribute(node, &attribute, &value);
+            bridge.dirty = true;
+        }
+    });
+    Ok(JsValue::from(true))
+}
+
+fn parent_element_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context) else {
+        return Ok(JsValue::null());
+    };
+    let parent = with_bridge(|bridge| {
+        let page = bridge.page.as_ref()?;
+        let document = &page.document;
+        document
+            .ancestors(node)
+            .find(|ancestor| document.element(*ancestor).is_some())
+    });
+    Ok(match parent {
+        Some(parent) => element_object(parent, context).into(),
+        None => JsValue::null(),
+    })
+}
+
+fn children_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context) else {
+        return Ok(JsValue::undefined());
+    };
+    let children = with_bridge(|bridge| {
+        bridge
+            .page
+            .as_ref()
+            .map(|page| {
+                page.document
+                    .children(node)
+                    .iter()
+                    .copied()
+                    .filter(|child| page.document.element(*child).is_some())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    });
+    let items: Vec<JsValue> = children
+        .into_iter()
+        .map(|child| element_object(child, context).into())
+        .collect();
+    Ok(boa_engine::object::builtins::JsArray::from_iter(items, context).into())
+}
+
+fn element_query_selector(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context) else {
+        return Ok(JsValue::null());
+    };
+    let selector = string_arg(args, 0, context);
+    Ok(match query_nodes_scoped(selector.trim(), Some(node)).first() {
+        Some(found) => element_object(*found, context).into(),
+        None => JsValue::null(),
+    })
+}
+
+fn element_query_selector_all(
+    this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context) else {
+        return Ok(JsValue::undefined());
+    };
+    let selector = string_arg(args, 0, context);
+    let items: Vec<JsValue> = query_nodes_scoped(selector.trim(), Some(node))
+        .into_iter()
+        .map(|found| element_object(found, context).into())
+        .collect();
+    Ok(boa_engine::object::builtins::JsArray::from_iter(items, context).into())
+}
+
+fn bounding_client_rect(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context) else {
+        return Ok(JsValue::undefined());
+    };
+    let rect = with_bridge(|bridge| {
+        bridge
+            .page
+            .as_ref()
+            .and_then(|page| page.layout.find_by_node(node))
+            .map(|laid| laid.border_box())
+    })
+    .unwrap_or(lumen_engine::Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 0.0,
+        height: 0.0,
+    });
+    Ok(ObjectInitializer::new(context)
+        .property(js_string!("x"), rect.x, Attribute::all())
+        .property(js_string!("y"), rect.y, Attribute::all())
+        .property(js_string!("left"), rect.x, Attribute::all())
+        .property(js_string!("top"), rect.y, Attribute::all())
+        .property(js_string!("width"), rect.width, Attribute::all())
+        .property(js_string!("height"), rect.height, Attribute::all())
+        .property(js_string!("right"), rect.x + rect.width, Attribute::all())
+        .property(js_string!("bottom"), rect.y + rect.height, Attribute::all())
+        .build()
+        .into())
 }
 
 fn inner_html_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
