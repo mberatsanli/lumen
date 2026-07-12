@@ -310,6 +310,25 @@ fn rasterize_clipped(
                 color,
                 radius,
             } => {
+                // Rotated/skewed boxes render exactly by inverse-mapping
+                // pixels into the rect's local space; only axis-aligned
+                // transforms use the fast path.
+                if let Some(matrix) = current
+                    && !(matrix.b.abs() < 1e-6 && matrix.c.abs() < 1e-6)
+                {
+                    let bounds = device(map_rect(rect, Some(matrix)));
+                    fill_transformed_rect(
+                        framebuffer,
+                        rect,
+                        matrix,
+                        &bounds,
+                        scale,
+                        scroll_y,
+                        radius,
+                        *color,
+                    );
+                    continue;
+                }
                 let rect = shift(rect);
                 if radius.is_zero() {
                     paint_rect(framebuffer, rect, *color);
@@ -790,6 +809,64 @@ fn fill_gradient(
             }
             let position = (pixel_y * framebuffer.width + pixel_x) as usize;
             framebuffer.pixels[position] = blend(framebuffer.pixels[position], pack(color), alpha);
+        }
+    }
+}
+
+/// Fills a (possibly rounded) rect under an arbitrary transform: every
+/// device pixel of the transformed bounding box inverse-maps into the
+/// rect's local page space, where the ordinary coverage test applies.
+#[allow(clippy::too_many_arguments)]
+fn fill_transformed_rect(
+    framebuffer: &mut Framebuffer,
+    page_rect: &Rect,
+    matrix: Transform2D,
+    device_bounds: &Rect,
+    scale: f32,
+    scroll_y: f32,
+    radius: &Corners<f32>,
+    color: Color,
+) {
+    let Some(inverse) = matrix.inverse() else {
+        return;
+    };
+    let rounded = !radius.is_zero();
+    let x0 = (device_bounds.x - 1.0).max(0.0) as u32;
+    let y0 = (device_bounds.y - 1.0).max(0.0) as u32;
+    let x1 = ((device_bounds.x + device_bounds.width).ceil() + 1.0).max(0.0) as u32;
+    let y1 = ((device_bounds.y + device_bounds.height).ceil() + 1.0).max(0.0) as u32;
+    let x1 = x1.min(framebuffer.width);
+    let y1 = y1.min(framebuffer.height);
+    for pixel_y in y0..y1 {
+        for pixel_x in x0..x1 {
+            if !framebuffer.admits(pixel_x, pixel_y) {
+                continue;
+            }
+            // Device pixel center → page space → the rect's local space.
+            let page_x = (pixel_x as f32 + 0.5) / scale;
+            let page_y = (pixel_y as f32 + 0.5) / scale + scroll_y;
+            let (local_x, local_y) = inverse.apply(page_x, page_y);
+            let coverage = if rounded {
+                rounded_coverage(page_rect, radius, local_x, local_y)
+            } else {
+                // Plain rect with a half-pixel feather for smooth edges.
+                let feather = 0.5 / scale;
+                let inside_x = (local_x - page_rect.x)
+                    .min(page_rect.x + page_rect.width - local_x);
+                let inside_y = (local_y - page_rect.y)
+                    .min(page_rect.y + page_rect.height - local_y);
+                (inside_x.min(inside_y) / feather + 0.5).clamp(0.0, 1.0)
+            };
+            if coverage <= 0.0 {
+                continue;
+            }
+            let alpha = (f32::from(color.a) * coverage) as u8;
+            if alpha == 0 {
+                continue;
+            }
+            let position = (pixel_y * framebuffer.width + pixel_x) as usize;
+            framebuffer.pixels[position] =
+                blend(framebuffer.pixels[position], pack(color), alpha);
         }
     }
 }

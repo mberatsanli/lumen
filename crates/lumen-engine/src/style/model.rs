@@ -381,6 +381,23 @@ impl Transform2D {
     }
 
     #[must_use]
+    /// The inverse affine transform, when the matrix is invertible.
+    pub fn inverse(&self) -> Option<Self> {
+        let det = self.a * self.d - self.b * self.c;
+        if det.abs() < 1e-9 {
+            return None;
+        }
+        let inv = 1.0 / det;
+        Some(Self {
+            a: self.d * inv,
+            b: -self.b * inv,
+            c: -self.c * inv,
+            d: self.a * inv,
+            e: (self.c * self.f - self.d * self.e) * inv,
+            f: (self.b * self.e - self.a * self.f) * inv,
+        })
+    }
+
     pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
         (
             self.a * x + self.c * y + self.e,
