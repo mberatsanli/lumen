@@ -6,10 +6,13 @@ license.workspace = true
 
 [dependencies]
 arboard = "3"
+dirs = "6"
 lumen-browser = { path = "../../crates/lumen-browser" }
 lumen-css = { path = "../../crates/lumen-css" }
 lumen-engine = { path = "../../crates/lumen-engine" }
 lumen-platform = { path = "../../crates/lumen-platform" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 softbuffer = "0.4"
 winit = "0.30"
 

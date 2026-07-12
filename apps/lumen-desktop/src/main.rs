@@ -14,7 +14,7 @@
 //! Enter navigates, Escape cancels editing. Drag over text to select it;
 //! Cmd/Ctrl+C copies and Cmd/Ctrl+A selects the whole page. Cmd/Ctrl+F
 //! opens the find bar (type to search, Enter cycles matches, Escape
-//! closes). F12 (or Cmd/Ctrl+D) toggles a debug HUD with FPS, frame
+//! closes). F12 toggles a debug HUD with FPS, frame
 //! times, memory and page statistics. The address and find inputs support full editing: caret
 //! movement, Shift+arrows selection, Home/End, Cmd/Ctrl+A/C/X/V.
 
@@ -102,6 +102,77 @@ struct Tab {
     scroll_y: f32,
     input: String,
     page_scripts: Option<lumen_browser::PageScripts>,
+}
+
+/// A saved page.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct Bookmark {
+    title: String,
+    url: String,
+}
+
+/// The bookmark list, persisted as JSON in the platform config directory
+/// (`<config>/lumen/bookmarks.json`), the way a browser keeps them.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct Bookmarks {
+    items: Vec<Bookmark>,
+}
+
+impl Bookmarks {
+    /// `<config>/lumen/bookmarks.json`, if a config directory exists.
+    fn path() -> Option<std::path::PathBuf> {
+        Some(dirs::config_dir()?.join("lumen").join("bookmarks.json"))
+    }
+
+    /// Loads the saved bookmarks, or an empty list when none exist.
+    fn load() -> Self {
+        let Some(path) = Self::path() else {
+            return Self::default();
+        };
+        std::fs::read(&path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    /// Writes the list back to disk, creating the directory as needed.
+    fn save(&self) {
+        let Some(path) = Self::path() else { return };
+        if let Some(parent) = path.parent() {
+            if let Err(error) = std::fs::create_dir_all(parent) {
+                eprintln!("bookmarks: {error}");
+                return;
+            }
+        }
+        match serde_json::to_vec_pretty(self) {
+            Ok(bytes) => {
+                if let Err(error) = std::fs::write(&path, bytes) {
+                    eprintln!("bookmarks: {error}");
+                }
+            }
+            Err(error) => eprintln!("bookmarks: {error}"),
+        }
+    }
+
+    fn contains(&self, url: &str) -> bool {
+        self.items.iter().any(|item| item.url == url)
+    }
+
+    /// Adds or removes `url`; returns whether it is now bookmarked.
+    fn toggle(&mut self, url: &str, title: &str) -> bool {
+        if let Some(index) = self.items.iter().position(|item| item.url == url) {
+            self.items.remove(index);
+            self.save();
+            false
+        } else {
+            self.items.push(Bookmark {
+                title: title.to_string(),
+                url: url.to_string(),
+            });
+            self.save();
+            true
+        }
+    }
 }
 
 fn main() {
@@ -306,7 +377,7 @@ struct App {
     page_generation: u64,
     /// Monotonic clock origin for animation ticks.
     started: Instant,
-    /// Debug HUD (F12 / Cmd+D): FPS, memory, frame + page stats.
+    /// Debug HUD (F12): FPS, memory, frame + page stats.
     debug_hud: bool,
     /// Recent frames: (when it finished, how long it took).
     frame_times: VecDeque<(Instant, Duration)>,
@@ -327,6 +398,10 @@ struct App {
     /// Index of the active tab within the strip. The parked entry at this
     /// index is a placeholder — the live state is in the `App` fields.
     active: usize,
+    /// Saved pages, persisted to disk.
+    bookmarks: Bookmarks,
+    /// Whether the bookmarks dropdown is open.
+    bookmarks_open: bool,
 }
 
 impl App {
@@ -387,6 +462,8 @@ impl App {
                 page_scripts: None,
             }],
             active: 0,
+            bookmarks: Bookmarks::load(),
+            bookmarks_open: false,
         }
     }
 
@@ -869,11 +946,55 @@ impl App {
                 decoration_style: lumen_engine::BorderStyle::Solid,
             },
             DisplayCommand::FillRect {
-                rect: bar(60.0, 6.0, (width - 68.0).max(40.0), BAR_HEIGHT - 12.0),
+                rect: bar(60.0, 6.0, (width - 68.0 - 56.0).max(40.0), BAR_HEIGHT - 12.0),
                 color: Color::rgb(0xff, 0xff, 0xff),
                 radius: lumen_engine::Corners::uniform(6.0),
             },
         ];
+        // Bookmark star (filled when the current page is saved) and the
+        // dropdown toggle, at the right end of the address bar.
+        let starred = self
+            .session()
+            .and_then(Session::current_url)
+            .is_some_and(|url| self.bookmarks.contains(url.as_str()));
+        commands.push(DisplayCommand::DrawText {
+            x: width - 50.0,
+            y: 25.0,
+            text: if starred { "★" } else { "☆" }.to_string(),
+            color: if starred {
+                Color::rgb(0xf0, 0xa5, 0x00)
+            } else {
+                enabled
+            },
+            font_size: 18.0,
+            font_weight: 400,
+            underline: false,
+            italic: false,
+            monospace: false,
+            line_through: false,
+            letter_spacing: 0.0,
+            decoration_color: Color::rgb(0, 0, 0),
+            decoration_style: lumen_engine::BorderStyle::Solid,
+        });
+        commands.push(DisplayCommand::DrawText {
+            x: width - 26.0,
+            y: 25.0,
+            text: "▾".to_string(),
+            color: if self.bookmarks.items.is_empty() {
+                disabled
+            } else {
+                enabled
+            },
+            font_size: 15.0,
+            font_weight: 400,
+            underline: false,
+            italic: false,
+            monospace: false,
+            line_through: false,
+            letter_spacing: 0.0,
+            decoration_color: Color::rgb(0, 0, 0),
+            decoration_style: lumen_engine::BorderStyle::Solid,
+        });
         match (&self.url_input, &self.state) {
             (Some(input), _) => {
                 self.draw_input(&mut commands, input, 68.0, 24.0, 14.0, enabled);
@@ -965,7 +1086,95 @@ impl App {
             });
         }
         self.draw_tab_strip(&mut commands);
+        if self.bookmarks_open && !self.bookmarks.items.is_empty() {
+            let rows = self.bookmark_menu_layout();
+            if let Some(first) = rows.first() {
+                let panel = Rect {
+                    x: first.x - 6.0,
+                    y: first.y - 6.0,
+                    width: first.width + 12.0,
+                    height: rows.len() as f32 * first.height + 12.0,
+                };
+                commands.push(DisplayCommand::FillRect {
+                    rect: panel,
+                    color: lumen_css::Color::rgb(0xff, 0xff, 0xff),
+                    radius: lumen_engine::Corners::uniform(8.0),
+                });
+                commands.push(DisplayCommand::StrokeRect {
+                    rect: panel,
+                    widths: lumen_engine::EdgeSizes::uniform(1.0),
+                    colors: lumen_engine::EdgeSizes::uniform(lumen_css::Color::rgb(
+                        0xd6, 0xd1, 0xc6,
+                    )),
+                    styles: lumen_engine::EdgeSizes::uniform(lumen_engine::BorderStyle::Solid),
+                    radius: lumen_engine::Corners::uniform(8.0),
+                });
+                let hovered = self.cursor.and_then(|(x, y)| {
+                    rows.iter().position(|rect| rect_contains(*rect, x, y))
+                });
+                for (index, rect) in rows.iter().enumerate() {
+                    if hovered == Some(index) {
+                        commands.push(DisplayCommand::FillRect {
+                            rect: *rect,
+                            color: lumen_css::Color::rgb(0xea, 0xf2, 0xff),
+                            radius: lumen_engine::Corners::uniform(4.0),
+                        });
+                    }
+                    let title = &self.bookmarks.items[index].title;
+                    let text = self.clip_chrome_text(title, 13.0, rect.width - 12.0);
+                    commands.push(DisplayCommand::DrawText {
+                        x: rect.x + 6.0,
+                        y: rect.y + 17.0,
+                        text,
+                        color: lumen_css::Color::rgb(0x2a, 0x27, 0x30),
+                        font_size: 13.0,
+                        font_weight: 400,
+                        underline: false,
+                        italic: false,
+                        monospace: false,
+                        line_through: false,
+                        letter_spacing: 0.0,
+                        decoration_color: lumen_css::Color::rgb(0, 0, 0),
+                        decoration_style: lumen_engine::BorderStyle::Solid,
+                    });
+                }
+            }
+        }
         commands
+    }
+
+    /// Rows of the open bookmarks dropdown (one `Rect` per bookmark).
+    fn bookmark_menu_layout(&self) -> Vec<Rect> {
+        let width = self.viewport().width;
+        let panel_width = 320.0_f32.min(width - 16.0);
+        let x = (width - panel_width - 8.0).max(8.0);
+        let row_height = 26.0;
+        (0..self.bookmarks.items.len())
+            .map(|index| Rect {
+                x,
+                y: BAR_HEIGHT + 2.0 + index as f32 * row_height,
+                width: panel_width,
+                height: row_height,
+            })
+            .collect()
+    }
+
+    /// Toggles the current page's bookmark, using the page title or host.
+    fn toggle_current_bookmark(&mut self) {
+        let Some(url) = self
+            .session()
+            .and_then(Session::current_url)
+            .map(|url| url.to_string())
+        else {
+            return;
+        };
+        let title = self
+            .session()
+            .and_then(Session::current_url)
+            .and_then(|url| url.host_str().map(str::to_string))
+            .unwrap_or_else(|| url.clone());
+        self.bookmarks.toggle(&url, &title);
+        self.request_redraw();
     }
 
     /// Width of chrome text at `font_size` with the shell's measurer.
@@ -1174,6 +1383,22 @@ impl App {
     }
 
     fn click(&mut self) {
+        // An open bookmarks dropdown captures the click: a row navigates,
+        // anywhere else just closes it.
+        if self.bookmarks_open {
+            self.bookmarks_open = false;
+            if let Some((x, y)) = self.cursor {
+                let rows = self.bookmark_menu_layout();
+                if let Some(index) = rows.iter().position(|rect| rect_contains(*rect, x, y)) {
+                    if let Ok(url) = self.bookmarks.items[index].url.parse() {
+                        self.start_nav(Nav::Load(url));
+                    }
+                    return;
+                }
+            }
+            self.request_redraw();
+            return;
+        }
         if let Some((x, y)) = self.cursor
             && y < BAR_HEIGHT
         {
@@ -1664,9 +1889,17 @@ impl App {
     }
 
     fn chrome_click(&mut self, x: f32) {
+        let width = self.viewport().width;
         match x {
             x if (8.0..32.0).contains(&x) => self.start_nav(Nav::Back),
             x if (32.0..56.0).contains(&x) => self.start_nav(Nav::Forward),
+            x if (width - 54.0..width - 30.0).contains(&x) => self.toggle_current_bookmark(),
+            x if x >= width - 30.0 => {
+                if !self.bookmarks.items.is_empty() {
+                    self.bookmarks_open = !self.bookmarks_open;
+                    self.request_redraw();
+                }
+            }
             x if x >= 60.0 => self.focus_url_bar(),
             _ => {}
         }
@@ -2572,12 +2805,15 @@ impl App {
             self.open_find_bar();
             return;
         }
-        // F12 (or Ctrl/Cmd+D) toggles the debug HUD.
-        if matches!(key, Key::Named(NamedKey::F12))
-            || (command_held && matches!(key, Key::Character(text) if text.as_str() == "d"))
-        {
+        // F12 toggles the debug HUD.
+        if matches!(key, Key::Named(NamedKey::F12)) {
             self.debug_hud = !self.debug_hud;
             self.request_redraw();
+            return;
+        }
+        // Ctrl/Cmd+D bookmarks the current page, as browsers do.
+        if command_held && matches!(key, Key::Character(text) if text.as_str() == "d") {
+            self.toggle_current_bookmark();
             return;
         }
         let shift_held = self.modifiers.state().shift_key();
