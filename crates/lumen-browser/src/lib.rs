@@ -263,6 +263,12 @@ impl<L: ResourceLoader> Session<L> {
     }
 
     /// Updates the `:focus` node. Same reaction ladder as hover.
+    /// The currently focused node, if any.
+    #[must_use]
+    pub fn focused(&self) -> Option<NodeId> {
+        self.focused
+    }
+
     pub fn set_focused(&mut self, node: Option<NodeId>) -> bool {
         if self.focused == node {
             return false;
@@ -1717,6 +1723,24 @@ mod tests {
                 .unwrap(),
             "sid=abc; tema=koyu"
         );
+    }
+
+    #[test]
+    fn scripts_request_focus_changes() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<input id='alan'>\
+                 <script>document.getElementById('alan').focus();</script>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let document = &session.page().unwrap().document;
+        let field = document.get_element_by_id("alan").unwrap();
+        assert_eq!(scripts.take_focus_request(), Some(Some(field)));
+        assert_eq!(scripts.take_focus_request(), None);
     }
 
     #[test]

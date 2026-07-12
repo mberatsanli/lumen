@@ -50,6 +50,8 @@ struct Bridge {
     pending_cookies: Vec<String>,
     /// A navigation a script requested (location.href = ..., reload()).
     pending_navigation: Option<String>,
+    /// A focus change a script requested: focus(Some) / blur(None).
+    pending_focus: Option<Option<NodeId>>,
 }
 
 thread_local! {
@@ -98,6 +100,8 @@ pub struct PageScripts {
     pending_fetches: Vec<(String, JsObject, JsObject)>,
     /// A navigation requested by a script, for the shell to perform.
     navigation: Option<String>,
+    /// A focus change requested by a script, for the shell to apply.
+    focus_request: Option<Option<NodeId>>,
     now_ms: f64,
 }
 
@@ -118,6 +122,7 @@ impl PageScripts {
             timers: Vec::new(),
             pending_fetches: Vec::new(),
             navigation: None,
+            focus_request: None,
             now_ms: 0.0,
         };
         for source in sources {
@@ -270,6 +275,11 @@ impl PageScripts {
         self.navigation.take()
     }
 
+    /// A focus change a script requested (el.focus() / el.blur()).
+    pub fn take_focus_request(&mut self) -> Option<Option<NodeId>> {
+        self.focus_request.take()
+    }
+
     /// Performs queued fetch() round-trips and resolves their promises,
     /// looping because continuations may fetch again.
     fn pump_fetches<L: ResourceLoader>(&mut self, session: &mut Session<L>) {
@@ -374,6 +384,9 @@ impl PageScripts {
             self.pending_fetches.append(&mut bridge.pending_fetches);
             if let Some(target) = bridge.pending_navigation.take() {
                 self.navigation = Some(target);
+            }
+            if let Some(target) = bridge.pending_focus.take() {
+                self.focus_request = Some(target);
             }
             let pending_cookies = std::mem::take(&mut bridge.pending_cookies);
             (bridge.dirty, pending_cookies)
@@ -989,6 +1002,8 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
             1,
         )
         .function(NativeFunction::from_fn_ptr(remove_node), js_string!("remove"), 0)
+        .function(NativeFunction::from_fn_ptr(focus_element), js_string!("focus"), 0)
+        .function(NativeFunction::from_fn_ptr(blur_element), js_string!("blur"), 0)
         .accessor(
             js_string!("textContent"),
             Some(text_get.clone()),
@@ -1566,6 +1581,18 @@ fn append_child(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
     });
     // Return the appended child, as the real API does.
     Ok(args.first().cloned().unwrap_or_default())
+}
+
+fn focus_element(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    if let Some(node) = this_node(this, context) {
+        with_bridge(|bridge| bridge.pending_focus = Some(Some(node)));
+    }
+    Ok(JsValue::undefined())
+}
+
+fn blur_element(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {
+    with_bridge(|bridge| bridge.pending_focus = Some(None));
+    Ok(JsValue::undefined())
 }
 
 fn remove_node(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {

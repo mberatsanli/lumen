@@ -83,7 +83,7 @@ interaction) — not just a DOM node.
 | `<input>` (all types) | ⚠️ | ✅ | ✅ | ✅ | text inputs editable (caret/selection/clipboard, click-to-position; long values clip and scroll horizontally to follow the caret), checkbox/radio toggle, submit buttons submit, number steps with ↑/↓ (step/min/max), color opens a swatch palette; date/file etc render as text boxes |
 | `<textarea> <select> <button>` | ⚠️ | ✅ | ✅ | ✅ | select opens a shell-drawn dropdown (`multiple` renders an inline list box: click selects, Cmd/Ctrl+click toggles, rows highlight via `:checked`), `<optgroup>` labels shown; textarea edits multiline (Enter = newline, inner scroll follows the caret line), button submits; label clicks focus their control |
 | `<label> <fieldset> <progress> <meter>` | ⚠️ | ✅ | ✅ | ✅ | label click focuses its control; fieldset/legend framed; progress/meter as vector bars |
-| Focus / validation | ❌ | ✅ | ✅ | ✅ | |
+| Focus / validation | ⚠️ | ✅ | ✅ | ✅ | Tab/Shift+Tab cycles controls (:focus styles apply, text controls open for editing); el.focus()/blur() from scripts; no validation |
 
 ## Scripting-related elements
 

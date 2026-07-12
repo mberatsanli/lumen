@@ -1193,6 +1193,18 @@ impl App {
             self.request_redraw();
         }
         self.follow_script_navigation();
+        self.apply_script_focus();
+    }
+
+    /// Applies a script's focus()/blur() request, if one is pending.
+    fn apply_script_focus(&mut self) {
+        let request = self
+            .page_scripts
+            .as_mut()
+            .and_then(lumen_browser::PageScripts::take_focus_request);
+        if let Some(target) = request {
+            self.focus_control(target);
+        }
     }
 
     /// Performs a navigation a script requested (location.href/reload).
@@ -1209,6 +1221,86 @@ impl App {
         } else {
             self.start_nav(Nav::Follow(target));
         }
+    }
+
+    /// The page's focusable controls in document order.
+    fn focusable_controls(&self) -> Vec<usize> {
+        let Some(page) = self.session().and_then(Session::page) else {
+            return Vec::new();
+        };
+        let document = &page.document;
+        document
+            .descendants(document.root())
+            .filter(|node| {
+                document.element(*node).is_some_and(|element| {
+                    match element.tag_name.as_str() {
+                        "select" | "textarea" | "button" => true,
+                        "input" => element.attributes.get("type") != Some("hidden"),
+                        _ => false,
+                    }
+                })
+            })
+            .collect()
+    }
+
+    /// Moves focus to a control: blur/focus events fire, text controls
+    /// begin editing with everything selected, and the page scrolls the
+    /// control into view.
+    fn focus_control(&mut self, target: Option<usize>) {
+        let previous = self.session().and_then(Session::focused);
+        if previous == target {
+            return;
+        }
+        self.end_page_edit();
+        if let SessionState::Ready(session) = &mut self.state {
+            session.set_focused(target);
+        }
+        if let Some(previous) = previous {
+            self.dispatch_script_event(previous, "blur");
+        }
+        if let Some(target) = target {
+            let is_text = self.session().is_some_and(|session| {
+                session.is_text_input(target) || session.is_textarea(target)
+            });
+            if is_text && let SessionState::Ready(session) = &mut self.state {
+                session.begin_edit(target, None);
+            }
+            // Scroll the control into view when it sits outside.
+            if let Some(rect) = self
+                .session()
+                .and_then(Session::page)
+                .and_then(|page| page.layout.find_by_node(target))
+                .map(|laid| laid.border_box())
+            {
+                let viewport_height = self.viewport().height;
+                if rect.y < self.scroll_y || rect.y + rect.height > self.scroll_y + viewport_height
+                {
+                    self.set_scroll(rect.y - viewport_height / 3.0);
+                }
+            }
+            self.dispatch_script_event(target, "focus");
+        }
+        self.invalidate_page();
+        self.request_redraw();
+    }
+
+    /// Tab / Shift+Tab: focus the next / previous control.
+    fn cycle_focus(&mut self, backward: bool) {
+        let controls = self.focusable_controls();
+        if controls.is_empty() {
+            return;
+        }
+        let current = self
+            .session()
+            .and_then(Session::focused)
+            .and_then(|node| controls.iter().position(|control| *control == node));
+        let next = match (current, backward) {
+            (Some(index), false) => controls[(index + 1) % controls.len()],
+            (Some(index), true) => controls[(index + controls.len() - 1) % controls.len()],
+            (None, false) => controls[0],
+            (None, true) => *controls.last().expect("nonempty"),
+        };
+        self.focus_control(Some(next));
     }
 
     /// Ends in-page editing (the session restores the display).
@@ -2186,6 +2278,11 @@ impl App {
             if self.handle_bar_key(bar, key, command_held, shift_held, alt_held) {
                 return;
             }
+        }
+        // Tab cycles focus through the page's controls.
+        if matches!(key, Key::Named(NamedKey::Tab)) {
+            self.cycle_focus(shift_held);
+            return;
         }
         // Script keydown listeners see page-level keys first (the
         // chrome's own bars already returned above).

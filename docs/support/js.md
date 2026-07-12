@@ -34,6 +34,7 @@ loader thread); the whole world drops on navigation.
 | `el.style.x` / `el.dataset.x` | ✅ | live proxies writing through to the style / data-* attributes (camelCase → kebab-case) |
 | `el.parentElement` / `el.children` / element `querySelector(All)` | ✅ | subtree-scoped queries |
 | `el.getBoundingClientRect` | ✅ | real border-box geometry from the layout tree |
+| `el.focus()` / `el.blur()` + `focus`/`blur` events | ✅ | shell applies the change; Tab/Shift+Tab cycles focusable controls |
 | `keydown` / `keyup` | ⚠️ | dispatched to the focused control (else the document) with `event.key`; preventDefault skips shell defaults |
 | `fetch` | ⚠️ | GET only; blocking under the hood, resolved between script entries; `response.text()`/`.json()`; no headers/status detail |
 | `document.cookie` | ⚠️ | reads the jar for the page URL, writes store through it (Path/Domain/Max-Age honored); HttpOnly not hidden |
