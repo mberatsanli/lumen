@@ -78,9 +78,22 @@ const CANDIDATE_PATHS: [&str; 8] = [
 ];
 
 impl SystemFont {
-    /// Parses TTF/OTF bytes. Returns `None` when the data is not a font.
+    /// Parses font bytes: TTF/OTF directly, WOFF and WOFF2 by unpacking
+    /// to TTF first. Returns `None` when the data is not a usable font.
     #[must_use]
     pub fn from_bytes(data: &[u8]) -> Option<Self> {
+        let unpacked: Vec<u8>;
+        let data = match data.get(..4) {
+            Some(b"wOF2") => {
+                unpacked = woff2_patched::decode::convert_woff2_to_ttf(&mut &data[..]).ok()?;
+                &unpacked[..]
+            }
+            Some(b"wOFF") => {
+                unpacked = woff1_to_ttf(data)?;
+                &unpacked[..]
+            }
+            _ => data,
+        };
         fontdue::Font::from_bytes(data, fontdue::FontSettings::default())
             .ok()
             .map(|font| Self {
@@ -192,6 +205,79 @@ impl TextMeasurer for SystemFont {
     }
 }
 
+/// Rebuilds a TTF from a WOFF1 container: the sfnt header plus each
+/// table, zlib-inflating the ones stored compressed.
+fn woff1_to_ttf(data: &[u8]) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+
+    let u32_at = |at: usize| -> Option<u32> {
+        data.get(at..at + 4)
+            .map(|bytes| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    };
+    let u16_at = |at: usize| -> Option<u16> {
+        data.get(at..at + 2)
+            .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+    };
+    let flavor = u32_at(4)?;
+    let table_count = u16_at(12)? as usize;
+    if table_count == 0 || table_count > 64 {
+        return None;
+    }
+
+    // sfnt header bookkeeping.
+    let mut search_range: u16 = 1;
+    let mut entry_selector: u16 = 0;
+    while u32::from(search_range) * 2 <= table_count as u32 {
+        search_range *= 2;
+        entry_selector += 1;
+    }
+    let search_range = search_range * 16;
+    let range_shift = table_count as u16 * 16 - search_range;
+
+    let mut header = Vec::with_capacity(12 + table_count * 16);
+    header.extend_from_slice(&flavor.to_be_bytes());
+    header.extend_from_slice(&(table_count as u16).to_be_bytes());
+    header.extend_from_slice(&search_range.to_be_bytes());
+    header.extend_from_slice(&entry_selector.to_be_bytes());
+    header.extend_from_slice(&range_shift.to_be_bytes());
+
+    let mut body: Vec<u8> = Vec::new();
+    let mut directory: Vec<u8> = Vec::new();
+    let body_base = 12 + table_count * 16;
+    for index in 0..table_count {
+        let entry = 44 + index * 20;
+        let tag = data.get(entry..entry + 4)?;
+        let offset = u32_at(entry + 4)? as usize;
+        let compressed_length = u32_at(entry + 8)? as usize;
+        let original_length = u32_at(entry + 12)? as usize;
+        let raw = data.get(offset..offset + compressed_length)?;
+        let table = if compressed_length < original_length {
+            let mut inflated = Vec::with_capacity(original_length);
+            flate2::read::ZlibDecoder::new(raw)
+                .read_to_end(&mut inflated)
+                .ok()?;
+            inflated
+        } else {
+            raw.to_vec()
+        };
+        if table.len() != original_length {
+            return None;
+        }
+        let checksum = u32_at(entry + 16)?;
+        directory.extend_from_slice(tag);
+        directory.extend_from_slice(&checksum.to_be_bytes());
+        directory.extend_from_slice(&((body_base + body.len()) as u32).to_be_bytes());
+        directory.extend_from_slice(&(original_length as u32).to_be_bytes());
+        body.extend_from_slice(&table);
+        while !body.len().is_multiple_of(4) {
+            body.push(0); // tables are 4-byte aligned
+        }
+    }
+    header.extend_from_slice(&directory);
+    header.extend_from_slice(&body);
+    Some(header)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +286,68 @@ mod tests {
     #[test]
     fn garbage_bytes_are_not_a_font() {
         assert!(SystemFont::from_bytes(b"definitely not a font").is_none());
+    }
+
+    /// Runs only when the sample exists (developer machines); CI-safe.
+    #[test]
+    fn woff2_bytes_unpack_into_a_usable_font() {
+        let Ok(data) = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/lato.woff2"
+        )) else {
+            return;
+        };
+        let font = SystemFont::from_bytes(&data).expect("woff2 should unpack");
+        let style = TextStyle {
+            font_size: 16.0,
+            font_weight: FontWeight(400),
+            monospace: false,
+            letter_spacing: 0.0,
+        };
+        assert!(font.measure("Merhaba", &style).width > 10.0);
+    }
+
+    /// Wraps a TTF into a (stored, uncompressed) WOFF1 container and
+    /// checks the unpacker reproduces a parseable font.
+    #[test]
+    fn woff1_container_round_trips() {
+        let Ok(data) = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/lato.woff2"
+        )) else {
+            return;
+        };
+        let ttf = woff2_patched::decode::convert_woff2_to_ttf(&mut &data[..]).unwrap();
+        let table_count = u16::from_be_bytes([ttf[4], ttf[5]]) as usize;
+        let mut woff: Vec<u8> = Vec::new();
+        woff.extend_from_slice(b"wOFF");
+        woff.extend_from_slice(&ttf[0..4]); // flavor
+        woff.extend_from_slice(&0u32.to_be_bytes()); // length (unused)
+        woff.extend_from_slice(&(table_count as u16).to_be_bytes());
+        woff.extend_from_slice(&0u16.to_be_bytes());
+        woff.extend_from_slice(&[0; 28]); // totalSfntSize..privLength
+        let body_offset = 44 + table_count * 20;
+        let mut body: Vec<u8> = Vec::new();
+        for index in 0..table_count {
+            let entry = 12 + index * 16;
+            let tag = &ttf[entry..entry + 4];
+            let checksum = &ttf[entry + 4..entry + 8];
+            let offset =
+                u32::from_be_bytes(ttf[entry + 8..entry + 12].try_into().unwrap()) as usize;
+            let length =
+                u32::from_be_bytes(ttf[entry + 12..entry + 16].try_into().unwrap()) as usize;
+            woff.extend_from_slice(tag);
+            woff.extend_from_slice(&((body_offset + body.len()) as u32).to_be_bytes());
+            woff.extend_from_slice(&(length as u32).to_be_bytes()); // compLength
+            woff.extend_from_slice(&(length as u32).to_be_bytes()); // origLength
+            woff.extend_from_slice(checksum);
+            body.extend_from_slice(&ttf[offset..offset + length]);
+            while !body.len().is_multiple_of(4) {
+                body.push(0);
+            }
+        }
+        woff.extend_from_slice(&body);
+        assert!(SystemFont::from_bytes(&woff).is_some());
     }
 
     /// Runs only where a system font exists (macOS/Linux/Windows dev boxes

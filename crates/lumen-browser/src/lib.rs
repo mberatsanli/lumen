@@ -818,11 +818,14 @@ impl<L: ResourceLoader> Session<L> {
             .collect();
         'faces: for (source, format) in &face_sources {
             let usable = match format.as_deref() {
-                Some("truetype" | "opentype") => true,
+                Some("truetype" | "opentype" | "woff" | "woff2") => true,
                 Some(_) => false,
                 None => {
                     let lower = source.to_ascii_lowercase();
-                    lower.ends_with(".ttf") || lower.ends_with(".otf")
+                    lower.ends_with(".ttf")
+                        || lower.ends_with(".otf")
+                        || lower.ends_with(".woff")
+                        || lower.ends_with(".woff2")
                 }
             };
             if !usable {

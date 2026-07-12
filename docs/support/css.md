@@ -151,7 +151,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `word-break` / `overflow-wrap` | ⚠️ | ✅ | ✅ | ✅ | break-all/break-word/anywhere split over-wide words at any character |
 | `text-overflow: ellipsis` | ⚠️ | ✅ | ✅ | ✅ | truncates the overflowing line with …; pair with nowrap + overflow |
 | `text-shadow` | ⚠️ | ✅ | ✅ | ✅ | comma lists; blur approximated by alpha thinning (no glyph blur) |
-| Web fonts `@font-face` | ⚠️ | ✅ | ✅ | ✅ | first TTF/OTF source becomes the document font (no WOFF — fontdue; no per-family matching) |
+| Web fonts `@font-face` | ⚠️ | ✅ | ✅ | ✅ | TTF/OTF/WOFF/WOFF2 sources (woff2 via woff2-patched; rare variant subsets fall back to the system font); first usable face becomes the document font, no per-family matching |
 
 ## Visual effects & motion
 
