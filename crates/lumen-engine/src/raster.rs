@@ -51,6 +51,14 @@ impl Framebuffer {
         x >= x0 && x < x1 && y >= y0 && y < y1
     }
 
+    /// Intersects a device-pixel rect `[x0,x1)×[y0,y1)` with the current
+    /// clip, so per-pixel loops iterate only drawable pixels instead of
+    /// scanning the whole primitive and rejecting each pixel via `admits`.
+    fn clamp_to_clip(&self, x0: u32, y0: u32, x1: u32, y1: u32) -> (u32, u32, u32, u32) {
+        let (cx0, cy0, cx1, cy1) = self.bounds();
+        (x0.max(cx0), y0.max(cy0), x1.min(cx1), y1.min(cy1))
+    }
+
     #[must_use]
     pub fn pixel(&self, x: u32, y: u32) -> u32 {
         self.pixels[(y * self.width + x) as usize]
@@ -792,11 +800,9 @@ fn fill_gradient(
     let y0 = rect.y.max(0.0) as u32;
     let x1 = ((rect.x + rect.width).ceil().max(0.0) as u32).min(framebuffer.width);
     let y1 = ((rect.y + rect.height).ceil().max(0.0) as u32).min(framebuffer.height);
+    let (x0, y0, x1, y1) = framebuffer.clamp_to_clip(x0, y0, x1, y1);
     for pixel_y in y0..y1 {
         for pixel_x in x0..x1 {
-            if !framebuffer.admits(pixel_x, pixel_y) {
-                continue;
-            }
             let (px, py) = (pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
             let coverage = if rounded {
                 rounded_coverage(rect, radius, px, py)
@@ -865,11 +871,9 @@ fn fill_transformed_rect(
     let y1 = ((device_bounds.y + device_bounds.height).ceil() + 1.0).max(0.0) as u32;
     let x1 = x1.min(framebuffer.width);
     let y1 = y1.min(framebuffer.height);
+    let (x0, y0, x1, y1) = framebuffer.clamp_to_clip(x0, y0, x1, y1);
     for pixel_y in y0..y1 {
         for pixel_x in x0..x1 {
-            if !framebuffer.admits(pixel_x, pixel_y) {
-                continue;
-            }
             // Device pixel center → page space → the rect's local space.
             let page_x = (pixel_x as f32 + 0.5) / scale;
             let page_y = (pixel_y as f32 + 0.5) / scale + scroll_y;
@@ -1061,13 +1065,13 @@ fn draw_shadow(
     let y0 = ((rect.y - reach).floor().max(0.0)) as u32;
     let x1 = (((rect.x + rect.width + reach).ceil()).max(0.0) as u32).min(framebuffer.width);
     let y1 = (((rect.y + rect.height + reach).ceil()).max(0.0) as u32).min(framebuffer.height);
+    // Only iterate pixels inside the clip: a scroll's exposed strip must
+    // not pay for the whole (expensive, Gaussian) shadow box every frame.
+    let (x0, y0, x1, y1) = framebuffer.clamp_to_clip(x0, y0, x1, y1);
     let rounded = !radius.is_zero();
     let packed = pack(color);
     for pixel_y in y0..y1 {
         for pixel_x in x0..x1 {
-            if !framebuffer.admits(pixel_x, pixel_y) {
-                continue;
-            }
             let (px, py) = (pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
             let coverage = if blur <= 0.0 {
                 // Hard shadow: plain (rounded) box coverage.
@@ -1300,11 +1304,12 @@ fn fill_rounded(framebuffer: &mut Framebuffer, rect: &Rect, radius: &Corners<f32
     let y0 = (rect.y.max(0.0) as u32).min(framebuffer.height);
     let x1 = ((rect.x + rect.width).ceil().max(0.0) as u32).min(framebuffer.width);
     let y1 = ((rect.y + rect.height).ceil().max(0.0) as u32).min(framebuffer.height);
+    let (x0, y0, x1, y1) = framebuffer.clamp_to_clip(x0, y0, x1, y1);
     for pixel_y in y0..y1 {
         for pixel_x in x0..x1 {
             let coverage =
                 rounded_coverage(rect, &radius, pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
-            if coverage <= 0.0 || !framebuffer.admits(pixel_x, pixel_y) {
+            if coverage <= 0.0 {
                 continue;
             }
             let position = (pixel_y * framebuffer.width + pixel_x) as usize;
@@ -1344,12 +1349,13 @@ fn fill_rounded_ring(
     let y0 = (rect.y.max(0.0) as u32).min(framebuffer.height);
     let x1 = ((rect.x + rect.width).ceil().max(0.0) as u32).min(framebuffer.width);
     let y1 = ((rect.y + rect.height).ceil().max(0.0) as u32).min(framebuffer.height);
+    let (x0, y0, x1, y1) = framebuffer.clamp_to_clip(x0, y0, x1, y1);
     for pixel_y in y0..y1 {
         for pixel_x in x0..x1 {
             let (px, py) = (pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
             let coverage = rounded_coverage(rect, &radius, px, py)
                 - rounded_coverage(&inner, &inner_radius, px, py);
-            if coverage <= 0.0 || !framebuffer.admits(pixel_x, pixel_y) {
+            if coverage <= 0.0 {
                 continue;
             }
             let position = (pixel_y * framebuffer.width + pixel_x) as usize;
