@@ -1266,9 +1266,15 @@ impl App {
     }
 
     fn scroll_by(&mut self, delta: f32) {
+        let before = self.scroll_y;
         self.set_scroll(self.scroll_y + delta);
-        self.update_hover();
-        self.request_redraw();
+        // Deliberately skip hover recomputation here: a hover change bumps
+        // the page generation and forces a full re-raster, which would kill
+        // the scroll blit path and make scrolling stutter. Hover refreshes
+        // on the next cursor move.
+        if self.scroll_y != before {
+            self.request_redraw();
+        }
     }
 
     /// Scroll-only cache reuse: shifts the cached page raster by the
