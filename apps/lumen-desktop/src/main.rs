@@ -176,8 +176,19 @@ impl Bookmarks {
 }
 
 fn main() {
-    let Some(input) = std::env::args().nth(1) else {
-        eprintln!("usage: lumen-desktop <file-or-url>");
+    // Split flags from the positional file/URL: `--debug`/`-d` opens the
+    // HUD on launch.
+    let mut debug = false;
+    let mut input = None;
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "--debug" | "-d" => debug = true,
+            _ if input.is_none() => input = Some(arg),
+            _ => {}
+        }
+    }
+    let Some(input) = input else {
+        eprintln!("usage: lumen-desktop [--debug] <file-or-url>");
         std::process::exit(2);
     };
 
@@ -191,6 +202,7 @@ fn main() {
     let proxy = event_loop.create_proxy();
 
     let mut app = App::new(input, proxy);
+    app.debug_hud = debug;
     if let Err(error) = event_loop.run_app(&mut app) {
         eprintln!("error: {error}");
         std::process::exit(1);
