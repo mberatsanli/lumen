@@ -54,9 +54,13 @@ impl Framebuffer {
     /// Intersects a device-pixel rect `[x0,x1)×[y0,y1)` with the current
     /// clip, so per-pixel loops iterate only drawable pixels instead of
     /// scanning the whole primitive and rejecting each pixel via `admits`.
+    /// A primitive entirely outside the clip yields an empty (but ordered)
+    /// range, never an inverted one — callers clamp against these bounds.
     fn clamp_to_clip(&self, x0: u32, y0: u32, x1: u32, y1: u32) -> (u32, u32, u32, u32) {
         let (cx0, cy0, cx1, cy1) = self.bounds();
-        (x0.max(cx0), y0.max(cy0), x1.min(cx1), y1.min(cy1))
+        let x0 = x0.max(cx0);
+        let y0 = y0.max(cy0);
+        (x0, y0, x1.min(cx1).max(x0), y1.min(cy1).max(y0))
     }
 
     #[must_use]
@@ -1670,6 +1674,43 @@ mod tests {
             *samples.last().unwrap() > 240,
             "far edge light: {samples:?}"
         );
+    }
+
+    #[test]
+    fn primitives_outside_the_clip_region_draw_nothing() {
+        // A region repaint (scroll strip) whose clip misses the primitives
+        // entirely: the clamped bounds must stay ordered, not invert.
+        let far = Rect {
+            x: 200.0,
+            y: 200.0,
+            width: 80.0,
+            height: 60.0,
+        };
+        let commands = vec![
+            DisplayCommand::FillRect {
+                rect: far,
+                color: Color::rgb(0xff, 0, 0),
+                radius: Corners::uniform(8.0),
+            },
+            DisplayCommand::StrokeRect {
+                rect: far,
+                widths: EdgeSizes::uniform(2.0),
+                colors: EdgeSizes::uniform(Color::rgb(0, 0xff, 0)),
+                styles: EdgeSizes::uniform(crate::style::BorderStyle::Solid),
+                radius: Corners::uniform(8.0),
+            },
+            DisplayCommand::DrawShadow {
+                rect: far,
+                radius: Corners::uniform(8.0),
+                blur: 12.0,
+                color: Color::rgb(0, 0, 0),
+                inset: false,
+            },
+        ];
+        let mut framebuffer = Framebuffer::new(300, 300);
+        rasterize_region(&mut framebuffer, &commands, 0.0, 1.0, None, (0, 0, 300, 40));
+        // The strip is seeded white and nothing reaches into it.
+        assert_eq!(framebuffer.pixel(210, 20), 0x00ff_ffff);
     }
 
     #[test]
