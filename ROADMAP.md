@@ -43,3 +43,11 @@
 - [ ] Forms
 - [ ] Small JavaScript interpreter
 - [ ] DOM/layout inspector
+
+## Parser migration (decided)
+
+Maintaining hand-written HTML/CSS parsers costs more than it returns.
+Planned: replace `lumen-html` with [html5ever](https://crates.io/crates/html5ever)
+and `lumen-css` with [lightningcss](https://crates.io/crates/lightningcss)
+(or `cssparser` + `selectors` from Servo) behind the existing crate
+APIs, so the engine keeps working unchanged.
