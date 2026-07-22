@@ -6,3 +6,8 @@ license.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+cssparser = "0.37"
+lightningcss = { version = "1.0.0-alpha.72", default-features = false }
+parcel_selectors = "0.28"

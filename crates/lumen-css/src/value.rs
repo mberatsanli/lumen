@@ -82,10 +82,23 @@ impl Color {
     }
 
     fn parse_rgb_body(body: &str) -> Option<Self> {
-        let parts: Vec<&str> = body.split(',').map(str::trim).collect();
-        if parts.len() != 3 && parts.len() != 4 {
-            return None;
-        }
+        // Legacy form is comma-separated; the modern form is
+        // space-separated with the alpha after a `/`.
+        let (body, slash_alpha) = match body.split_once('/') {
+            Some((channels, alpha)) => (channels, Some(alpha.trim())),
+            None => (body, None),
+        };
+        let parts: Vec<&str> = if body.contains(',') {
+            body.split(',').map(str::trim).collect()
+        } else {
+            body.split_whitespace().collect()
+        };
+        let alpha = match (parts.len(), slash_alpha) {
+            (3, None) => None,
+            (4, None) => Some(parts[3]),
+            (3, Some(alpha)) => Some(alpha),
+            _ => return None,
+        };
         // Channels accept integers (0-255) or percentages of 255.
         let channel = |part: &str| {
             if let Some(percent) = part.strip_suffix('%') {
@@ -96,7 +109,7 @@ impl Color {
             }
         };
         let color = Self::rgb(channel(parts[0])?, channel(parts[1])?, channel(parts[2])?);
-        match parts.get(3) {
+        match alpha {
             None => Some(color),
             Some(alpha) => {
                 // Alpha accepts a fraction (0-1) or a percentage.

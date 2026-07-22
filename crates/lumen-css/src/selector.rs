@@ -8,6 +8,20 @@
 //! `:link`/`:visited`/`:hover`, and selector lists (handled by the rule
 //! parser). Unsupported selectors are rejected and the containing rule is
 //! dropped, matching browser behavior.
+//!
+//! Parsing itself is done by the lightningcss selector parser
+//! (`parcel_selectors` over `cssparser`); this module only maps the parsed
+//! components onto the engine's selector model.
+
+use cssparser::{Parser, ParserInput};
+use lightningcss::selector::{
+    Combinator as ParcelCombinator, Component, PseudoClass as LwcPseudoClass,
+    PseudoElement as LwcPseudoElement, Selector as LwcSelector, SelectorList as LwcSelectorList,
+};
+use lightningcss::stylesheet::ParserOptions;
+use lightningcss::traits::ParseWithOptions;
+use parcel_selectors::attr::{AttrSelectorOperator, ParsedCaseSensitivity};
+use parcel_selectors::parser::{NthSelectorData, NthType};
 
 /// Cascade specificity, ordered lexicographically: ids > classes > types.
 ///
@@ -191,32 +205,70 @@ impl Selector {
     }
 }
 
+/// How deep `:not()`/`:is()`/`:where()` arguments may nest; deeper
+/// selectors are rejected (the containing rule is dropped).
+const MAX_PSEUDO_NESTING: usize = 32;
+
 /// Parses one complex selector (no commas). Returns `None` if any part is
 /// unsupported or malformed.
 #[must_use]
 pub fn parse_selector(source: &str) -> Option<Selector> {
+    let selectors = parse_selector_list(source)?;
+    match selectors.len() {
+        1 => selectors.into_iter().next(),
+        _ => None,
+    }
+}
+
+/// Parses a comma-separated selector list with the lightningcss selector
+/// parser and maps it onto the engine's model. Returns `None` when any
+/// selector in the list is malformed or unsupported — the containing rule
+/// is then dropped whole, matching browser behavior for invalid lists.
+pub(crate) fn parse_selector_list(source: &str) -> Option<Vec<Selector>> {
+    let mut input = ParserInput::new(source);
+    let mut input = Parser::new(&mut input);
+    let list = LwcSelectorList::parse_with_options(&mut input, &ParserOptions::default()).ok()?;
+    input.expect_exhausted().ok()?;
+    list.0
+        .iter()
+        .map(|selector| convert_selector(selector, 0))
+        .collect()
+}
+
+/// Maps one lightningcss selector onto our model. Lightningcss iterates
+/// compounds subject-first, so the collected vectors are reversed at the
+/// end to restore source order.
+fn convert_selector(selector: &LwcSelector, depth: usize) -> Option<Selector> {
+    if depth >= MAX_PSEUDO_NESTING {
+        return None;
+    }
     let mut compounds = Vec::new();
     let mut combinators = Vec::new();
-    let mut pending: Option<Combinator> = None;
-    for token in tokenize_complex(source)? {
-        match token {
-            ComplexToken::Combinator(combinator) => {
-                if compounds.is_empty() || pending.is_some() {
-                    return None; // Leading or doubled combinator.
-                }
-                pending = Some(combinator);
+    let mut current = CompoundSelector::default();
+    for component in selector.iter_raw_match_order() {
+        if let Component::Combinator(combinator) = component {
+            // The dummy combinator lightningcss puts between a
+            // pseudo-element and the rest of its compound: not a real
+            // compound boundary.
+            if matches!(combinator, ParcelCombinator::PseudoElement) {
+                continue;
             }
-            ComplexToken::Compound(text) => {
-                if !compounds.is_empty() {
-                    combinators.push(pending.take().unwrap_or(Combinator::Descendant));
-                }
-                compounds.push(parse_compound(&text)?);
-            }
+            compounds.push(std::mem::take(&mut current));
+            combinators.push(match combinator {
+                ParcelCombinator::Child => Combinator::Child,
+                ParcelCombinator::Descendant => Combinator::Descendant,
+                ParcelCombinator::NextSibling => Combinator::NextSibling,
+                ParcelCombinator::LaterSibling => Combinator::SubsequentSibling,
+                // Shadow-piercing and pseudo-element combinators are unsupported.
+                _ => return None,
+            });
+            continue;
         }
+        convert_component(component, &mut current, depth)?;
     }
-    if compounds.is_empty() || pending.is_some() {
-        return None; // Empty, or a trailing combinator.
-    }
+    compounds.push(current);
+    compounds.reverse();
+    combinators.reverse();
     // A pseudo-element is only valid on the subject.
     if compounds[..compounds.len() - 1]
         .iter()
@@ -230,323 +282,176 @@ pub fn parse_selector(source: &str) -> Option<Selector> {
     })
 }
 
-enum ComplexToken {
-    Compound(String),
-    Combinator(Combinator),
+/// Folds one simple selector into the compound under construction.
+/// Returns `None` for anything the engine cannot match.
+fn convert_component(
+    component: &Component,
+    compound: &mut CompoundSelector,
+    depth: usize,
+) -> Option<()> {
+    match component {
+        Component::Combinator(_) => unreachable!("handled by convert_selector"),
+        Component::ExplicitUniversalType => Some(()),
+        Component::LocalName(local_name) => {
+            if compound.tag.is_some() {
+                return None;
+            }
+            compound.tag = Some(local_name.lower_name.0.to_string());
+            Some(())
+        }
+        Component::ID(identifier) => {
+            if compound.id.is_some() {
+                return None;
+            }
+            compound.id = Some(identifier.0.to_string());
+            Some(())
+        }
+        Component::Class(identifier) => {
+            compound.classes.push(identifier.0.to_string());
+            Some(())
+        }
+        Component::AttributeInNoNamespaceExists {
+            local_name_lower, ..
+        } => {
+            compound.attributes.push(AttributeSelector {
+                name: local_name_lower.0.to_string(),
+                operation: AttributeOperation::Exists,
+            });
+            Some(())
+        }
+        Component::AttributeInNoNamespace {
+            local_name,
+            operator,
+            value,
+            case_sensitivity,
+            ..
+        } => {
+            // The engine matches case-sensitively; an explicit `i` flag
+            // could not be honored, so such selectors are dropped instead
+            // of matching wrongly.
+            if matches!(case_sensitivity, ParsedCaseSensitivity::AsciiCaseInsensitive) {
+                return None;
+            }
+            let value = value.0.to_string();
+            let operation = match operator {
+                AttrSelectorOperator::Equal => AttributeOperation::Equals(value),
+                AttrSelectorOperator::Prefix => AttributeOperation::StartsWith(value),
+                AttrSelectorOperator::Suffix => AttributeOperation::EndsWith(value),
+                AttrSelectorOperator::Substring => AttributeOperation::Contains(value),
+                AttrSelectorOperator::Includes => AttributeOperation::WordMatch(value),
+                AttrSelectorOperator::DashMatch => AttributeOperation::LangPrefix(value),
+            };
+            compound.attributes.push(AttributeSelector {
+                name: local_name.0.to_string(),
+                operation,
+            });
+            Some(())
+        }
+        Component::Root => {
+            compound.pseudo_classes.push(PseudoClass::Root);
+            Some(())
+        }
+        Component::Nth(data) => {
+            compound.pseudo_classes.push(convert_nth(data)?);
+            Some(())
+        }
+        Component::NonTSPseudoClass(pseudo_class) => {
+            let pseudo_class = match pseudo_class {
+                LwcPseudoClass::Link => PseudoClass::Link,
+                LwcPseudoClass::Visited => PseudoClass::Visited,
+                LwcPseudoClass::Hover => PseudoClass::Hover,
+                LwcPseudoClass::Active => PseudoClass::Active,
+                LwcPseudoClass::Checked => PseudoClass::Checked,
+                LwcPseudoClass::Focus | LwcPseudoClass::FocusVisible => PseudoClass::Focus,
+                LwcPseudoClass::FocusWithin => PseudoClass::FocusWithin,
+                _ => return None,
+            };
+            compound.pseudo_classes.push(pseudo_class);
+            Some(())
+        }
+        Component::Negation(list) => {
+            let [inner] = &list[..] else {
+                // Our model negates exactly one compound.
+                return None;
+            };
+            compound
+                .pseudo_classes
+                .push(PseudoClass::Not(Box::new(single_compound(inner, depth)?)));
+            Some(())
+        }
+        Component::Is(list) => {
+            compound
+                .pseudo_classes
+                .push(PseudoClass::Is(compound_list(list, depth)?));
+            Some(())
+        }
+        Component::Where(list) => {
+            compound
+                .pseudo_classes
+                .push(PseudoClass::Where(compound_list(list, depth)?));
+            Some(())
+        }
+        Component::PseudoElement(pseudo_element) => {
+            let name = match pseudo_element {
+                LwcPseudoElement::Before => "before",
+                LwcPseudoElement::After => "after",
+                LwcPseudoElement::Selection(_) => "selection",
+                _ => return None,
+            };
+            compound.pseudo_element = Some(name.to_string());
+            Some(())
+        }
+        // Namespaces, `:has()`, `:nth-child(.. of ..)`, shadow parts,
+        // `:empty`, `:scope`, the nesting selector and everything else the
+        // engine cannot match.
+        _ => None,
+    }
 }
 
-/// Splits a complex selector into compound texts and combinators,
-/// respecting `()`/`[]` nesting (so `:nth-child(2n+1)` keeps its `+`).
-fn tokenize_complex(source: &str) -> Option<Vec<ComplexToken>> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut depth = 0usize;
-    let flush = |current: &mut String, tokens: &mut Vec<ComplexToken>| {
-        if !current.is_empty() {
-            tokens.push(ComplexToken::Compound(std::mem::take(current)));
-        }
-    };
-    for character in source.chars() {
-        match character {
-            '(' | '[' => {
-                depth += 1;
-                current.push(character);
-            }
-            ')' | ']' => {
-                depth = depth.checked_sub(1)?;
-                current.push(character);
-            }
-            _ if depth > 0 => current.push(character),
-            character if character.is_whitespace() => flush(&mut current, &mut tokens),
-            '>' => {
-                flush(&mut current, &mut tokens);
-                tokens.push(ComplexToken::Combinator(Combinator::Child));
-            }
-            '+' => {
-                flush(&mut current, &mut tokens);
-                tokens.push(ComplexToken::Combinator(Combinator::NextSibling));
-            }
-            '~' => {
-                flush(&mut current, &mut tokens);
-                tokens.push(ComplexToken::Combinator(Combinator::SubsequentSibling));
-            }
-            _ => current.push(character),
-        }
-    }
-    if depth != 0 {
+/// `:is()`/`:where()` arguments: every alternative must be a single
+/// compound with no pseudo-element.
+fn compound_list(list: &[LwcSelector], depth: usize) -> Option<Vec<CompoundSelector>> {
+    if list.is_empty() {
         return None;
     }
-    flush(&mut current, &mut tokens);
-    Some(tokens)
+    list.iter()
+        .map(|selector| single_compound(selector, depth))
+        .collect()
 }
 
-const SUPPORTED_PSEUDO_ELEMENTS: [&str; 3] = ["selection", "before", "after"];
-
-/// How deep `:not()`/`:is()`/`:where()` arguments may nest; deeper
-/// selectors are rejected (the containing rule is dropped).
-const MAX_PSEUDO_NESTING: usize = 32;
-
-/// Parses one compound selector with a character scanner.
-fn parse_compound(source: &str) -> Option<CompoundSelector> {
-    parse_compound_inner(source, 0)
-}
-
-fn parse_compound_inner(source: &str, depth: usize) -> Option<CompoundSelector> {
-    let mut compound = CompoundSelector::default();
-    let chars: Vec<char> = source.chars().collect();
-    let mut position = 0;
-
-    let read_identifier = |position: &mut usize| -> Option<String> {
-        let start = *position;
-        while *position < chars.len()
-            && (chars[*position].is_ascii_alphanumeric() || matches!(chars[*position], '-' | '_'))
-        {
-            *position += 1;
-        }
-        (*position > start).then(|| chars[start..*position].iter().collect())
-    };
-
-    // A tag (or `*`) is only allowed at the very start.
-    if position < chars.len() {
-        if chars[position] == '*' {
-            position += 1;
-        } else if chars[position].is_ascii_alphanumeric() {
-            let tag = read_identifier(&mut position)?;
-            compound.tag = Some(tag.to_ascii_lowercase());
-        }
+/// Maps a nested selector that must consist of exactly one compound
+/// (the `:not()`/`:is()`/`:where()` arguments our model supports).
+fn single_compound(selector: &LwcSelector, depth: usize) -> Option<CompoundSelector> {
+    let selector = convert_selector(selector, depth + 1)?;
+    if !selector.combinators.is_empty() {
+        return None;
     }
-
-    while position < chars.len() {
-        match chars[position] {
-            '.' => {
-                position += 1;
-                compound.classes.push(read_identifier(&mut position)?);
-            }
-            '#' => {
-                position += 1;
-                if compound.id.is_some() {
-                    return None;
-                }
-                compound.id = Some(read_identifier(&mut position)?);
-            }
-            '[' => {
-                let close = find_balanced(&chars, position, '[', ']')?;
-                let inner: String = chars[position + 1..close].iter().collect();
-                compound.attributes.push(parse_attribute(&inner)?);
-                position = close + 1;
-            }
-            ':' if position + 1 < chars.len() && chars[position + 1] == ':' => {
-                // Pseudo-element: must end the compound.
-                position += 2;
-                let name = read_identifier(&mut position)?;
-                if !SUPPORTED_PSEUDO_ELEMENTS.contains(&name.as_str()) || position != chars.len() {
-                    return None;
-                }
-                compound.pseudo_element = Some(name);
-            }
-            ':' => {
-                position += 1;
-                let name = read_identifier(&mut position)?;
-                // Legacy single-colon pseudo-elements (`:before`).
-                if matches!(name.as_str(), "before" | "after") {
-                    if position != chars.len() {
-                        return None;
-                    }
-                    compound.pseudo_element = Some(name);
-                    continue;
-                }
-                let arguments = if position < chars.len() && chars[position] == '(' {
-                    let close = find_balanced(&chars, position, '(', ')')?;
-                    let inner: String = chars[position + 1..close].iter().collect();
-                    position = close + 1;
-                    Some(inner)
-                } else {
-                    None
-                };
-                compound.pseudo_classes.push(parse_pseudo_class(
-                    &name,
-                    arguments.as_deref(),
-                    depth,
-                )?);
-            }
-            _ => return None,
-        }
-    }
-
-    // A bare empty compound (from `*` this is fine) must constrain
-    // something or be the explicit universal selector.
-    if compound == CompoundSelector::default() && source != "*" {
+    let compound = selector.compounds.into_iter().next()?;
+    if compound.pseudo_element.is_some() {
         return None;
     }
     Some(compound)
 }
 
-/// Index of the closing delimiter matching `chars[open]`.
-fn find_balanced(chars: &[char], open: usize, opener: char, closer: char) -> Option<usize> {
-    let mut depth = 0usize;
-    for (index, character) in chars.iter().enumerate().skip(open) {
-        if *character == opener {
-            depth += 1;
-        } else if *character == closer {
-            depth -= 1;
-            if depth == 0 {
-                return Some(index);
-            }
-        }
-    }
-    None
-}
-
-/// Parses the inside of `[...]`: `name`, `name=v`, `name^=v`, `name$=v`,
-/// `name*=v` (value optionally quoted).
-fn parse_attribute(source: &str) -> Option<AttributeSelector> {
-    let source = source.trim();
-    let operator_at = source.find(['=', '^', '$', '*', '~', '|']);
-    let Some(at) = operator_at else {
-        let name = source.to_ascii_lowercase();
-        return is_identifier(&name).then_some(AttributeSelector {
-            name,
-            operation: AttributeOperation::Exists,
-        });
+/// Maps structural pseudo-class data. Lightningcss represents the keyword
+/// forms (`:first-child`, `:only-of-type`, ...) as `an+b` data too, so the
+/// dedicated variants are recovered from the (type, a, b) triple.
+fn convert_nth(data: &NthSelectorData) -> Option<PseudoClass> {
+    let pseudo_class = match (data.ty, data.a, data.b) {
+        (NthType::Child, 0, 1) => PseudoClass::FirstChild,
+        (NthType::LastChild, 0, 1) => PseudoClass::LastChild,
+        (NthType::OnlyChild, 0, 1) => PseudoClass::OnlyChild,
+        (NthType::OfType, 0, 1) => PseudoClass::FirstOfType,
+        (NthType::LastOfType, 0, 1) => PseudoClass::LastOfType,
+        (NthType::OnlyOfType, 0, 1) => PseudoClass::OnlyOfType,
+        (NthType::Child, a, b) => PseudoClass::NthChild(a, b),
+        (NthType::LastChild, a, b) => PseudoClass::NthLastChild(a, b),
+        (NthType::OfType, a, b) => PseudoClass::NthOfType(a, b),
+        (NthType::LastOfType, a, b) => PseudoClass::NthLastOfType(a, b),
+        // Table column selectors are unsupported.
+        _ => return None,
     };
-    let (name, rest) = source.split_at(at);
-    let name = name.trim().to_ascii_lowercase();
-    if !is_identifier(&name) {
-        return None;
-    }
-    let (operator, value) = if let Some(value) = rest.strip_prefix("^=") {
-        ('^', value)
-    } else if let Some(value) = rest.strip_prefix("$=") {
-        ('$', value)
-    } else if let Some(value) = rest.strip_prefix("*=") {
-        ('*', value)
-    } else if let Some(value) = rest.strip_prefix("~=") {
-        ('~', value)
-    } else if let Some(value) = rest.strip_prefix("|=") {
-        ('|', value)
-    } else if let Some(value) = rest.strip_prefix('=') {
-        ('=', value)
-    } else {
-        return None;
-    };
-    let value = value.trim();
-    let value = value
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-        .or_else(|| {
-            value
-                .strip_prefix('\'')
-                .and_then(|value| value.strip_suffix('\''))
-        })
-        .unwrap_or(value)
-        .to_string();
-    let operation = match operator {
-        '^' => AttributeOperation::StartsWith(value),
-        '$' => AttributeOperation::EndsWith(value),
-        '*' => AttributeOperation::Contains(value),
-        '~' => AttributeOperation::WordMatch(value),
-        '|' => AttributeOperation::LangPrefix(value),
-        _ => AttributeOperation::Equals(value),
-    };
-    Some(AttributeSelector { name, operation })
-}
-
-fn parse_pseudo_class(name: &str, arguments: Option<&str>, depth: usize) -> Option<PseudoClass> {
-    match (name, arguments) {
-        ("link", None) => Some(PseudoClass::Link),
-        ("visited", None) => Some(PseudoClass::Visited),
-        ("hover", None) => Some(PseudoClass::Hover),
-        ("root", None) => Some(PseudoClass::Root),
-        ("active", None) => Some(PseudoClass::Active),
-        ("checked", None) => Some(PseudoClass::Checked),
-        ("focus" | "focus-visible", None) => Some(PseudoClass::Focus),
-        ("focus-within", None) => Some(PseudoClass::FocusWithin),
-        ("first-child", None) => Some(PseudoClass::FirstChild),
-        ("last-child", None) => Some(PseudoClass::LastChild),
-        ("only-child", None) => Some(PseudoClass::OnlyChild),
-        ("nth-child", Some(arguments)) => {
-            parse_nth(arguments).map(|(a, b)| PseudoClass::NthChild(a, b))
-        }
-        ("nth-last-child", Some(arguments)) => {
-            parse_nth(arguments).map(|(a, b)| PseudoClass::NthLastChild(a, b))
-        }
-        ("first-of-type", None) => Some(PseudoClass::FirstOfType),
-        ("last-of-type", None) => Some(PseudoClass::LastOfType),
-        ("only-of-type", None) => Some(PseudoClass::OnlyOfType),
-        ("nth-of-type", Some(arguments)) => {
-            parse_nth(arguments).map(|(a, b)| PseudoClass::NthOfType(a, b))
-        }
-        ("nth-last-of-type", Some(arguments)) => {
-            parse_nth(arguments).map(|(a, b)| PseudoClass::NthLastOfType(a, b))
-        }
-        ("is", Some(arguments)) | ("where", Some(arguments)) => {
-            if depth >= MAX_PSEUDO_NESTING {
-                return None;
-            }
-            let compounds: Option<Vec<CompoundSelector>> = arguments
-                .split(',')
-                .map(|part| parse_compound_inner(part.trim(), depth + 1))
-                .collect();
-            let compounds = compounds?;
-            if compounds.is_empty()
-                || compounds
-                    .iter()
-                    .any(|compound| compound.pseudo_element.is_some())
-            {
-                return None;
-            }
-            Some(if name == "is" {
-                PseudoClass::Is(compounds)
-            } else {
-                PseudoClass::Where(compounds)
-            })
-        }
-        ("not", Some(arguments)) => {
-            if depth >= MAX_PSEUDO_NESTING {
-                return None;
-            }
-            let inner = parse_compound_inner(arguments.trim(), depth + 1)?;
-            // No pseudo-elements inside :not().
-            if inner.pseudo_element.is_some() {
-                return None;
-            }
-            Some(PseudoClass::Not(Box::new(inner)))
-        }
-        _ => None,
-    }
-}
-
-/// Parses `an+b` micro-syntax: `odd`, `even`, `5`, `2n`, `2n+1`, `-n+3`, `n`.
-fn parse_nth(source: &str) -> Option<(i32, i32)> {
-    let source = source.trim().to_ascii_lowercase().replace(' ', "");
-    match source.as_str() {
-        "odd" => return Some((2, 1)),
-        "even" => return Some((2, 0)),
-        _ => {}
-    }
-    if let Some(at) = source.find('n') {
-        let (a_text, b_text) = (&source[..at], &source[at + 1..]);
-        let a = match a_text {
-            "" | "+" => 1,
-            "-" => -1,
-            _ => a_text.parse().ok()?,
-        };
-        let b = if b_text.is_empty() {
-            0
-        } else {
-            b_text.parse().ok()?
-        };
-        Some((a, b))
-    } else {
-        Some((0, source.parse().ok()?))
-    }
-}
-
-fn is_identifier(source: &str) -> bool {
-    !source.is_empty()
-        && source
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    Some(pseudo_class)
 }
 
 #[cfg(test)]
@@ -644,7 +549,7 @@ mod tests {
             selector.compounds[0].attributes[0].operation,
             AttributeOperation::StartsWith("https".to_string())
         );
-        assert!(parse_selector("a[href$=.pdf]").is_some());
+        assert!(parse_selector("a[href$=\".pdf\"]").is_some());
         assert!(parse_selector("a[href*=example]").is_some());
     }
 

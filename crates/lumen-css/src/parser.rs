@@ -1,7 +1,25 @@
 //! Stylesheet parsing: rules, declarations and shorthand expansion.
+//!
+//! Tokenization and block structure come from the lightningcss parse stack:
+//! `cssparser` walks rule lists and declaration blocks (so strings, `url()`
+//! arguments and comments can no longer desynchronize the parser), and
+//! lightningcss proper parses media query preludes. The results are mapped
+//! onto the engine's own model types — consumers never see lightningcss
+//! types, and declaration values keep their raw source text (data URIs and
+//! quoted strings survive byte-for-byte).
 
-use crate::selector::{Selector, parse_selector};
+use crate::selector::{Selector, parse_selector_list};
 use crate::value::{CssValue, split_components};
+use cssparser::{
+    AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,
+    QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser,
+};
+use lightningcss::media_query::{
+    MediaCondition, MediaFeatureComparison, MediaFeatureId, MediaFeatureName, MediaFeatureValue,
+    MediaList, MediaType, Operator, Qualifier, QueryFeature,
+};
+use lightningcss::stylesheet::ParserOptions;
+use lightningcss::values::length::{Length, LengthValue};
 
 /// A single longhand `name: value` pair. Shorthands are expanded at parse
 /// time, so consumers never see `margin`, only `margin-top` etc.
@@ -41,39 +59,106 @@ impl MediaQuery {
     }
 }
 
-/// Parses a media condition subset: optional `only`, `screen`/`all` type,
-/// `and`-joined `(min-width: Npx)` / `(max-width: Npx)` (em/rem allowed,
-/// 1em = 16px). `None` = unsupported, skip the block.
-fn parse_media_condition(source: &str) -> Option<MediaQuery> {
-    let mut query = MediaQuery {
+/// Maps the lightningcss media query list of one `@media` prelude onto our
+/// model: a single query of type `screen`/`all` (or none) whose `and`-
+/// combined conditions only constrain width (inclusive bounds; `em`/`rem`
+/// count as 16px). Anything richer — comma lists, `not`/`or`, print,
+/// strict range comparisons — is unsupported: `None`, skip the block.
+fn parse_media_query(input: &mut Parser) -> Option<MediaQuery> {
+    let list = MediaList::parse(input, &ParserOptions::default()).ok()?;
+    let [query] = &list.media_queries[..] else {
+        return None;
+    };
+    if matches!(query.qualifier, Some(Qualifier::Not)) {
+        return None;
+    }
+    match &query.media_type {
+        MediaType::All | MediaType::Screen => {}
+        _ => return None,
+    }
+    let mut result = MediaQuery {
         min_width: None,
         max_width: None,
     };
-    for part in source.to_ascii_lowercase().split(" and ") {
-        let part = part.trim().trim_start_matches("only ").trim();
-        if part.is_empty() || part == "screen" || part == "all" {
-            continue;
-        }
-        let feature = part.strip_prefix('(')?.strip_suffix(')')?;
-        let (name, value) = feature.split_once(':')?;
-        let value = value.trim();
-        let pixels = if let Some(number) = value.strip_suffix("px") {
-            number.trim().parse::<f32>().ok()?
-        } else if let Some(number) = value
-            .strip_suffix("rem")
-            .or_else(|| value.strip_suffix("em"))
-        {
-            number.trim().parse::<f32>().ok()? * 16.0
-        } else {
-            return None;
-        };
-        match name.trim() {
-            "min-width" => query.min_width = Some(pixels),
-            "max-width" => query.max_width = Some(pixels),
-            _ => return None,
-        }
+    if let Some(condition) = &query.condition {
+        apply_media_condition(condition, &mut result)?;
     }
-    Some(query)
+    Some(result)
+}
+
+fn apply_media_condition(condition: &MediaCondition, query: &mut MediaQuery) -> Option<()> {
+    match condition {
+        MediaCondition::Feature(feature) => apply_media_feature(feature, query),
+        MediaCondition::Operation {
+            operator: Operator::And,
+            conditions,
+        } => {
+            for condition in conditions {
+                apply_media_condition(condition, query)?;
+            }
+            Some(())
+        }
+        // `not`, `or` and unknown conditions are unsupported.
+        _ => None,
+    }
+}
+
+fn apply_media_feature(feature: &QueryFeature<MediaFeatureId>, query: &mut MediaQuery) -> Option<()> {
+    match feature {
+        // `(min-width: N)` arrives as a range with a legacy operator.
+        QueryFeature::Range {
+            name: MediaFeatureName::Standard(MediaFeatureId::Width),
+            operator,
+            value,
+        } => {
+            let pixels = media_value_px(value)?;
+            match operator {
+                MediaFeatureComparison::GreaterThanEqual => {
+                    query.min_width = Some(query.min_width.map_or(pixels, |min| min.max(pixels)));
+                }
+                MediaFeatureComparison::LessThanEqual => {
+                    query.max_width = Some(query.max_width.map_or(pixels, |max| max.min(pixels)));
+                }
+                // Strict bounds and equality don't fit the inclusive model.
+                _ => return None,
+            }
+            Some(())
+        }
+        // `(400px <= width <= 900px)`: only the inclusive form maps.
+        QueryFeature::Interval {
+            name: MediaFeatureName::Standard(MediaFeatureId::Width),
+            start,
+            start_operator,
+            end,
+            end_operator,
+        } => {
+            if !matches!(start_operator, MediaFeatureComparison::LessThanEqual)
+                || !matches!(end_operator, MediaFeatureComparison::LessThanEqual)
+            {
+                return None;
+            }
+            let min = media_value_px(start)?;
+            let max = media_value_px(end)?;
+            query.min_width = Some(query.min_width.map_or(min, |bound| bound.max(min)));
+            query.max_width = Some(query.max_width.map_or(max, |bound| bound.min(max)));
+            Some(())
+        }
+        _ => None,
+    }
+}
+
+/// A media feature length in px; `em`/`rem` count as 16px, like before.
+fn media_value_px(value: &MediaFeatureValue) -> Option<f32> {
+    let MediaFeatureValue::Length(length) = value else {
+        return None;
+    };
+    if let Some(px) = length.to_px() {
+        return Some(px);
+    }
+    match length {
+        Length::Value(LengthValue::Em(value) | LengthValue::Rem(value)) => Some(value * 16.0),
+        _ => None,
+    }
 }
 
 /// One `@font-face` block: a family name and its source URLs in order.
@@ -148,192 +233,456 @@ impl Stylesheet {
 /// input with its declarations kept.
 #[must_use]
 pub fn parse_stylesheet(source: &str) -> Stylesheet {
-    let source = strip_comments(source);
     let mut sheet = Stylesheet::default();
     let mut source_order = 0;
-    parse_rule_list(&source, None, &mut sheet, &mut source_order, 0);
+    let mut input = ParserInput::new(source);
+    let mut input = Parser::new(&mut input);
+    {
+        let mut parser = SheetParser {
+            sheet: &mut sheet,
+            media: None,
+            source_order: &mut source_order,
+            depth: 0,
+        };
+        for _ in StyleSheetParser::new(&mut input, &mut parser) {}
+    }
     sheet
 }
 
 /// How deep `@media` blocks may nest; deeper blocks are dropped.
 const MAX_MEDIA_NESTING: usize = 32;
 
-/// Parses a run of rules, attaching `media` to each. `@media` blocks with
-/// a supported condition recurse (nested conditions intersect); all other
-/// at-rules are skipped with balanced braces.
-fn parse_rule_list(
-    source: &str,
+/// Parser state for one rule list: the top level, or the body of one
+/// `@media` block (nested media conditions intersect).
+struct SheetParser<'a> {
+    sheet: &'a mut Stylesheet,
     media: Option<MediaQuery>,
-    sheet: &mut Stylesheet,
-    source_order: &mut usize,
+    source_order: &'a mut usize,
     depth: usize,
-) {
-    let mut rest = source;
-    loop {
-        rest = rest.trim_start();
-        if rest.is_empty() {
-            break;
+}
+
+/// What a supported at-rule prelude resolves to; anything else is skipped
+/// (cssparser then skips its block with correct, string-aware brace
+/// matching, so nested rules cannot desynchronize the parse).
+enum AtRulePrelude {
+    /// `@media` with its condition already mapped (`None`: skip the block).
+    Media(Option<MediaQuery>),
+    FontFace,
+    Keyframes(String),
+}
+
+impl<'i> AtRuleParser<'i> for SheetParser<'_> {
+    type Prelude = AtRulePrelude;
+    type AtRule = ();
+    type Error = ();
+
+    fn parse_prelude<'t>(
+        &mut self,
+        name: CowRcStr<'i>,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<AtRulePrelude, ParseError<'i, ()>> {
+        if name.eq_ignore_ascii_case("media") {
+            return Ok(AtRulePrelude::Media(parse_media_query(input)));
         }
-        if let Some(after_keyword) = rest.strip_prefix("@media") {
-            if let Some(open) = after_keyword.find('{') {
-                let condition = after_keyword[..open].trim();
-                let block_start = &after_keyword[open..];
-                let block_end = balanced_block_len(block_start);
-                if let Some(query) = parse_media_condition(condition) {
-                    let combined = Some(MediaQuery {
-                        min_width: merge_bound(
-                            media.and_then(|outer| outer.min_width),
-                            query.min_width,
-                            f32::max,
-                        ),
-                        max_width: merge_bound(
-                            media.and_then(|outer| outer.max_width),
-                            query.max_width,
-                            f32::min,
-                        ),
-                    });
-                    // Too-deep nesting is dropped, not recursed into.
-                    if depth < MAX_MEDIA_NESTING {
-                        let inner = &block_start[1..block_end.saturating_sub(1)];
-                        parse_rule_list(inner, combined, sheet, source_order, depth + 1);
-                    }
-                }
-                rest = &after_keyword[open + block_end..];
-                continue;
-            }
-            break;
+        if name.eq_ignore_ascii_case("font-face") {
+            return Ok(AtRulePrelude::FontFace);
         }
-        if let Some(after_keyword) = rest.strip_prefix("@font-face") {
-            if let Some(open) = after_keyword.find('{') {
-                let block_start = &after_keyword[open..];
-                let block_end = balanced_block_len(block_start);
-                let inner = &block_start[1..block_end.saturating_sub(1)];
-                if let Some(face) = parse_font_face(inner) {
-                    std::sync::Arc::make_mut(&mut sheet.font_faces).push(face);
-                }
-                rest = &after_keyword[open + block_end..];
-                continue;
-            }
-            break;
-        }
-        if let Some(after_keyword) = rest
-            .strip_prefix("@keyframes")
-            .or_else(|| rest.strip_prefix("@-webkit-keyframes"))
+        if name.eq_ignore_ascii_case("keyframes") || name.eq_ignore_ascii_case("-webkit-keyframes")
         {
-            if let Some(open) = after_keyword.find('{') {
-                let name = after_keyword[..open].trim().to_string();
-                let block_start = &after_keyword[open..];
-                let block_end = balanced_block_len(block_start);
-                let inner = &block_start[1..block_end.saturating_sub(1)];
-                if !name.is_empty() {
-                    let block = parse_keyframes(&name, inner);
-                    if !block.frames.is_empty() {
-                        std::sync::Arc::make_mut(&mut sheet.keyframes).push(block);
-                    }
-                }
-                rest = &after_keyword[open + block_end..];
-                continue;
+            let start = input.position();
+            while input.next().is_ok() {}
+            let name = input.slice_from(start).trim();
+            if name.is_empty() {
+                return Err(input.new_error_for_next_token());
             }
-            break;
+            return Ok(AtRulePrelude::Keyframes(name.to_string()));
         }
-        // Other at-rules (`@import`, ...) are unsupported:
-        // skip the whole construct with balanced braces so nested rules
-        // inside the block cannot desynchronize the parser.
-        if rest.starts_with('@') {
-            rest = skip_at_rule(rest);
-            continue;
-        }
-
-        let Some(open) = rest.find('{') else { break };
-        let selector_source = rest[..open].trim();
-        let after_open = &rest[open + 1..];
-        // Recovery: a missing `}` closes the block at end of input.
-        let close = after_open.find('}').unwrap_or(after_open.len());
-        let declaration_source = &after_open[..close];
-        rest = &after_open[(close + 1).min(after_open.len())..];
-
-        let selectors: Option<Vec<Selector>> = split_selector_list(selector_source)
-            .iter()
-            .map(|selector| selector.trim())
-            .filter(|selector| !selector.is_empty())
-            .map(parse_selector)
-            .collect();
-
-        // A rule with an empty or invalid selector list is dropped.
-        let Some(selectors) = selectors else { continue };
-        if selectors.is_empty() {
-            continue;
-        }
-
-        std::sync::Arc::make_mut(&mut sheet.rules).push(Rule {
-            selectors,
-            declarations: parse_declarations(declaration_source),
-            source_order: *source_order,
-            media,
-        });
-        *source_order += 1;
+        Err(input.new_error_for_next_token())
     }
+
+    fn parse_block<'t>(
+        &mut self,
+        prelude: AtRulePrelude,
+        _start: &ParserState,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<(), ParseError<'i, ()>> {
+        match prelude {
+            AtRulePrelude::Media(Some(query)) if self.depth < MAX_MEDIA_NESTING => {
+                let combined = MediaQuery {
+                    min_width: merge_bound(
+                        self.media.and_then(|outer| outer.min_width),
+                        query.min_width,
+                        f32::max,
+                    ),
+                    max_width: merge_bound(
+                        self.media.and_then(|outer| outer.max_width),
+                        query.max_width,
+                        f32::min,
+                    ),
+                };
+                let mut nested = SheetParser {
+                    sheet: self.sheet,
+                    media: Some(combined),
+                    source_order: self.source_order,
+                    depth: self.depth + 1,
+                };
+                for _ in RuleBodyParser::new(input, &mut nested) {}
+            }
+            // Unsupported condition or too-deep nesting: block skipped.
+            AtRulePrelude::Media(_) => {}
+            AtRulePrelude::FontFace => {
+                if let Some(face) = parse_font_face(input) {
+                    std::sync::Arc::make_mut(&mut self.sheet.font_faces).push(face);
+                }
+            }
+            AtRulePrelude::Keyframes(name) => {
+                let block = parse_keyframes(name, input);
+                if !block.frames.is_empty() {
+                    std::sync::Arc::make_mut(&mut self.sheet.keyframes).push(block);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<'i> DeclarationParser<'i> for SheetParser<'_> {
+    type Declaration = ();
+    type Error = ();
+    // Declarations directly in a rule list (not inside a style rule) are
+    // invalid; the default `parse_value` rejects them.
+}
+
+impl<'i> QualifiedRuleParser<'i> for SheetParser<'_> {
+    type Prelude = Vec<Selector>;
+    type QualifiedRule = ();
+    type Error = ();
+
+    fn parse_prelude<'t>(
+        &mut self,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Vec<Selector>, ParseError<'i, ()>> {
+        let start = input.position();
+        while input.next().is_ok() {}
+        let source = input.slice_from(start);
+        let selectors = parse_selector_list(source.trim())
+            .filter(|selectors| !selectors.is_empty())
+            .ok_or_else(|| input.new_error_for_next_token())?;
+        Ok(selectors)
+    }
+
+    fn parse_block<'t>(
+        &mut self,
+        selectors: Vec<Selector>,
+        _start: &ParserState,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<(), ParseError<'i, ()>> {
+        let declarations = collect_declarations(input);
+        std::sync::Arc::make_mut(&mut self.sheet.rules).push(Rule {
+            selectors,
+            declarations,
+            source_order: *self.source_order,
+            media: self.media,
+        });
+        *self.source_order += 1;
+        Ok(())
+    }
+}
+
+impl<'i> RuleBodyItemParser<'i, (), ()> for SheetParser<'_> {
+    fn parse_declarations(&self) -> bool {
+        false
+    }
+    fn parse_qualified(&self) -> bool {
+        true
+    }
+}
+
+/// Collects the declarations of one block (a style rule body, an inline
+/// `style=` attribute, a `@keyframes` frame), running the full value
+/// pipeline per declaration.
+struct DeclarationCollector {
+    declarations: Vec<Declaration>,
+}
+
+impl<'i> DeclarationParser<'i> for DeclarationCollector {
+    type Declaration = ();
+    type Error = ();
+
+    fn parse_value<'t>(
+        &mut self,
+        name: CowRcStr<'i>,
+        input: &mut Parser<'i, 't>,
+        _declaration_start: &ParserState,
+    ) -> Result<(), ParseError<'i, ()>> {
+        // The value keeps its raw source text: the tokenizer has already
+        // handled strings, url() and comments, so the slice boundaries are
+        // correct and the bytes in between are untouched.
+        let start = input.position();
+        while input.next().is_ok() {}
+        let value = input.slice_from(start);
+        push_declaration(
+            &name.to_ascii_lowercase(),
+            value.trim(),
+            &mut self.declarations,
+        );
+        Ok(())
+    }
+}
+
+impl<'i> AtRuleParser<'i> for DeclarationCollector {
+    type Prelude = ();
+    type AtRule = ();
+    type Error = ();
+}
+
+impl<'i> QualifiedRuleParser<'i> for DeclarationCollector {
+    type Prelude = ();
+    type QualifiedRule = ();
+    type Error = ();
+}
+
+impl<'i> RuleBodyItemParser<'i, (), ()> for DeclarationCollector {
+    fn parse_declarations(&self) -> bool {
+        true
+    }
+    fn parse_qualified(&self) -> bool {
+        false
+    }
+}
+
+/// Runs the declaration pipeline over one block of raw CSS text.
+fn collect_declarations(input: &mut Parser) -> Vec<Declaration> {
+    let mut collector = DeclarationCollector {
+        declarations: Vec::new(),
+    };
+    for _ in RuleBodyParser::new(input, &mut collector) {}
+    collector.declarations
 }
 
 /// Parses the body of a `@keyframes` block: `from`/`to`/percent frame
 /// selectors (comma lists share declarations), sorted by offset.
-fn parse_keyframes(name: &str, source: &str) -> Keyframes {
-    let mut frames: Vec<(f32, Vec<Declaration>)> = Vec::new();
-    let mut rest = source;
-    loop {
-        rest = rest.trim_start();
-        let Some(open) = rest.find('{') else { break };
-        let selector_source = rest[..open].trim();
-        let after_open = &rest[open + 1..];
-        let close = after_open.find('}').unwrap_or(after_open.len());
-        let declarations = parse_declarations(&after_open[..close]);
-        rest = &after_open[(close + 1).min(after_open.len())..];
-        for frame_selector in selector_source.split(',') {
-            let offset = match frame_selector.trim() {
-                "from" => Some(0.0),
-                "to" => Some(1.0),
-                other => other
-                    .strip_suffix('%')
-                    .and_then(|percent| percent.trim().parse::<f32>().ok())
-                    .map(|percent| percent / 100.0),
-            };
-            if let Some(offset) = offset {
-                frames.push((offset.clamp(0.0, 1.0), declarations.clone()));
+fn parse_keyframes(name: String, input: &mut Parser) -> Keyframes {
+    let mut parser = KeyframesParser { frames: Vec::new() };
+    for _ in RuleBodyParser::new(input, &mut parser) {}
+    parser.frames.sort_by(|a, b| a.0.total_cmp(&b.0));
+    Keyframes {
+        name,
+        frames: parser.frames,
+    }
+}
+
+struct KeyframesParser {
+    frames: Vec<(f32, Vec<Declaration>)>,
+}
+
+impl<'i> QualifiedRuleParser<'i> for KeyframesParser {
+    type Prelude = Vec<f32>;
+    type QualifiedRule = ();
+    type Error = ();
+
+    fn parse_prelude<'t>(
+        &mut self,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Vec<f32>, ParseError<'i, ()>> {
+        let start = input.position();
+        while input.next().is_ok() {}
+        let offsets: Vec<f32> = input
+            .slice_from(start)
+            .split(',')
+            .filter_map(|frame_selector| {
+                match frame_selector.trim() {
+                    "from" => Some(0.0),
+                    "to" => Some(1.0),
+                    other => other
+                        .strip_suffix('%')
+                        .and_then(|percent| percent.trim().parse::<f32>().ok())
+                        .map(|percent| percent / 100.0),
+                }
+                .map(|offset| offset.clamp(0.0, 1.0))
+            })
+            .collect();
+        if offsets.is_empty() {
+            return Err(input.new_error_for_next_token());
+        }
+        Ok(offsets)
+    }
+
+    fn parse_block<'t>(
+        &mut self,
+        offsets: Vec<f32>,
+        _start: &ParserState,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<(), ParseError<'i, ()>> {
+        let declarations = collect_declarations(input);
+        for offset in offsets {
+            self.frames.push((offset, declarations.clone()));
+        }
+        Ok(())
+    }
+}
+
+impl<'i> DeclarationParser<'i> for KeyframesParser {
+    type Declaration = ();
+    type Error = ();
+}
+
+impl<'i> AtRuleParser<'i> for KeyframesParser {
+    type Prelude = ();
+    type AtRule = ();
+    type Error = ();
+}
+
+impl<'i> RuleBodyItemParser<'i, (), ()> for KeyframesParser {
+    fn parse_declarations(&self) -> bool {
+        false
+    }
+    fn parse_qualified(&self) -> bool {
+        true
+    }
+}
+
+/// Collects raw `name: value` pairs (for `@font-face`, whose `src` list
+/// does not go through the component pipeline).
+struct RawDeclarationCollector {
+    declarations: Vec<(String, String)>,
+}
+
+impl<'i> DeclarationParser<'i> for RawDeclarationCollector {
+    type Declaration = ();
+    type Error = ();
+
+    fn parse_value<'t>(
+        &mut self,
+        name: CowRcStr<'i>,
+        input: &mut Parser<'i, 't>,
+        _declaration_start: &ParserState,
+    ) -> Result<(), ParseError<'i, ()>> {
+        let start = input.position();
+        while input.next().is_ok() {}
+        self.declarations.push((
+            name.to_ascii_lowercase(),
+            input.slice_from(start).trim().to_string(),
+        ));
+        Ok(())
+    }
+}
+
+impl<'i> AtRuleParser<'i> for RawDeclarationCollector {
+    type Prelude = ();
+    type AtRule = ();
+    type Error = ();
+}
+
+impl<'i> QualifiedRuleParser<'i> for RawDeclarationCollector {
+    type Prelude = ();
+    type QualifiedRule = ();
+    type Error = ();
+}
+
+impl<'i> RuleBodyItemParser<'i, (), ()> for RawDeclarationCollector {
+    fn parse_declarations(&self) -> bool {
+        true
+    }
+    fn parse_qualified(&self) -> bool {
+        false
+    }
+}
+
+/// Parses an `@font-face` block: the family name and its `src` list
+/// ("url(x) format('woff2'), url(y.ttf)").
+fn parse_font_face(input: &mut Parser) -> Option<FontFace> {
+    let mut collector = RawDeclarationCollector {
+        declarations: Vec::new(),
+    };
+    for _ in RuleBodyParser::new(input, &mut collector) {}
+    let mut family = None;
+    let mut sources: Vec<(String, Option<String>)> = Vec::new();
+    for (name, value) in &collector.declarations {
+        match name.as_str() {
+            "font-family" => {
+                let value = value
+                    .strip_prefix(['"', '\''])
+                    .and_then(|rest| rest.strip_suffix(['"', '\'']))
+                    .unwrap_or(value);
+                family = Some(value.to_string());
             }
+            "src" => {
+                for part in split_top_level_commas(value) {
+                    let Some(url_start) = part.find("url(") else {
+                        continue;
+                    };
+                    let after = &part[url_start + 4..];
+                    let Some(close) = after.find(')') else {
+                        continue;
+                    };
+                    let url = after[..close]
+                        .trim()
+                        .trim_matches(|character| character == '"' || character == '\'')
+                        .to_string();
+                    let format = part.find("format(").and_then(|at| {
+                        let inner = &part[at + 7..];
+                        let close = inner.find(')')?;
+                        Some(
+                            inner[..close]
+                                .trim()
+                                .trim_matches(|character: char| {
+                                    character == '"' || character == '\''
+                                })
+                                .to_ascii_lowercase(),
+                        )
+                    });
+                    sources.push((url, format));
+                }
+            }
+            _ => {}
         }
     }
-    frames.sort_by(|a, b| a.0.total_cmp(&b.0));
-    Keyframes {
-        name: name.to_string(),
-        frames,
+    Some(FontFace {
+        family: family?,
+        sources,
+    })
+}
+
+/// Splits at top-level commas only (parenthesized content stays together).
+fn split_top_level_commas(source: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+    for (index, character) in source.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(&source[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&source[start..]);
+    parts
+}
+
+/// Combines an inherited bound with a nested one.
+fn merge_bound(outer: Option<f32>, inner: Option<f32>, pick: fn(f32, f32) -> f32) -> Option<f32> {
+    match (outer, inner) {
+        (Some(a), Some(b)) => Some(pick(a, b)),
+        (bound, None) | (None, bound) => bound,
     }
 }
 
 /// Expands the `background` shorthand at raw level, layer by layer
 /// (top-level commas). Each layer contributes its image, repeat and
-/// position; the color may appear on any layer (CSS allows it only on
-/// the last). Unsupported parts (attachment, origin/clip keywords) are
+/// position; the color may appear on any layer (CSS allows it only on the
+/// last). Unsupported parts (attachment, origin/clip keywords) are
 /// ignored.
 fn expand_background_shorthand(source: &str, output: &mut Vec<Declaration>, important: bool) {
     let mut images: Vec<String> = Vec::new();
     let mut repeats: Vec<String> = Vec::new();
     let mut positions: Vec<String> = Vec::new();
     let mut color: Option<CssValue> = None;
-    let mut depth = 0usize;
-    let mut layers: Vec<&str> = Vec::new();
-    let mut layer_start = 0;
-    for (index, character) in source.char_indices() {
-        match character {
-            '(' => depth += 1,
-            ')' => depth = depth.saturating_sub(1),
-            ',' if depth == 0 => {
-                layers.push(&source[layer_start..index]);
-                layer_start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    layers.push(&source[layer_start..]);
+    let layers = split_top_level_commas(source);
 
     for layer in &layers {
         let mut image = String::from("none");
@@ -454,204 +803,86 @@ fn expand_font_shorthand(source: &str, output: &mut Vec<Declaration>, important:
     }
 }
 
-/// Splits a selector list at top-level commas only, so `:is(.a, .b)`
-/// stays one selector.
-fn split_selector_list(source: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut depth = 0usize;
-    let mut start = 0;
-    for (index, character) in source.char_indices() {
-        match character {
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth = depth.saturating_sub(1),
-            ',' if depth == 0 => {
-                parts.push(&source[start..index]);
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    parts.push(&source[start..]);
-    parts
-}
-
-/// Parses an `@font-face` block: the family name and its `src` list
-/// ("url(x) format('woff2'), url(y.ttf)").
-fn parse_font_face(source: &str) -> Option<FontFace> {
-    let mut family = None;
-    let mut sources: Vec<(String, Option<String>)> = Vec::new();
-    for declaration in source.split(';') {
-        let Some((name, value)) = declaration.split_once(':') else {
-            continue;
-        };
-        match name.trim().to_ascii_lowercase().as_str() {
-            "font-family" => {
-                let value = value.trim();
-                let value = value
-                    .strip_prefix(['"', '\''])
-                    .and_then(|rest| rest.strip_suffix(['"', '\'']))
-                    .unwrap_or(value);
-                family = Some(value.to_string());
-            }
-            "src" => {
-                let mut depth = 0usize;
-                let mut start = 0;
-                let mut parts: Vec<&str> = Vec::new();
-                for (index, character) in value.char_indices() {
-                    match character {
-                        '(' => depth += 1,
-                        ')' => depth = depth.saturating_sub(1),
-                        ',' if depth == 0 => {
-                            parts.push(&value[start..index]);
-                            start = index + 1;
-                        }
-                        _ => {}
-                    }
-                }
-                parts.push(&value[start..]);
-                for part in parts {
-                    let Some(url_start) = part.find("url(") else {
-                        continue;
-                    };
-                    let after = &part[url_start + 4..];
-                    let Some(close) = after.find(')') else {
-                        continue;
-                    };
-                    let url = after[..close]
-                        .trim()
-                        .trim_matches(|character| character == '"' || character == '\'')
-                        .to_string();
-                    let format = part.find("format(").and_then(|at| {
-                        let inner = &part[at + 7..];
-                        let close = inner.find(')')?;
-                        Some(
-                            inner[..close]
-                                .trim()
-                                .trim_matches(|character: char| {
-                                    character == '"' || character == '\''
-                                })
-                                .to_ascii_lowercase(),
-                        )
-                    });
-                    sources.push((url, format));
-                }
-            }
-            _ => {}
-        }
-    }
-    Some(FontFace {
-        family: family?,
-        sources,
-    })
-}
-
-/// Combines an inherited bound with a nested one.
-fn merge_bound(outer: Option<f32>, inner: Option<f32>, pick: fn(f32, f32) -> f32) -> Option<f32> {
-    match (outer, inner) {
-        (Some(a), Some(b)) => Some(pick(a, b)),
-        (bound, None) | (None, bound) => bound,
-    }
-}
-
-/// Length of the balanced `{...}` block starting at `source[0] == '{'`
-/// (including both braces); runs to end of input on recovery.
-fn balanced_block_len(source: &str) -> usize {
-    let mut depth = 0usize;
-    for (index, character) in source.char_indices() {
-        match character {
-            '{' => depth += 1,
-            '}' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return index + 1;
-                }
-            }
-            _ => {}
-        }
-    }
-    source.len()
-}
-
 /// Parses a `;`-separated declaration list (also used for inline `style=`
 /// attributes). Malformed entries are skipped; shorthands are expanded.
 #[must_use]
 pub fn parse_declarations(source: &str) -> Vec<Declaration> {
-    let source = strip_comments(source);
-    let mut declarations = Vec::new();
-    for raw in source.split(';') {
-        let Some((name, value)) = raw.split_once(':') else {
-            continue; // Tolerates empty segments and extra semicolons.
-        };
-        let name = name.trim().to_ascii_lowercase();
-        if name.is_empty() {
-            continue;
-        }
-        // `!important` peels off the end of the value (case-insensitive,
-        // whitespace tolerated).
-        let trimmed = value.trim_end();
-        let (value, important) = match trimmed
-            .to_ascii_lowercase()
-            .strip_suffix("important")
-            .map(|rest| rest.trim_end())
-            .and_then(|rest| rest.strip_suffix('!').map(str::len))
-        {
-            Some(prefix_length) => (&trimmed[..prefix_length], true),
-            None => (value, false),
-        };
-        // The font shorthand needs raw handling: "14px/1.4" does not parse
-        // as one component.
-        if name == "font" {
-            expand_font_shorthand(value, &mut declarations, important);
-            continue;
-        }
-        // aspect-ratio and box-shadow keep their raw text ("16 / 9" and
-        // shadow commas would not survive component parsing).
-        if name == "background" {
-            expand_background_shorthand(value, &mut declarations, important);
-            continue;
-        }
-        if crate::properties::keeps_raw(&name) {
-            declarations.push(Declaration {
-                name,
-                value: CssValue::Keyword(value.trim().to_string()),
-                important,
-            });
-            continue;
-        }
-        // Custom properties keep their raw text (substituted into var()
-        // uses later); values using var() defer parsing entirely.
-        if name.starts_with("--") {
-            declarations.push(Declaration {
-                name,
-                value: CssValue::String(value.trim().to_string()),
-                important,
-            });
-            continue;
-        }
-        if value.contains("var(") {
-            declarations.push(Declaration {
-                name,
-                value: CssValue::Unresolved(value.trim().to_string()),
-                important,
-            });
-            continue;
-        }
-        let components: Vec<CssValue> = split_components(value)
-            .iter()
-            .filter_map(|component| CssValue::parse_component(component))
-            .collect();
-        if components.is_empty() {
-            continue;
-        }
-        let start = declarations.len();
-        expand_declaration(&name, components, &mut declarations);
-        if important {
-            for declaration in &mut declarations[start..] {
-                declaration.important = true;
-            }
+    let mut input = ParserInput::new(source);
+    let mut input = Parser::new(&mut input);
+    collect_declarations(&mut input)
+}
+
+/// Runs one declaration through the value pipeline: `!important` peeling,
+/// shorthand expansion, raw-kept and `var()`-carrying properties, then
+/// component parsing with longhand expansion.
+fn push_declaration(name: &str, value: &str, declarations: &mut Vec<Declaration>) {
+    if name.is_empty() {
+        return;
+    }
+    // `!important` peels off the end of the value (case-insensitive,
+    // whitespace tolerated).
+    let trimmed = value.trim_end();
+    let (value, important) = match trimmed
+        .to_ascii_lowercase()
+        .strip_suffix("important")
+        .map(|rest| rest.trim_end())
+        .and_then(|rest| rest.strip_suffix('!').map(str::len))
+    {
+        Some(prefix_length) => (&trimmed[..prefix_length], true),
+        None => (value, false),
+    };
+    // The font shorthand needs raw handling: "14px/1.4" does not parse
+    // as one component.
+    if name == "font" {
+        expand_font_shorthand(value, declarations, important);
+        return;
+    }
+    // aspect-ratio and box-shadow keep their raw text ("16 / 9" and
+    // shadow commas would not survive component parsing).
+    if name == "background" {
+        expand_background_shorthand(value, declarations, important);
+        return;
+    }
+    if crate::properties::keeps_raw(name) {
+        declarations.push(Declaration {
+            name: name.to_string(),
+            value: CssValue::Keyword(value.trim().to_string()),
+            important,
+        });
+        return;
+    }
+    // Custom properties keep their raw text (substituted into var()
+    // uses later); values using var() defer parsing entirely.
+    if name.starts_with("--") {
+        declarations.push(Declaration {
+            name: name.to_string(),
+            value: CssValue::String(value.trim().to_string()),
+            important,
+        });
+        return;
+    }
+    if value.contains("var(") {
+        declarations.push(Declaration {
+            name: name.to_string(),
+            value: CssValue::Unresolved(value.trim().to_string()),
+            important,
+        });
+        return;
+    }
+    let components: Vec<CssValue> = split_components(value)
+        .iter()
+        .filter_map(|component| CssValue::parse_component(component))
+        .collect();
+    if components.is_empty() {
+        return;
+    }
+    let start = declarations.len();
+    expand_declaration(name, components, declarations);
+    if important {
+        for declaration in &mut declarations[start..] {
+            declaration.important = true;
         }
     }
-    declarations
 }
 
 /// Expands `margin`/`padding`/`border-width` shorthands into longhands and
@@ -858,42 +1089,6 @@ fn edge_values(components: &[CssValue]) -> Option<[CssValue; 4]> {
         4 => Some([get(0), get(1), get(2), get(3)]),
         _ => None,
     }
-}
-
-/// Skips one at-rule: either a statement ending in `;` (`@import ...;`) or
-/// a block with balanced braces (`@media ... { ... }`). Returns the rest.
-fn skip_at_rule(source: &str) -> &str {
-    let mut depth = 0usize;
-    for (index, character) in source.char_indices() {
-        match character {
-            ';' if depth == 0 => return &source[index + 1..],
-            '{' => depth += 1,
-            '}' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return &source[index + 1..];
-                }
-            }
-            _ => {}
-        }
-    }
-    ""
-}
-
-fn strip_comments(source: &str) -> String {
-    let mut output = String::new();
-    let mut rest = source;
-    while let Some(start) = rest.find("/*") {
-        output.push_str(&rest[..start]);
-        let after_start = &rest[start + 2..];
-        if let Some(end) = after_start.find("*/") {
-            rest = &after_start[end + 2..];
-        } else {
-            return output;
-        }
-    }
-    output.push_str(rest);
-    output
 }
 
 #[cfg(test)]
@@ -1171,6 +1366,33 @@ mod tests {
     }
 
     #[test]
+    fn media_range_syntax_maps_inclusive_bounds() {
+        // Media Queries 4 range syntax: inclusive forms map onto the model.
+        let sheet = parse_stylesheet(
+            "@media (400px <= width <= 900px) { p { color: red; } }
+             @media (width >= 600px) { div { color: blue; } }",
+        );
+        assert_eq!(sheet.rules.len(), 2);
+        let interval = sheet.rules[0].media.unwrap();
+        assert_eq!(interval.min_width, Some(400.0));
+        assert_eq!(interval.max_width, Some(900.0));
+        let range = sheet.rules[1].media.unwrap();
+        assert_eq!(range.min_width, Some(600.0));
+        assert_eq!(range.max_width, None);
+    }
+
+    #[test]
+    fn media_strict_range_is_unsupported_and_skipped() {
+        // Strict bounds cannot be represented by the inclusive model; the
+        // block is dropped rather than approximated.
+        let sheet = parse_stylesheet(
+            "@media (400px < width) { p { color: red; } } h1 { color: blue; }",
+        );
+        assert_eq!(sheet.rules.len(), 1);
+        assert!(sheet.rules[0].media.is_none());
+    }
+
+    #[test]
     fn for_width_shares_instead_of_cloning() {
         // No media queries: every rule applies, so the filtered sheet is
         // the same storage, not a deep clone.
@@ -1285,6 +1507,70 @@ mod tests {
         assert_eq!(
             layered[1].value,
             CssValue::String("no-repeat, repeat".to_string())
+        );
+    }
+
+    #[test]
+    fn data_uri_semicolon_does_not_split_declaration() {
+        // Regression: the declaration splitter used to break on the `;`
+        // inside an unquoted data URI, losing the URL and corrupting the
+        // declarations that followed.
+        let declarations = parse_declarations(
+            "background: url(data:image/png;base64,iVBORw0KGgo=) ; color: red",
+        );
+        let image = declarations
+            .iter()
+            .find(|declaration| declaration.name == "background-image")
+            .expect("background-image survives");
+        assert_eq!(
+            image.value,
+            CssValue::String("url(data:image/png;base64,iVBORw0KGgo=)".to_string())
+        );
+        let color = declarations
+            .iter()
+            .find(|declaration| declaration.name == "color")
+            .expect("color survives");
+        assert_eq!(color.value, CssValue::Color(Color::rgb(255, 0, 0)));
+    }
+
+    #[test]
+    fn quoted_brace_does_not_close_rule_early() {
+        // Regression: a `}` inside a string used to close the rule block,
+        // dropping the declarations after it.
+        let sheet = parse_stylesheet("p::before { content: \"}\"; color: red; }");
+        assert_eq!(sheet.rules.len(), 1);
+        let declarations = &sheet.rules[0].declarations;
+        assert_eq!(
+            declarations[0].value,
+            CssValue::String("}".to_string())
+        );
+        assert_eq!(declarations[1].name, "color");
+        assert_eq!(declarations[1].value, CssValue::Color(Color::rgb(255, 0, 0)));
+    }
+
+    #[test]
+    fn comment_opener_inside_string_is_not_a_comment() {
+        // Regression: comment stripping was not string-aware, so
+        // `content: "/*"` swallowed the rest of the stylesheet.
+        let sheet = parse_stylesheet("p { content: \"/*\"; color: red; } div { color: blue; }");
+        assert_eq!(sheet.rules.len(), 2);
+        assert_eq!(
+            sheet.rules[0].declarations[0].value,
+            CssValue::String("/*".to_string())
+        );
+        assert_eq!(sheet.rules[0].declarations[1].name, "color");
+    }
+
+    #[test]
+    fn modern_rgb_forms_parse_as_colors() {
+        // Space-separated channels and slash alpha are valid CSS Color 4.
+        assert_eq!(
+            Color::parse("rgb(255 0 0 / 50%)"),
+            Some(Color::rgba(255, 0, 0, 128))
+        );
+        assert_eq!(
+            Color::parse("rgb(100% 0% 0%)"),
+            Some(Color::rgb(255, 0, 0))
         );
     }
 
