@@ -10,13 +10,47 @@
 //! - comments and doctype tokens are dropped (not represented in the DOM).
 
 use crate::dom::{AttributeMap, Document, ElementData, NodeId, NodeKind};
-use crate::tokenizer::{HtmlToken, tokenize};
+use crate::tokenizer::{HtmlToken, Tokenizer};
 
 /// Elements that never have children and are closed immediately.
-const VOID_ELEMENTS: [&str; 13] = [
-    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track",
-    "wbr",
+const VOID_ELEMENTS: [&str; 14] = [
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr",
 ];
+
+/// Block-level start tags that implicitly close an open `<p>`.
+const P_CLOSERS: [&str; 18] = [
+    "p",
+    "div",
+    "ul",
+    "ol",
+    "li",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "table",
+    "pre",
+    "blockquote",
+];
+
+/// Open elements an incoming start tag closes implicitly (a minimal
+/// subset of the HTML "implied end tag" rules).
+fn implied_closers(name: &str) -> &'static [&'static str] {
+    match name {
+        "li" => &["li"],
+        "dt" | "dd" => &["dt", "dd"],
+        "option" => &["option"],
+        _ if P_CLOSERS.contains(&name) => &["p"],
+        _ => &[],
+    }
+}
 
 /// Parses HTML source into a DOM tree.
 ///
@@ -29,13 +63,29 @@ pub fn parse_document(source: &str) -> Document {
     // end tags only match Element nodes and the root is a Document node.
     let mut stack: Vec<NodeId> = vec![document.root()];
 
-    for token in tokenize(source) {
+    // Streaming: tokens are consumed as produced, so the token list never
+    // materializes in memory (peak stays proportional to the DOM, not the
+    // source size).
+    for token in Tokenizer::new(source) {
         match token {
             HtmlToken::StartTag {
                 name,
                 attributes,
                 self_closing,
             } => {
+                // Close open elements the new start tag implies an end for
+                // (`<li>` before `<li>`, a block before `<p>`, ...).
+                let closers = implied_closers(&name);
+                while let Some(&top) = stack.last() {
+                    let implied = match &document.node(top).kind {
+                        NodeKind::Element(element) => closers.contains(&element.tag_name.as_str()),
+                        _ => false,
+                    };
+                    if !implied {
+                        break;
+                    }
+                    stack.pop();
+                }
                 let parent = stack[stack.len() - 1];
                 let attributes: AttributeMap = attributes
                     .into_iter()
@@ -167,5 +217,81 @@ mod tests {
         let document = parse_document("<style>p > a { color: red; }</style>");
         let style = document.children(document.root())[0];
         assert_eq!(document.text_content(style), "p > a { color: red; }");
+    }
+
+    #[test]
+    fn param_is_a_void_element() {
+        let document = parse_document("<object><param name='a'>fallback</object>");
+        let object = document.children(document.root())[0];
+        let param = document.children(object)[0];
+        assert!(document.children(param).is_empty());
+        assert_eq!(document.text_content(object), "fallback");
+    }
+
+    #[test]
+    fn new_li_closes_an_open_li() {
+        let document = parse_document("<ul><li>a<li>b<li>c</ul>");
+        let ul = document.children(document.root())[0];
+        assert_eq!(document.children(ul).len(), 3);
+        assert_eq!(document.text_content(ul), "abc");
+    }
+
+    #[test]
+    fn block_start_tag_closes_an_open_p() {
+        let document = parse_document("<p>one<div>two</div><p>three<p>four");
+        let root_children = document.children(document.root());
+        // The <div> and every later <p> are siblings, not nested in <p>.
+        assert_eq!(tags_in_order(&document), vec!["p", "div", "p", "p"]);
+        assert_eq!(root_children.len(), 4);
+        assert_eq!(document.text_content(root_children[2]), "three");
+        assert_eq!(document.text_content(root_children[3]), "four");
+    }
+
+    #[test]
+    fn new_option_closes_an_open_option() {
+        let document = parse_document("<select><option>a<option>b</select>");
+        let select = document.children(document.root())[0];
+        assert_eq!(document.children(select).len(), 2);
+        assert_eq!(document.text_content(select), "ab");
+    }
+
+    #[test]
+    fn dt_and_dd_close_each_other() {
+        let document = parse_document("<dl><dt>t1<dd>d1<dt>t2<dd>d2</dl>");
+        let dl = document.children(document.root())[0];
+        assert_eq!(document.children(dl).len(), 4);
+        assert_eq!(tags_in_order(&document), vec!["dl", "dt", "dd", "dt", "dd"]);
+    }
+
+    #[test]
+    fn parses_multi_megabyte_document() {
+        // A few MB of repetitive markup (elements, attributes, entity
+        // references, void elements) plus a large raw-text script body:
+        // parsing must stay correct at scale with the streaming tokenizer.
+        let row = "<div class=\"row\" data-index=\"1\"><span>metin &amp; devam</span><br></div>";
+        const ROWS: usize = 40_000;
+        let script_body = "x < y && y > z;\n".repeat(10_000);
+        let mut html = String::with_capacity(row.len() * ROWS + script_body.len() + 64);
+        html.push_str("<section>");
+        for _ in 0..ROWS {
+            html.push_str(row);
+        }
+        html.push_str("<script>");
+        html.push_str(&script_body);
+        html.push_str("</script></section>");
+        assert!(html.len() > 2_000_000, "fixture should be multi-MB");
+
+        let document = parse_document(&html);
+        let section = document.children(document.root())[0];
+        assert_eq!(document.children(section).len(), ROWS + 1);
+        let script = *document.children(section).last().unwrap();
+        assert_eq!(
+            document.element(script).unwrap().tag_name,
+            "script",
+            "raw-text element should survive among the rows"
+        );
+        assert_eq!(document.text_content(script), script_body);
+        let first_row = document.children(section)[0];
+        assert_eq!(document.text_content(first_row), "metin & devam");
     }
 }

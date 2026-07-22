@@ -3,7 +3,6 @@
 //! Nodes live in a `Vec` inside [`Document`] and reference each other through
 //! [`NodeId`] indices (see ADR 0001). The document root is always node `0`.
 
-use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 /// Index of a node inside a [`Document`] arena.
@@ -18,12 +17,15 @@ pub enum NodeKind {
     Text(String),
 }
 
-/// Element attributes with order-independent lookup.
+/// Element attributes in source (insertion) order.
 ///
-/// Duplicate attribute names keep the first value, matching browser behavior.
+/// Duplicate attribute names keep the first value, matching browser
+/// behavior. Elements carry only a handful of attributes, so a flat
+/// vector with linear lookup beats a map on both memory and speed while
+/// keeping the original order for serialization.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AttributeMap {
-    entries: BTreeMap<String, String>,
+    entries: Vec<(String, String)>,
 }
 
 impl AttributeMap {
@@ -34,24 +36,35 @@ impl AttributeMap {
 
     /// Inserts an attribute unless one with the same name already exists.
     pub fn insert(&mut self, name: String, value: String) {
-        self.entries.entry(name).or_insert(value);
+        if !self.entries.iter().any(|(existing, _)| *existing == name) {
+            self.entries.push((name, value));
+        }
     }
 
-    /// Sets (or overwrites) an attribute.
+    /// Sets (or overwrites) an attribute, keeping its original position.
     pub fn set(&mut self, name: &str, value: &str) {
-        self.entries.insert(name.to_string(), value.to_string());
+        if let Some(entry) = self.entries.iter_mut().find(|(n, _)| n == name) {
+            entry.1.clear();
+            entry.1.push_str(value);
+        } else {
+            self.entries.push((name.to_string(), value.to_string()));
+        }
     }
 
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&str> {
-        self.entries.get(name).map(String::as_str)
+        self.entries
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, value)| value.as_str())
     }
 
     #[must_use]
     pub fn contains(&self, name: &str) -> bool {
-        self.entries.contains_key(name)
+        self.entries.iter().any(|(n, _)| n == name)
     }
 
+    /// Iterates attributes in insertion (source) order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
         self.entries
             .iter()
@@ -313,22 +326,39 @@ impl Document {
         output
     }
 
+    // Iterative (explicit stack) so deeply nested DOMs cannot overflow
+    // the call stack; children are pushed in reverse to keep order.
     fn serialize_node(&self, node: NodeId, output: &mut String) {
-        match &self.node(node).kind {
-            NodeKind::Document => {}
-            NodeKind::Text(text) => {
-                output.push_str(&text.replace('&', "&amp;").replace('<', "&lt;"));
-            }
-            NodeKind::Element(element) => {
-                let _ = write!(output, "<{}", element.tag_name);
-                for (name, value) in element.attributes.iter() {
-                    let _ = write!(output, " {name}=\"{}\"", value.replace('"', "&quot;"));
+        enum Frame {
+            Enter(NodeId),
+            Exit(NodeId),
+        }
+        let mut stack = vec![Frame::Enter(node)];
+        while let Some(frame) = stack.pop() {
+            match frame {
+                Frame::Exit(node) => {
+                    if let NodeKind::Element(element) = &self.node(node).kind {
+                        let _ = write!(output, "</{}>", element.tag_name);
+                    }
                 }
-                output.push('>');
-                for child in self.children(node) {
-                    self.serialize_node(*child, output);
-                }
-                let _ = write!(output, "</{}>", element.tag_name);
+                Frame::Enter(node) => match &self.node(node).kind {
+                    NodeKind::Document => {}
+                    NodeKind::Text(text) => {
+                        output.push_str(&text.replace('&', "&amp;").replace('<', "&lt;"));
+                    }
+                    NodeKind::Element(element) => {
+                        let _ = write!(output, "<{}", element.tag_name);
+                        for (name, value) in element.attributes.iter() {
+                            let escaped = value.replace('&', "&amp;").replace('"', "&quot;");
+                            let _ = write!(output, " {name}=\"{escaped}\"");
+                        }
+                        output.push('>');
+                        stack.push(Frame::Exit(node));
+                        for child in self.children(node).iter().rev() {
+                            stack.push(Frame::Enter(*child));
+                        }
+                    }
+                },
             }
         }
     }
@@ -388,12 +418,11 @@ impl Document {
     }
 
     fn collect_text(&self, id: NodeId, output: &mut String) {
-        match &self.node(id).kind {
-            NodeKind::Text(text) => output.push_str(text),
-            _ => {
-                for child in &self.node(id).children {
-                    self.collect_text(*child, output);
-                }
+        let mut stack = vec![id];
+        while let Some(node) = stack.pop() {
+            match &self.node(node).kind {
+                NodeKind::Text(text) => output.push_str(text),
+                _ => stack.extend(self.node(node).children.iter().rev()),
             }
         }
     }
@@ -407,28 +436,31 @@ impl Document {
     }
 
     fn dump_node(&self, id: NodeId, depth: usize, output: &mut String) {
-        let indent = "  ".repeat(depth);
-        match &self.node(id).kind {
-            NodeKind::Document => {
-                let _ = writeln!(output, "{indent}#document");
-            }
-            NodeKind::Text(text) => {
-                let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
-                if !normalized.is_empty() {
-                    let _ = writeln!(output, "{indent}\"{normalized}\"");
+        let mut stack = vec![(id, depth)];
+        while let Some((id, depth)) = stack.pop() {
+            let indent = "  ".repeat(depth);
+            match &self.node(id).kind {
+                NodeKind::Document => {
+                    let _ = writeln!(output, "{indent}#document");
+                }
+                NodeKind::Text(text) => {
+                    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                    if !normalized.is_empty() {
+                        let _ = writeln!(output, "{indent}\"{normalized}\"");
+                    }
+                }
+                NodeKind::Element(element) => {
+                    let mut attributes = String::new();
+                    for (name, value) in element.attributes.iter() {
+                        let _ = write!(attributes, " {name}=\"{value}\"");
+                    }
+                    let _ = writeln!(output, "{indent}<{}{}>", element.tag_name, attributes);
                 }
             }
-            NodeKind::Element(element) => {
-                let mut attributes = String::new();
-                for (name, value) in element.attributes.iter() {
-                    let _ = write!(attributes, " {name}=\"{value}\"");
-                }
-                let _ = writeln!(output, "{indent}<{}{}>", element.tag_name, attributes);
-            }
-        }
 
-        for child in &self.node(id).children {
-            self.dump_node(*child, depth + 1, output);
+            for child in self.node(id).children.iter().rev() {
+                stack.push((*child, depth + 1));
+            }
         }
     }
 }
@@ -518,6 +550,35 @@ mod tests {
     }
 
     #[test]
+    fn attributes_keep_source_order() {
+        let document = crate::parse_document("<div z='1' id='x' class='c'>");
+        let div = document.children(document.root())[0];
+        let names: Vec<&str> = document
+            .element(div)
+            .unwrap()
+            .attributes
+            .iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(names, vec!["z", "id", "class"]);
+        // inner_html serializes in that same order.
+        assert_eq!(
+            document.inner_html(document.root()),
+            "<div z=\"1\" id=\"x\" class=\"c\"></div>"
+        );
+    }
+
+    #[test]
+    fn set_overwrites_in_place_keeping_position() {
+        let mut attributes = AttributeMap::new();
+        attributes.insert("b".to_string(), "1".to_string());
+        attributes.insert("a".to_string(), "2".to_string());
+        attributes.set("b", "3");
+        let entries: Vec<(&str, &str)> = attributes.iter().collect();
+        assert_eq!(entries, vec![("b", "3"), ("a", "2")]);
+    }
+
+    #[test]
     fn descendants_traverse_in_preorder() {
         let mut document = Document::new();
         let a = document.append(document.root(), element("a", &[]));
@@ -563,5 +624,35 @@ mod inner_html_tests {
         // Old children are detached, and nested fragments nest.
         document.set_inner_html(list, "<li><b>kalın</b></li>");
         assert_eq!(document.text_content(list), "kalın");
+    }
+
+    #[test]
+    fn inner_html_escapes_ampersand_and_quote_in_attributes() {
+        let mut document = crate::parse_document("<p id='x'>hi</p>");
+        let paragraph = document.get_element_by_id("x").unwrap();
+        document.set_attribute(paragraph, "title", "a & b \"c\"");
+        assert_eq!(
+            document.inner_html(document.root()),
+            "<p id=\"x\" title=\"a &amp; b &quot;c&quot;\">hi</p>"
+        );
+        // Round-trip: parsing the serialized form restores the value.
+        let reparsed = crate::parse_document(&document.inner_html(document.root()));
+        let paragraph = reparsed.get_element_by_id("x").unwrap();
+        assert_eq!(
+            reparsed.element(paragraph).unwrap().attributes.get("title"),
+            Some("a & b \"c\"")
+        );
+    }
+
+    #[test]
+    fn deeply_nested_tree_does_not_overflow_the_stack() {
+        // serialize/text_content/dump were recursive; a deep chain must work.
+        let html = format!("{}dip", "<div>".repeat(10_000));
+        let document = crate::parse_document(&html);
+        assert!(document.text_content(document.root()).ends_with("dip"));
+        let serialized = document.inner_html(document.root());
+        assert_eq!(serialized.matches("<div>").count(), 10_000);
+        assert_eq!(serialized.matches("</div>").count(), 10_000);
+        assert!(document.dump().ends_with("dip\"\n"));
     }
 }

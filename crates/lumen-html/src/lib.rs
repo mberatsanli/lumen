@@ -1,8 +1,9 @@
 //! HTML parsing for the Lumen browser engine.
 //!
-//! Pipeline: [`tokenize`] produces a flat token stream, [`parse_document`]
-//! builds an arena-based [`Document`] from it. Both are lenient: malformed
-//! input is recovered from rather than rejected, so parsing never fails.
+//! Pipeline: [`tokenize`] turns source text into [`HtmlToken`]s (also
+//! available as a streaming iterator), [`parse_document`] builds an
+//! arena-based [`Document`] from them. Both are lenient: malformed input is
+//! recovered from rather than rejected, so parsing never fails.
 
 pub mod dom;
 pub mod parser;

@@ -10,6 +10,12 @@
 //! self-closing syntax, comments, doctype, basic character references and
 //! raw-text elements (`script`, `style`, `title`, `textarea`) whose content
 //! is not scanned for markup.
+//!
+//! The tokenizer works directly on the source bytes (no `Vec<char>` copy)
+//! and yields tokens one at a time through [`Iterator`], so peak memory
+//! stays proportional to the largest token instead of the whole input.
+
+use std::collections::VecDeque;
 
 /// A single `name="value"` pair as written in the source.
 ///
@@ -71,16 +77,28 @@ const RAWTEXT_ELEMENTS: [&str; 4] = ["script", "style", "textarea", "title"];
 /// Tokenizes `source` into a flat list of [`HtmlToken`]s.
 ///
 /// Never fails; see the module documentation for the recovery strategy.
+/// Prefer consuming [`Tokenizer`] as an iterator when the full list is not
+/// needed (the tree builder does) to keep peak memory down.
 #[must_use]
 pub fn tokenize(source: &str) -> Vec<HtmlToken> {
-    Tokenizer::new(source).run()
+    Tokenizer::new(source).collect()
 }
 
-struct Tokenizer {
-    chars: Vec<char>,
+/// Streaming tokenizer over `source`: an [`Iterator`] of [`HtmlToken`].
+///
+/// Positions are byte offsets into the source, always on char boundaries;
+/// every construct the scanner looks for (`<`, `>`, `-->`, ...) is ASCII,
+/// so byte comparisons never split a multi-byte character.
+pub(crate) struct Tokenizer<'a> {
+    source: &'a str,
+    /// Byte offset of the next unconsumed character.
     position: usize,
     state: State,
-    tokens: Vec<HtmlToken>,
+    /// Tokens produced but not yet pulled by the consumer (a step can
+    /// produce a text flush plus a tag at once).
+    pending: VecDeque<HtmlToken>,
+    /// Set once end-of-input handling has run.
+    finished: bool,
     text: String,
     tag_name: String,
     tag_is_end: bool,
@@ -91,15 +109,19 @@ struct Tokenizer {
     comment: String,
     doctype: String,
     rawtext_tag: String,
+    /// `"</{rawtext_tag}"`, computed once when entering the Rawtext state
+    /// instead of once per raw-text character.
+    rawtext_close: String,
 }
 
-impl Tokenizer {
-    fn new(source: &str) -> Self {
+impl<'a> Tokenizer<'a> {
+    pub(crate) fn new(source: &'a str) -> Self {
         Self {
-            chars: source.chars().collect(),
+            source,
             position: 0,
             state: State::Data,
-            tokens: Vec::new(),
+            pending: VecDeque::new(),
+            finished: false,
             text: String::new(),
             tag_name: String::new(),
             tag_is_end: false,
@@ -110,35 +132,18 @@ impl Tokenizer {
             comment: String::new(),
             doctype: String::new(),
             rawtext_tag: String::new(),
+            rawtext_close: String::new(),
         }
     }
 
-    fn run(mut self) -> Vec<HtmlToken> {
-        while let Some(current) = self.chars.get(self.position).copied() {
-            match self.state {
-                State::Data => self.step_data(current),
-                State::TagOpen => self.step_tag_open(current),
-                State::EndTagOpen => self.step_end_tag_open(current),
-                State::TagName => self.step_tag_name(current),
-                State::BeforeAttributeName => self.step_before_attribute_name(current),
-                State::AttributeName => self.step_attribute_name(current),
-                State::AfterAttributeName => self.step_after_attribute_name(current),
-                State::BeforeAttributeValue => self.step_before_attribute_value(current),
-                State::AttributeValueDoubleQuoted => self.step_attribute_value_quoted(current, '"'),
-                State::AttributeValueSingleQuoted => {
-                    self.step_attribute_value_quoted(current, '\'');
-                }
-                State::AttributeValueUnquoted => self.step_attribute_value_unquoted(current),
-                State::SelfClosingStartTag => self.step_self_closing_start_tag(current),
-                State::MarkupDeclarationOpen => self.step_markup_declaration_open(),
-                State::Comment => self.step_comment(current),
-                State::Doctype => self.step_doctype(current),
-                State::BogusComment => self.step_bogus_comment(current),
-                State::Rawtext => self.step_rawtext(),
-            }
-        }
-        self.finish();
-        self.tokens
+    /// The character at the current position, if any.
+    fn current_char(&self) -> Option<char> {
+        self.source[self.position..].chars().next()
+    }
+
+    /// Consumes the given (current) character.
+    fn advance(&mut self, current: char) {
+        self.position += current.len_utf8();
     }
 
     // --- state steps -------------------------------------------------------
@@ -155,7 +160,7 @@ impl Tokenizer {
             }
             _ => {
                 self.text.push(current);
-                self.position += 1;
+                self.advance(current);
             }
         }
     }
@@ -200,7 +205,7 @@ impl Tokenizer {
     }
 
     fn step_tag_name(&mut self, current: char) {
-        self.position += 1;
+        self.advance(current);
         match current {
             character if character.is_ascii_whitespace() => {
                 self.state = State::BeforeAttributeName;
@@ -213,7 +218,7 @@ impl Tokenizer {
 
     fn step_before_attribute_name(&mut self, current: char) {
         match current {
-            character if character.is_ascii_whitespace() => self.position += 1,
+            character if character.is_ascii_whitespace() => self.advance(current),
             '/' => {
                 self.position += 1;
                 self.state = State::SelfClosingStartTag;
@@ -233,7 +238,7 @@ impl Tokenizer {
     fn step_attribute_name(&mut self, current: char) {
         match current {
             character if character.is_ascii_whitespace() => {
-                self.position += 1;
+                self.advance(current);
                 self.state = State::AfterAttributeName;
             }
             '=' => {
@@ -246,14 +251,14 @@ impl Tokenizer {
             }
             _ => {
                 self.attribute_name.extend(current.to_lowercase());
-                self.position += 1;
+                self.advance(current);
             }
         }
     }
 
     fn step_after_attribute_name(&mut self, current: char) {
         match current {
-            character if character.is_ascii_whitespace() => self.position += 1,
+            character if character.is_ascii_whitespace() => self.advance(current),
             '=' => {
                 self.position += 1;
                 self.state = State::BeforeAttributeValue;
@@ -272,7 +277,7 @@ impl Tokenizer {
 
     fn step_before_attribute_value(&mut self, current: char) {
         match current {
-            character if character.is_ascii_whitespace() => self.position += 1,
+            character if character.is_ascii_whitespace() => self.advance(current),
             '"' => {
                 self.position += 1;
                 self.state = State::AttributeValueDoubleQuoted;
@@ -301,14 +306,14 @@ impl Tokenizer {
             self.attribute_value.push_str(&decoded);
         } else {
             self.attribute_value.push(current);
-            self.position += 1;
+            self.advance(current);
         }
     }
 
     fn step_attribute_value_unquoted(&mut self, current: char) {
         match current {
             character if character.is_ascii_whitespace() => {
-                self.position += 1;
+                self.advance(current);
                 self.commit_attribute();
                 self.state = State::BeforeAttributeName;
             }
@@ -323,7 +328,7 @@ impl Tokenizer {
             }
             _ => {
                 self.attribute_value.push(current);
-                self.position += 1;
+                self.advance(current);
             }
         }
     }
@@ -358,24 +363,24 @@ impl Tokenizer {
         }
     }
 
-    fn step_comment(&mut self, _current: char) {
+    fn step_comment(&mut self, current: char) {
         if self.lookahead_matches("-->") {
             self.position += 3;
             let comment = std::mem::take(&mut self.comment);
-            self.tokens.push(HtmlToken::Comment(comment));
+            self.pending.push_back(HtmlToken::Comment(comment));
             self.state = State::Data;
         } else {
-            self.comment.push(self.chars[self.position]);
-            self.position += 1;
+            self.comment.push(current);
+            self.advance(current);
         }
     }
 
     fn step_doctype(&mut self, current: char) {
-        self.position += 1;
+        self.advance(current);
         if current == '>' {
             let doctype = std::mem::take(&mut self.doctype);
-            self.tokens
-                .push(HtmlToken::Doctype(doctype.trim().to_string()));
+            self.pending
+                .push_back(HtmlToken::Doctype(doctype.trim().to_string()));
             self.state = State::Data;
         } else {
             self.doctype.push(current);
@@ -383,37 +388,32 @@ impl Tokenizer {
     }
 
     fn step_bogus_comment(&mut self, current: char) {
-        self.position += 1;
+        self.advance(current);
         if current == '>' {
             self.state = State::Data;
         }
     }
 
-    fn step_rawtext(&mut self) {
-        let close = format!("</{}", self.rawtext_tag);
-        if self.lookahead_matches_ascii_case_insensitive(&close) {
-            let after = self.position + close.chars().count();
+    fn step_rawtext(&mut self, current: char) {
+        if self.lookahead_matches_ascii_case_insensitive(&self.rawtext_close) {
+            let after = self.position + self.rawtext_close.len();
             // The closer must be followed by whitespace, `/` or `>`.
-            let boundary = self.chars.get(after).copied();
+            let boundary = self.source[after..].chars().next();
             if boundary.is_none_or(|c| c.is_ascii_whitespace() || c == '/' || c == '>') {
                 self.flush_text();
-                self.position = after;
-                while self
-                    .chars
-                    .get(self.position)
-                    .is_some_and(|current| *current != '>')
-                {
-                    self.position += 1;
+                // Skip the rest of the end tag, up to and including `>`.
+                match self.source[after..].find('>') {
+                    Some(offset) => self.position = after + offset + 1,
+                    None => self.position = self.source.len(),
                 }
-                self.position = (self.position + 1).min(self.chars.len());
                 let name = std::mem::take(&mut self.rawtext_tag);
-                self.tokens.push(HtmlToken::EndTag { name });
+                self.pending.push_back(HtmlToken::EndTag { name });
                 self.state = State::Data;
                 return;
             }
         }
-        self.text.push(self.chars[self.position]);
-        self.position += 1;
+        self.text.push(current);
+        self.advance(current);
     }
 
     // --- helpers -----------------------------------------------------------
@@ -424,7 +424,7 @@ impl Tokenizer {
         match self.state {
             State::Comment => {
                 let comment = std::mem::take(&mut self.comment);
-                self.tokens.push(HtmlToken::Comment(comment));
+                self.pending.push_back(HtmlToken::Comment(comment));
             }
             State::TagOpen => self.text.push('<'),
             _ => {}
@@ -435,7 +435,7 @@ impl Tokenizer {
     fn flush_text(&mut self) {
         if !self.text.is_empty() {
             let text = std::mem::take(&mut self.text);
-            self.tokens.push(HtmlToken::Text(text));
+            self.pending.push_back(HtmlToken::Text(text));
         }
     }
 
@@ -468,16 +468,17 @@ impl Tokenizer {
             return;
         }
         if self.tag_is_end {
-            self.tokens.push(HtmlToken::EndTag { name });
+            self.pending.push_back(HtmlToken::EndTag { name });
             self.state = State::Data;
         } else {
             if RAWTEXT_ELEMENTS.contains(&name.as_str()) && !self.self_closing {
+                self.rawtext_close = format!("</{name}");
                 self.rawtext_tag = name.clone();
                 self.state = State::Rawtext;
             } else {
                 self.state = State::Data;
             }
-            self.tokens.push(HtmlToken::StartTag {
+            self.pending.push_back(HtmlToken::StartTag {
                 name,
                 attributes: std::mem::take(&mut self.attributes),
                 self_closing: self.self_closing,
@@ -486,18 +487,17 @@ impl Tokenizer {
     }
 
     fn lookahead_matches(&self, pattern: &str) -> bool {
-        pattern
-            .chars()
-            .enumerate()
-            .all(|(offset, expected)| self.chars.get(self.position + offset) == Some(&expected))
+        self.source[self.position..].starts_with(pattern)
     }
 
+    /// ASCII case-insensitive prefix match. Comparing bytes is equivalent
+    /// to comparing chars here: a non-ASCII source character starts with a
+    /// byte >= 0x80, which never case-matches an ASCII pattern byte.
     fn lookahead_matches_ascii_case_insensitive(&self, pattern: &str) -> bool {
-        pattern.chars().enumerate().all(|(offset, expected)| {
-            self.chars
-                .get(self.position + offset)
-                .is_some_and(|current| current.eq_ignore_ascii_case(&expected))
-        })
+        self.source
+            .as_bytes()
+            .get(self.position..self.position + pattern.len())
+            .is_some_and(|window| window.eq_ignore_ascii_case(pattern.as_bytes()))
     }
 
     /// Consumes a character reference starting at the current `&`.
@@ -505,23 +505,25 @@ impl Tokenizer {
     /// Recognizes a small named set and numeric forms. Anything else is
     /// returned literally, including the ampersand.
     fn consume_character_reference(&mut self) -> String {
-        debug_assert_eq!(self.chars.get(self.position), Some(&'&'));
+        debug_assert_eq!(self.current_char(), Some('&'));
+        let bytes = self.source.as_bytes();
         let start = self.position;
-        let mut end = self.position + 1;
+        let mut end = start + 1;
         // The longest WHATWG name (CounterClockwiseContourIntegral) is
-        // 31 chars; allow &name; up to 40.
-        let limit = (start + 40).min(self.chars.len());
+        // 31 chars; allow &name; up to 40. The body is restricted to ASCII
+        // below, so a byte limit is the same as a char limit here.
+        let limit = (start + 40).min(bytes.len());
         while end < limit {
-            let current = self.chars[end];
-            if current == ';' {
-                let body: String = self.chars[start + 1..end].iter().collect();
-                if let Some(decoded) = decode_reference(&body) {
+            let current = bytes[end];
+            if current == b';' {
+                let body = &self.source[start + 1..end];
+                if let Some(decoded) = decode_reference(body) {
                     self.position = end + 1;
                     return decoded;
                 }
                 break;
             }
-            if !(current.is_ascii_alphanumeric() || current == '#') {
+            if !(current.is_ascii_alphanumeric() || current == b'#') {
                 break;
             }
             end += 1;
@@ -531,14 +533,62 @@ impl Tokenizer {
     }
 }
 
+impl Iterator for Tokenizer<'_> {
+    type Item = HtmlToken;
+
+    fn next(&mut self) -> Option<HtmlToken> {
+        loop {
+            if let Some(token) = self.pending.pop_front() {
+                return Some(token);
+            }
+            if self.finished {
+                return None;
+            }
+            match self.current_char() {
+                Some(current) => match self.state {
+                    State::Data => self.step_data(current),
+                    State::TagOpen => self.step_tag_open(current),
+                    State::EndTagOpen => self.step_end_tag_open(current),
+                    State::TagName => self.step_tag_name(current),
+                    State::BeforeAttributeName => self.step_before_attribute_name(current),
+                    State::AttributeName => self.step_attribute_name(current),
+                    State::AfterAttributeName => self.step_after_attribute_name(current),
+                    State::BeforeAttributeValue => self.step_before_attribute_value(current),
+                    State::AttributeValueDoubleQuoted => {
+                        self.step_attribute_value_quoted(current, '"');
+                    }
+                    State::AttributeValueSingleQuoted => {
+                        self.step_attribute_value_quoted(current, '\'');
+                    }
+                    State::AttributeValueUnquoted => self.step_attribute_value_unquoted(current),
+                    State::SelfClosingStartTag => self.step_self_closing_start_tag(current),
+                    State::MarkupDeclarationOpen => self.step_markup_declaration_open(),
+                    State::Comment => self.step_comment(current),
+                    State::Doctype => self.step_doctype(current),
+                    State::BogusComment => self.step_bogus_comment(current),
+                    State::Rawtext => self.step_rawtext(current),
+                },
+                None => {
+                    self.finish();
+                    self.finished = true;
+                }
+            }
+        }
+    }
+}
+
 fn decode_reference(body: &str) -> Option<String> {
-    // Numeric references: &#38; and &#x26;.
+    // Numeric references: &#38; and &#x26;. Out-of-range values (0,
+    // surrogates, above U+10FFFF) decode to U+FFFD, not a literal.
     if let Some(digits) = body.strip_prefix('#') {
         let code = if let Some(hex) = digits.strip_prefix(['x', 'X']) {
             u32::from_str_radix(hex, 16).ok()?
         } else {
             digits.parse().ok()?
         };
+        if code == 0 || code > 0x10FFFF || (0xD800..=0xDFFF).contains(&code) {
+            return Some('\u{FFFD}'.to_string());
+        }
         return char::from_u32(code).map(|character| character.to_string());
     }
     // Named references: the full WHATWG table via htmlize.
@@ -669,6 +719,15 @@ mod tests {
     }
 
     #[test]
+    fn out_of_range_numeric_reference_is_replacement_char() {
+        // 0, surrogates and values above U+10FFFF all decode to U+FFFD.
+        assert_eq!(
+            tokenize("&#0;&#xD800;&#xDFFF;&#1114112;&#x110000;"),
+            vec![text("\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}")]
+        );
+    }
+
+    #[test]
     fn stray_less_than_is_text() {
         assert_eq!(tokenize("if a < 5 then"), vec![text("if a < 5 then")]);
     }
@@ -727,6 +786,43 @@ mod tests {
                 start_tag("script", &[], false),
                 text("if (a<b) { x = \"</div>\"; }"),
                 end_tag("script"),
+            ]
+        );
+    }
+
+    #[test]
+    fn rawtext_close_is_case_insensitive() {
+        assert_eq!(
+            tokenize("<SCRIPT>x</SCRIPT>"),
+            vec![
+                start_tag("script", &[], false),
+                text("x"),
+                end_tag("script")
+            ]
+        );
+    }
+
+    #[test]
+    fn rawtext_close_needs_a_boundary() {
+        // `</scriptx` is not a closer; the real one follows.
+        assert_eq!(
+            tokenize("<script>a</scriptx>b</script>"),
+            vec![
+                start_tag("script", &[], false),
+                text("a</scriptx>b"),
+                end_tag("script"),
+            ]
+        );
+    }
+
+    #[test]
+    fn multibyte_text_around_constructs() {
+        assert_eq!(
+            tokenize("<p title=\"ğ\">şâ</p>"),
+            vec![
+                start_tag("p", &[("title", "ğ")], false),
+                text("şâ"),
+                end_tag("p"),
             ]
         );
     }
