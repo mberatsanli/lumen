@@ -1036,18 +1036,6 @@ fn erf(x: f32) -> f32 {
     sign * y
 }
 
-/// Gaussian coverage of an axis-aligned box at a point: the separable
-/// product of two erf integrals (Evan Wallace's analytic shadow — exact
-/// for square boxes, a good approximation near rounded corners).
-fn gaussian_box_coverage(rect: &Rect, sigma: f32, px: f32, py: f32) -> f32 {
-    let denominator = sigma * std::f32::consts::SQRT_2;
-    let x =
-        0.5 * (erf((px - rect.x) / denominator) - erf((px - (rect.x + rect.width)) / denominator));
-    let y =
-        0.5 * (erf((py - rect.y) / denominator) - erf((py - (rect.y + rect.height)) / denominator));
-    (x * y).clamp(0.0, 1.0)
-}
-
 /// Rasterizes a box shadow with a true Gaussian falloff. CSS blur radius
 /// ≈ 2σ. Outer shadows shade `coverage`, inset shadows its complement
 /// clipped to the box.
@@ -1070,8 +1058,61 @@ fn draw_shadow(
     let (x0, y0, x1, y1) = framebuffer.clamp_to_clip(x0, y0, x1, y1);
     let rounded = !radius.is_zero();
     let packed = pack(color);
+    // The Gaussian box coverage is separable: coverage(x, y) = X(x)·Y(y).
+    // Precompute the column terms once and the row term once per row, so a
+    // pixel costs one multiply instead of four erf evaluations.
+    let denominator = sigma * std::f32::consts::SQRT_2;
+    let column_terms: Vec<f32> = if blur > 0.0 {
+        (x0..x1)
+            .map(|pixel_x| {
+                let px = pixel_x as f32 + 0.5;
+                0.5 * (erf((px - rect.x) / denominator)
+                    - erf((px - (rect.x + rect.width)) / denominator))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    // The column span where the Gaussian has already saturated: combined
+    // with a saturated row it gives constant full coverage, so that stretch
+    // blends at a fixed alpha instead of evaluating the falloff per pixel.
+    let saturated = |terms: &[f32]| -> (u32, u32) {
+        let first = terms.iter().position(|term| *term >= 0.999);
+        let last = terms.iter().rposition(|term| *term >= 0.999);
+        match (first, last) {
+            (Some(first), Some(last)) if last > first => (x0 + first as u32, x0 + last as u32 + 1),
+            _ => (x0, x0),
+        }
+    };
+    let (solid_x0, solid_x1) = if blur > 0.0 && !inset {
+        saturated(&column_terms)
+    } else {
+        (x0, x0)
+    };
     for pixel_y in y0..y1 {
+        let row_term = if blur > 0.0 {
+            let py = pixel_y as f32 + 0.5;
+            0.5 * (erf((py - rect.y) / denominator)
+                - erf((py - (rect.y + rect.height)) / denominator))
+        } else {
+            0.0
+        };
+        // Rows the Gaussian never reaches contribute nothing at all.
+        if blur > 0.0 && !inset && row_term <= 0.0 {
+            continue;
+        }
+        // Fully saturated row: the middle stretch is a flat run.
+        if row_term >= 0.999 && solid_x1 > solid_x0 {
+            let row = (pixel_y * framebuffer.width) as usize;
+            for position in row + solid_x0 as usize..row + solid_x1 as usize {
+                framebuffer.pixels[position] = blend(framebuffer.pixels[position], packed, color.a);
+            }
+        }
         for pixel_x in x0..x1 {
+            // Already covered by the flat run above.
+            if row_term >= 0.999 && pixel_x >= solid_x0 && pixel_x < solid_x1 {
+                continue;
+            }
             let (px, py) = (pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
             let coverage = if blur <= 0.0 {
                 // Hard shadow: plain (rounded) box coverage.
@@ -1087,7 +1128,7 @@ fn draw_shadow(
                     0.0
                 }
             } else {
-                gaussian_box_coverage(rect, sigma, px, py)
+                (column_terms[(pixel_x - x0) as usize] * row_term).clamp(0.0, 1.0)
             };
             let coverage = if inset {
                 // Inset: the complement, clipped to the box itself.
@@ -1305,20 +1346,53 @@ fn fill_rounded(framebuffer: &mut Framebuffer, rect: &Rect, radius: &Corners<f32
     let x1 = ((rect.x + rect.width).ceil().max(0.0) as u32).min(framebuffer.width);
     let y1 = ((rect.y + rect.height).ceil().max(0.0) as u32).min(framebuffer.height);
     let (x0, y0, x1, y1) = framebuffer.clamp_to_clip(x0, y0, x1, y1);
+    // Coverage is exactly 1 away from the corners and the anti-aliased
+    // edges, so only the corner bands and a one-pixel border need the
+    // per-pixel distance math; the interior is a plain fill. Without this a
+    // full-width rounded box costs a `rounded_coverage` per pixel.
+    let solid_x0 = (rect.x.ceil() as i64 + 1).clamp(x0 as i64, x1 as i64) as u32;
+    let solid_x1 = ((rect.x + rect.width).floor() as i64 - 1).clamp(x0 as i64, x1 as i64) as u32;
+    let corner_top = ((rect.y + radius.top_left.max(radius.top_right)).ceil() as i64 + 1)
+        .clamp(y0 as i64, y1 as i64) as u32;
+    let corner_bottom = ((rect.y + rect.height
+        - radius.bottom_left.max(radius.bottom_right))
+    .floor() as i64
+        - 1)
+    .clamp(y0 as i64, y1 as i64) as u32;
+    let solid_alpha = (color_alpha * 255.0) as u8;
     for pixel_y in y0..y1 {
-        for pixel_x in x0..x1 {
-            let coverage =
-                rounded_coverage(rect, &radius, pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
-            if coverage <= 0.0 {
-                continue;
+        let shade = |framebuffer: &mut Framebuffer, from: u32, to: u32| {
+            for pixel_x in from..to {
+                let coverage =
+                    rounded_coverage(rect, &radius, pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
+                if coverage <= 0.0 {
+                    continue;
+                }
+                let position = (pixel_y * framebuffer.width + pixel_x) as usize;
+                framebuffer.pixels[position] = blend(
+                    framebuffer.pixels[position],
+                    packed,
+                    (coverage * color_alpha * 255.0) as u8,
+                );
             }
-            let position = (pixel_y * framebuffer.width + pixel_x) as usize;
-            framebuffer.pixels[position] = blend(
-                framebuffer.pixels[position],
-                packed,
-                (coverage * color_alpha * 255.0) as u8,
-            );
+        };
+        // Rows beside a corner (or the top/bottom edge) stay per-pixel.
+        if pixel_y < corner_top || pixel_y >= corner_bottom || solid_x1 <= solid_x0 {
+            shade(framebuffer, x0, x1);
+            continue;
         }
+        shade(framebuffer, x0, solid_x0);
+        let row = (pixel_y * framebuffer.width) as usize;
+        let span = row + solid_x0 as usize..row + solid_x1 as usize;
+        if solid_alpha == 255 {
+            framebuffer.pixels[span].fill(packed);
+        } else {
+            for position in span {
+                framebuffer.pixels[position] =
+                    blend(framebuffer.pixels[position], packed, solid_alpha);
+            }
+        }
+        shade(framebuffer, solid_x1, x1);
     }
 }
 
@@ -1350,20 +1424,42 @@ fn fill_rounded_ring(
     let x1 = ((rect.x + rect.width).ceil().max(0.0) as u32).min(framebuffer.width);
     let y1 = ((rect.y + rect.height).ceil().max(0.0) as u32).min(framebuffer.height);
     let (x0, y0, x1, y1) = framebuffer.clamp_to_clip(x0, y0, x1, y1);
+    // The ring is hollow: on rows clear of the top/bottom bands and the
+    // corners, only the two side bands can have coverage, so the whole
+    // interior span is skipped instead of evaluating it per pixel.
+    let side_band = width.ceil() + 2.0;
+    let left_band = ((rect.x + side_band).ceil() as i64).clamp(x0 as i64, x1 as i64) as u32;
+    let right_band = ((rect.x + rect.width - side_band).floor() as i64)
+        .clamp(x0 as i64, x1 as i64) as u32;
+    let corner_top = ((rect.y + side_band + radius.top_left.max(radius.top_right)).ceil() as i64)
+        .clamp(y0 as i64, y1 as i64) as u32;
+    let corner_bottom = ((rect.y + rect.height
+        - side_band
+        - radius.bottom_left.max(radius.bottom_right))
+    .floor() as i64)
+        .clamp(y0 as i64, y1 as i64) as u32;
     for pixel_y in y0..y1 {
-        for pixel_x in x0..x1 {
-            let (px, py) = (pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
-            let coverage = rounded_coverage(rect, &radius, px, py)
-                - rounded_coverage(&inner, &inner_radius, px, py);
-            if coverage <= 0.0 {
-                continue;
+        let shade = |framebuffer: &mut Framebuffer, from: u32, to: u32| {
+            for pixel_x in from..to {
+                let (px, py) = (pixel_x as f32 + 0.5, pixel_y as f32 + 0.5);
+                let coverage = rounded_coverage(rect, &radius, px, py)
+                    - rounded_coverage(&inner, &inner_radius, px, py);
+                if coverage <= 0.0 {
+                    continue;
+                }
+                let position = (pixel_y * framebuffer.width + pixel_x) as usize;
+                framebuffer.pixels[position] = blend(
+                    framebuffer.pixels[position],
+                    packed,
+                    (coverage * color_alpha * 255.0) as u8,
+                );
             }
-            let position = (pixel_y * framebuffer.width + pixel_x) as usize;
-            framebuffer.pixels[position] = blend(
-                framebuffer.pixels[position],
-                packed,
-                (coverage * color_alpha * 255.0) as u8,
-            );
+        };
+        if pixel_y < corner_top || pixel_y >= corner_bottom || right_band <= left_band {
+            shade(framebuffer, x0, x1);
+        } else {
+            shade(framebuffer, x0, left_band);
+            shade(framebuffer, right_band, x1);
         }
     }
 }

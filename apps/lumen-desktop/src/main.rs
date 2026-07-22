@@ -1289,9 +1289,13 @@ impl App {
         }
     }
 
-    /// Scroll-only cache reuse: shifts the cached page raster by the
-    /// scroll delta and rasterizes only the exposed strip (plus the bar
-    /// rows, whose shifted pixels are stale under the chrome).
+    /// Scroll-only cache reuse: shifts the cached page raster by the scroll
+    /// delta and rasterizes just the strip that scrolling exposed.
+    ///
+    /// The shift is confined to the page area (below the chrome). Rows under
+    /// the chrome are never moved and never repainted — the chrome is opaque
+    /// and covers them every frame — so scrolling costs one memmove plus the
+    /// exposed strip, with no fixed per-frame chrome-height repaint.
     fn blit_scrolled(
         &self,
         frame: &lumen_engine::Framebuffer,
@@ -1301,36 +1305,44 @@ impl App {
         scale: f32,
     ) -> Option<lumen_engine::Framebuffer> {
         let delta = ((self.scroll_y - old_scroll) * scale).round() as i64;
-        if delta == 0 || delta.abs() >= i64::from(height) {
+        let top = i64::from(((CHROME_HEIGHT * scale).ceil() as u32).min(height));
+        let page_rows = i64::from(height) - top;
+        if delta == 0 || page_rows <= 0 || delta.abs() >= page_rows {
             return None;
         }
         let page = self.session().and_then(Session::page)?;
         let mut shifted = frame.clone();
         let row = width as usize;
-        let kept = (i64::from(height) - delta.abs()) as usize;
+        let kept = (page_rows - delta.abs()) as usize;
         let exposed = if delta > 0 {
-            // Scrolled down: rows move up; the bottom strip is new.
-            let from = delta as usize * row;
-            shifted.pixels.copy_within(from..from + kept * row, 0);
+            // Scrolled down: page rows move up; the bottom strip is new.
+            let source = (top + delta) as usize * row;
+            let destination = top as usize * row;
+            shifted
+                .pixels
+                .copy_within(source..source + kept * row, destination);
             (height - delta as u32, height)
         } else {
-            // Scrolled up: rows move down; the top strip is new.
+            // Scrolled up: page rows move down; the strip under the chrome
+            // is new.
             let up = (-delta) as usize;
-            shifted.pixels.copy_within(0..kept * row, up * row);
-            (0, (-delta) as u32)
+            let source = top as usize * row;
+            let destination = (top as usize + up) * row;
+            shifted
+                .pixels
+                .copy_within(source..source + kept * row, destination);
+            (top as u32, top as u32 + up as u32)
         };
-        let bar_rows = ((CHROME_HEIGHT * scale).ceil() as u32).min(height);
-        for region in [(0, exposed.0, width, exposed.1), (0, 0, width, bar_rows)] {
-            if region.3 > region.1 {
-                rasterize_region(
-                    &mut shifted,
-                    &page.display_list,
-                    self.scroll_y - CHROME_HEIGHT,
-                    scale,
-                    self.effective_font().as_deref(),
-                    region,
-                );
-            }
+        let region = (0, exposed.0, width, exposed.1);
+        if region.3 > region.1 {
+            rasterize_region(
+                &mut shifted,
+                &page.display_list,
+                self.scroll_y - CHROME_HEIGHT,
+                scale,
+                self.effective_font().as_deref(),
+                region,
+            );
         }
         Some(shifted)
     }
