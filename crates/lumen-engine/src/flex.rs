@@ -4,11 +4,11 @@ use crate::geometry::{Dimensions, Rect, Size};
 use crate::image::ImageMap;
 use crate::inline::layout_inline_run;
 use crate::layout::{
-    BoxType, LayoutBox, LayoutKind, layout_atomic_box, layout_isolated_with_style,
+    BoxType, LayoutBox, LayoutKind, ProbeCache, layout_atomic_box, layout_isolated_with_style,
 };
 use crate::style::{
-    AlignItems, BoxSizing, ComputedStyle, Dimension, Display, FlexDirection, JustifyContent,
-    StyleMap,
+    AlignItems, BoxSizing, ComputedStyle, Dimension, Display, FlexDirection, Float, JustifyContent,
+    Overflow, Position, StyleMap,
 };
 use crate::text::TextMeasurer;
 use lumen_html::{Document, NodeId, NodeKind};
@@ -32,6 +32,8 @@ pub(crate) fn layout_flex_children(
     viewport: Size,
     measurer: &dyn TextMeasurer,
     images: &ImageMap,
+    probe_cache: &ProbeCache,
+    depth: usize,
 ) -> (Vec<LayoutBox>, f32) {
     let row = style.flex_direction == FlexDirection::Row;
 
@@ -78,6 +80,8 @@ pub(crate) fn layout_flex_children(
                 viewport,
                 measurer,
                 images,
+                probe_cache,
+                depth,
             )
         };
         let (lines, height) = layout_inline_run(
@@ -134,6 +138,8 @@ pub(crate) fn layout_flex_children(
                 viewport,
                 measurer,
                 images,
+                probe_cache,
+                depth,
             )
         } else {
             layout_isolated_with_style(
@@ -145,6 +151,8 @@ pub(crate) fn layout_flex_children(
                 viewport,
                 measurer,
                 images,
+                probe_cache,
+                depth,
             )
         }
     };
@@ -252,22 +260,25 @@ pub(crate) fn layout_flex_children(
             .sum::<f32>()
             + gaps;
         let free = container_main - used;
-        let weights: Vec<f32> = line
-            .iter()
-            .map(|&index| {
-                let item = &flex_items[index];
-                if free > 0.0 {
-                    item.grow
-                } else {
-                    item.shrink * main_size(&item.laid)
-                }
-            })
-            .collect();
-        let total: f32 = weights.iter().sum();
-        if free.abs() < 0.5 || total <= 0.0 {
+        if free.abs() < 0.5 {
             continue;
         }
-        for (&index, &weight) in line.iter().zip(&weights) {
+        let weight_of = |item: &FlexItem| {
+            if free > 0.0 {
+                item.grow
+            } else {
+                item.shrink * main_size(&item.laid)
+            }
+        };
+        // Fast path: with no grow demand (or no shrink capacity) no item
+        // changes size, so the second layout pass is skipped entirely —
+        // without materializing a weights vector.
+        let total: f32 = line.iter().map(|&index| weight_of(&flex_items[index])).sum();
+        if total <= 0.0 {
+            continue;
+        }
+        for &index in line {
+            let weight = weight_of(&flex_items[index]);
             if weight <= 0.0 {
                 continue;
             }
@@ -357,6 +368,20 @@ pub(crate) fn layout_flex_children(
                 )
             };
             let target = (line_cross - margins - pb).max(0.0);
+            // Fast path: when the stretch would not actually change the
+            // box, skip the third layout pass (see the helper for the
+            // exact safety conditions).
+            if stretch_relayout_is_noop(
+                document,
+                styles,
+                *child,
+                &item_style,
+                &flex_items[index].laid,
+                target,
+                row,
+            ) {
+                continue;
+            }
             if row {
                 item_style.height = Dimension::Px(target);
             } else {
@@ -378,6 +403,8 @@ pub(crate) fn layout_flex_children(
                 viewport,
                 measurer,
                 images,
+                probe_cache,
+                depth,
             );
         }
     }
@@ -449,4 +476,112 @@ pub(crate) fn layout_flex_children(
     let total_cross = (cross_cursor - style.gap).max(0.0);
     let used_height = if row { total_cross } else { main_extent };
     (children, used_height)
+}
+
+/// Whether the stretch re-layout of `child` would reproduce its base
+/// layout bit-for-bit, making that layout pass skippable. Conservative:
+/// the target cross size must equal what auto layout already produced,
+/// and every feature whose behavior flips when an auto size becomes
+/// explicit must be absent (percent heights below, absolute descendants,
+/// bottom margin collapsing, empty-block collapse-through, auto margins
+/// on the switched axis, min-/max-clamps that read `box-sizing`).
+fn stretch_relayout_is_noop(
+    document: &Document,
+    styles: &StyleMap,
+    child: NodeId,
+    item_style: &ComputedStyle,
+    laid: &LayoutBox,
+    target: f32,
+    row: bool,
+) -> bool {
+    // The explicit cross size must reproduce the auto-laid cross size
+    // exactly; anything less than bit equality is real re-layout work.
+    let current_cross = if row {
+        laid.content_box().height
+    } else {
+        laid.content_box().width
+    };
+    if target != current_cross {
+        return false;
+    }
+    // The re-layout flips `box-sizing` to content-box. That is neutral
+    // only when no min-/max-constraint clamps differently under the two
+    // sizings (percent height constraints resolve to nothing here, as
+    // the isolated layout has no containing height).
+    let clamp_neutral = item_style.box_sizing == BoxSizing::ContentBox
+        || (matches!(item_style.min_width, Dimension::Auto)
+            && matches!(item_style.max_width, Dimension::Auto)
+            && matches!(item_style.min_height, Dimension::Auto | Dimension::Percent(_))
+            && matches!(item_style.max_height, Dimension::Auto | Dimension::Percent(_)));
+    if !clamp_neutral {
+        return false;
+    }
+    // Column stretch switches the width from auto to explicit, which
+    // would let auto margins absorb the leftover space.
+    if !row
+        && (matches!(item_style.margin.left, Dimension::Auto)
+            || matches!(item_style.margin.right, Dimension::Auto))
+    {
+        return false;
+    }
+    // The re-layout also makes the height explicit (to preserve the
+    // flex-adjusted main size). When the base height was auto, several
+    // behaviors flip together with that switch.
+    if matches!(item_style.height, Dimension::Auto) {
+        // Percent heights below the item resolve only once an ancestor
+        // height is explicit; absolute descendants resolve `bottom` and
+        // percent offsets against the nearest positioned ancestor's
+        // explicit height.
+        let has_sensitive_descendant = document.descendants(child).any(|descendant| {
+            styles.by_node.get(&descendant).is_some_and(|style| {
+                matches!(style.height, Dimension::Percent(_))
+                    || matches!(style.min_height, Dimension::Percent(_))
+                    || matches!(style.max_height, Dimension::Percent(_))
+                    || style.position == Position::Absolute
+            })
+        });
+        if has_sensitive_descendant {
+            return false;
+        }
+        // Bottom parent-child margin collapsing applies only under an
+        // auto height; it is a no-op when it cannot apply or when the
+        // last in-flow child's bottom margin is zero.
+        if laid.dimensions.border.bottom == 0.0
+            && laid.dimensions.padding.bottom == 0.0
+            && item_style.overflow == Overflow::Visible
+        {
+            let last_in_flow_bottom = laid
+                .children
+                .iter()
+                .rev()
+                .find(|child| {
+                    child.style.float == Float::None
+                        && matches!(
+                            child.style.position,
+                            Position::Static | Position::Relative
+                        )
+                })
+                .map(|child| child.dimensions.margin.bottom);
+            // A trailing anonymous (inline) block carries no margin, so
+            // both arms collapse to "no-op" only at exactly zero.
+            if !matches!(last_in_flow_bottom, None | Some(0.0)) {
+                return false;
+            }
+        }
+        // Empty edgeless blocks collapse through themselves only under
+        // an auto height.
+        let vertical_edges = laid.dimensions.border.top
+            + laid.dimensions.border.bottom
+            + laid.dimensions.padding.top
+            + laid.dimensions.padding.bottom;
+        if laid.children.is_empty()
+            && !matches!(laid.kind, LayoutKind::Inline { .. })
+            && laid.dimensions.content.height == 0.0
+            && vertical_edges == 0.0
+            && item_style.position == Position::Static
+        {
+            return false;
+        }
+    }
+    true
 }

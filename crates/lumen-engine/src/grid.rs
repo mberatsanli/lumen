@@ -10,7 +10,7 @@
 
 use crate::geometry::Size;
 use crate::image::ImageMap;
-use crate::layout::{LayoutBox, layout_isolated_with_style};
+use crate::layout::{LayoutBox, ProbeCache, layout_isolated_with_style};
 use crate::style::{BoxSizing, ComputedStyle, Dimension, Display, GridTrack, StyleMap};
 use crate::text::TextMeasurer;
 use lumen_html::{Document, NodeId, NodeKind};
@@ -29,6 +29,8 @@ pub(crate) fn layout_grid_children(
     viewport: Size,
     measurer: &dyn TextMeasurer,
     images: &ImageMap,
+    probe_cache: &ProbeCache,
+    depth: usize,
 ) -> (Vec<LayoutBox>, f32) {
     let tracks = if style.grid_columns.is_empty() {
         vec![GridTrack::Auto]
@@ -119,6 +121,7 @@ pub(crate) fn layout_grid_children(
         }
         let mut laid = layout_isolated_with_style(
             document, styles, *child, item_style, cell_width, viewport, measurer, images,
+            probe_cache, depth,
         );
         let margin_box = laid.margin_box();
         laid.translate(

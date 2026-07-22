@@ -4,49 +4,104 @@
 use super::interaction::InteractionState;
 use lumen_css::{AttributeOperation, Combinator, CompoundSelector, PseudoClass, Selector};
 use lumen_html::{Document, ElementData, NodeId};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
-/// The same-tag element siblings of a node, plus its position among them
-/// (for the of-type pseudo-class family).
-pub(crate) fn typed_siblings(document: &Document, node_id: NodeId) -> (Vec<NodeId>, usize) {
-    let tag = document
-        .element(node_id)
-        .map(|element| element.tag_name.clone())
-        .unwrap_or_default();
-    let siblings: Vec<NodeId> = document.parent(node_id).map_or_else(Vec::new, |parent| {
-        document
-            .children(parent)
-            .iter()
-            .copied()
-            .filter(|child| {
-                document
-                    .element(*child)
-                    .is_some_and(|element| element.tag_name == tag)
-            })
-            .collect()
-    });
-    let position = siblings
-        .iter()
-        .position(|sibling| *sibling == node_id)
-        .unwrap_or(0);
-    (siblings, position)
+/// A cached sibling list, shared between every query for one parent.
+type SiblingList = Rc<Vec<NodeId>>;
+
+/// Shared state for one style pass: the document and interaction state
+/// under match, plus sibling lists cached per parent.
+///
+/// Matching is read-only, so a cached list stays valid for the whole pass;
+/// without the cache every pseudo-class check rebuilt the sibling `Vec`
+/// (and cloned the tag name) per rule × element.
+pub(crate) struct MatchContext<'a> {
+    document: &'a Document,
+    interaction: &'a InteractionState,
+    /// Element children per parent node (for the child/nth-of-child
+    /// pseudo-classes and the sibling combinators).
+    element_kids: RefCell<HashMap<NodeId, SiblingList>>,
+    /// Same-tag element children per parent, keyed by tag (for the
+    /// of-type pseudo-class family; only queried tags are built).
+    typed_kids: RefCell<HashMap<NodeId, HashMap<String, SiblingList>>>,
 }
 
-/// The element siblings of a node (children of its parent that are
-/// elements), plus the node's position among them.
-pub(crate) fn element_siblings(document: &Document, node_id: NodeId) -> (Vec<NodeId>, usize) {
-    let siblings: Vec<NodeId> = document.parent(node_id).map_or_else(Vec::new, |parent| {
-        document
-            .children(parent)
+impl<'a> MatchContext<'a> {
+    pub(crate) fn new(document: &'a Document, interaction: &'a InteractionState) -> Self {
+        Self {
+            document,
+            interaction,
+            element_kids: RefCell::new(HashMap::new()),
+            typed_kids: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// The element siblings of a node (children of its parent that are
+    /// elements), plus the node's position among them.
+    fn element_siblings(&self, node_id: NodeId) -> (SiblingList, usize) {
+        let Some(parent) = self.document.parent(node_id) else {
+            return (Rc::new(Vec::new()), 0);
+        };
+        let document = self.document;
+        let siblings = self
+            .element_kids
+            .borrow_mut()
+            .entry(parent)
+            .or_insert_with(|| {
+                Rc::new(
+                    document
+                        .children(parent)
+                        .iter()
+                        .copied()
+                        .filter(|child| document.element(*child).is_some())
+                        .collect(),
+                )
+            })
+            .clone();
+        let position = siblings
             .iter()
-            .copied()
-            .filter(|child| document.element(*child).is_some())
-            .collect()
-    });
-    let position = siblings
-        .iter()
-        .position(|sibling| *sibling == node_id)
-        .unwrap_or(0);
-    (siblings, position)
+            .position(|sibling| *sibling == node_id)
+            .unwrap_or(0);
+        (siblings, position)
+    }
+
+    /// The same-tag element siblings of a node, plus its position among
+    /// them (for the of-type pseudo-class family). `tag` is compared as a
+    /// `&str` — nothing is cloned per query.
+    fn typed_siblings(&self, node_id: NodeId, tag: &str) -> (SiblingList, usize) {
+        let Some(parent) = self.document.parent(node_id) else {
+            return (Rc::new(Vec::new()), 0);
+        };
+        let document = self.document;
+        let mut cache = self.typed_kids.borrow_mut();
+        let by_tag = cache.entry(parent).or_default();
+        let siblings = match by_tag.get(tag) {
+            Some(list) => list.clone(),
+            None => {
+                let list: SiblingList = Rc::new(
+                    document
+                        .children(parent)
+                        .iter()
+                        .copied()
+                        .filter(|child| {
+                            document
+                                .element(*child)
+                                .is_some_and(|element| element.tag_name == tag)
+                        })
+                        .collect(),
+                );
+                by_tag.insert(tag.to_string(), list.clone());
+                list
+            }
+        };
+        let position = siblings
+            .iter()
+            .position(|sibling| *sibling == node_id)
+            .unwrap_or(0);
+        (siblings, position)
+    }
 }
 
 /// Whether a 1-based index satisfies the `an+b` micro-syntax.
@@ -59,11 +114,10 @@ pub(crate) fn nth_matches(a: i32, b: i32, index: i32) -> bool {
 }
 
 pub(crate) fn compound_matches(
-    document: &Document,
+    context: &MatchContext<'_>,
     node_id: NodeId,
     element: &ElementData,
     compound: &CompoundSelector,
-    interaction: &InteractionState,
 ) -> bool {
     if let Some(tag) = &compound.tag
         && element.tag_name != *tag
@@ -105,6 +159,8 @@ pub(crate) fn compound_matches(
     }) {
         return false;
     }
+    let interaction = context.interaction;
+    let document = context.document;
     compound.pseudo_classes.iter().all(|pseudo| match pseudo {
         PseudoClass::Hover => interaction.hover_chain.contains(&node_id),
         PseudoClass::Active => interaction.active_chain.contains(&node_id),
@@ -116,38 +172,36 @@ pub(crate) fn compound_matches(
         PseudoClass::Link => {
             element.attributes.contains("href") && !interaction.visited_links.contains(&node_id)
         }
-        PseudoClass::FirstChild => element_siblings(document, node_id).1 == 0,
+        PseudoClass::FirstChild => context.element_siblings(node_id).1 == 0,
         PseudoClass::LastChild => {
-            let (siblings, position) = element_siblings(document, node_id);
+            let (siblings, position) = context.element_siblings(node_id);
             position + 1 == siblings.len()
         }
-        PseudoClass::OnlyChild => element_siblings(document, node_id).0.len() == 1,
+        PseudoClass::OnlyChild => context.element_siblings(node_id).0.len() == 1,
         PseudoClass::NthChild(a, b) => {
-            let (_, position) = element_siblings(document, node_id);
+            let (_, position) = context.element_siblings(node_id);
             nth_matches(*a, *b, position as i32 + 1)
         }
         PseudoClass::NthLastChild(a, b) => {
-            let (siblings, position) = element_siblings(document, node_id);
+            let (siblings, position) = context.element_siblings(node_id);
             nth_matches(*a, *b, (siblings.len() - position) as i32)
         }
-        PseudoClass::Not(inner) => {
-            !compound_matches(document, node_id, element, inner, interaction)
-        }
+        PseudoClass::Not(inner) => !compound_matches(context, node_id, element, inner),
         PseudoClass::Is(arguments) | PseudoClass::Where(arguments) => arguments
             .iter()
-            .any(|inner| compound_matches(document, node_id, element, inner, interaction)),
-        PseudoClass::FirstOfType => typed_siblings(document, node_id).1 == 0,
+            .any(|inner| compound_matches(context, node_id, element, inner)),
+        PseudoClass::FirstOfType => context.typed_siblings(node_id, &element.tag_name).1 == 0,
         PseudoClass::LastOfType => {
-            let (siblings, position) = typed_siblings(document, node_id);
+            let (siblings, position) = context.typed_siblings(node_id, &element.tag_name);
             position + 1 == siblings.len()
         }
-        PseudoClass::OnlyOfType => typed_siblings(document, node_id).0.len() == 1,
+        PseudoClass::OnlyOfType => context.typed_siblings(node_id, &element.tag_name).0.len() == 1,
         PseudoClass::NthOfType(a, b) => {
-            let (_, position) = typed_siblings(document, node_id);
+            let (_, position) = context.typed_siblings(node_id, &element.tag_name);
             nth_matches(*a, *b, position as i32 + 1)
         }
         PseudoClass::NthLastOfType(a, b) => {
-            let (siblings, position) = typed_siblings(document, node_id);
+            let (siblings, position) = context.typed_siblings(node_id, &element.tag_name);
             nth_matches(*a, *b, (siblings.len() - position) as i32)
         }
     })
@@ -157,51 +211,45 @@ pub(crate) fn compound_matches(
 /// match the element itself, then each combinator walks to a parent,
 /// sibling or (with backtracking) ancestor/earlier sibling.
 pub(crate) fn selector_matches(
-    document: &Document,
+    context: &MatchContext<'_>,
     node_id: NodeId,
     element: &ElementData,
     selector: &Selector,
-    interaction: &InteractionState,
 ) -> bool {
-    if !compound_matches(document, node_id, element, selector.subject(), interaction) {
+    if !compound_matches(context, node_id, element, selector.subject()) {
         return false;
     }
-    complex_matches_from(
-        document,
-        selector,
-        selector.compounds.len() - 1,
-        node_id,
-        interaction,
-    )
+    complex_matches_from(context, selector, selector.compounds.len() - 1, node_id)
 }
 
 /// Whether the selector prefix ending at `index` (which already matched
 /// `node_id`) can be completed toward the left.
-pub(crate) fn complex_matches_from(
-    document: &Document,
+fn complex_matches_from(
+    context: &MatchContext<'_>,
     selector: &Selector,
     index: usize,
     node_id: NodeId,
-    interaction: &InteractionState,
 ) -> bool {
     if index == 0 {
         return true;
     }
     let needed = &selector.compounds[index - 1];
     let step = |candidate: NodeId| -> bool {
-        document.element(candidate).is_some_and(|element| {
-            compound_matches(document, candidate, element, needed, interaction)
-        }) && complex_matches_from(document, selector, index - 1, candidate, interaction)
+        context
+            .document
+            .element(candidate)
+            .is_some_and(|element| compound_matches(context, candidate, element, needed))
+            && complex_matches_from(context, selector, index - 1, candidate)
     };
     match selector.combinators[index - 1] {
-        Combinator::Child => document.parent(node_id).is_some_and(step),
-        Combinator::Descendant => document.ancestors(node_id).any(step),
+        Combinator::Child => context.document.parent(node_id).is_some_and(step),
+        Combinator::Descendant => context.document.ancestors(node_id).any(step),
         Combinator::NextSibling => {
-            let (siblings, position) = element_siblings(document, node_id);
+            let (siblings, position) = context.element_siblings(node_id);
             position > 0 && step(siblings[position - 1])
         }
         Combinator::SubsequentSibling => {
-            let (siblings, position) = element_siblings(document, node_id);
+            let (siblings, position) = context.element_siblings(node_id);
             siblings[..position].iter().rev().any(|prior| step(*prior))
         }
     }

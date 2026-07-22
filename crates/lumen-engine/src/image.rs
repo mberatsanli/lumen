@@ -10,6 +10,10 @@ use lumen_html::{Document, NodeId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Pixel-count ceiling for decoded images (16384×16384), guarding the
+/// RGBA allocation against hostile dimensions.
+const MAX_PIXELS: u64 = 16384 * 16384;
+
 /// A decoded image plus its original encoded bytes (kept for the SVG
 /// backend, which embeds them as a data URI).
 pub struct RasterImage {
@@ -53,6 +57,11 @@ impl RasterImage {
             _ => return None,
         };
         let decoded = image::load_from_memory_with_format(bytes, format).ok()?;
+        // Absurd pixel counts (a 1 GiB+ RGBA buffer) are rejected before
+        // the pixel data is materialized.
+        if u64::from(decoded.width()) * u64::from(decoded.height()) > MAX_PIXELS {
+            return None;
+        }
         let rgba = decoded.to_rgba8();
         Some(Self {
             width: rgba.width(),
@@ -103,7 +112,11 @@ fn pick_srcset_candidate(srcset: &str) -> Option<String> {
     let mut first: Option<String> = None;
     for candidate in srcset.split(',') {
         let mut parts = candidate.split_whitespace();
-        let url = parts.next()?.to_string();
+        // An empty candidate (stray comma) is skipped, not fatal.
+        let Some(url) = parts.next() else {
+            continue;
+        };
+        let url = url.to_string();
         if url.is_empty() {
             continue;
         }
@@ -195,5 +208,15 @@ mod tests {
         let sources = collect_image_sources(&document);
         let srcs: Vec<&str> = sources.iter().map(|(_, src)| src.as_str()).collect();
         assert_eq!(srcs, vec!["a.png", "b.jpg"]);
+    }
+
+    #[test]
+    fn srcset_skips_empty_candidates() {
+        // A stray comma produces an empty candidate; it must be skipped,
+        // not forfeit the whole attribute.
+        assert_eq!(
+            pick_srcset_candidate(", big.png 2x, small.png 1x").as_deref(),
+            Some("small.png")
+        );
     }
 }

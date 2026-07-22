@@ -2,7 +2,7 @@
 //! and the damage ladder: how cheaply the page can react to an
 //! interaction change (nothing / repaint / relayout).
 
-use super::matching::selector_matches;
+use super::matching::{MatchContext, selector_matches};
 use lumen_css::{CompoundSelector, PseudoClass, Stylesheet};
 use lumen_html::{Document, NodeId};
 use std::collections::HashSet;
@@ -74,7 +74,7 @@ fn uses_interactive(compound: &CompoundSelector) -> bool {
 #[must_use]
 pub fn hover_impact(sheet: &Stylesheet) -> HoverImpact {
     let mut impact = HoverImpact::Nothing;
-    for rule in &sheet.rules {
+    for rule in sheet.rules.iter() {
         if !rule
             .selectors
             .iter()
@@ -109,6 +109,43 @@ pub fn hover_styles_may_change(
     )
 }
 
+/// Whether a compound can never match under `state` because the
+/// interactive pseudo-class it directly requires has an empty state
+/// chain (e.g. `:hover` with nothing hovered). Pseudos nested in
+/// `:not()` are ignored: a negation matches *more* when its state is
+/// empty.
+fn blocked_by_state(compound: &CompoundSelector, state: &InteractionState) -> bool {
+    compound.pseudo_classes.iter().any(|pseudo| match pseudo {
+        PseudoClass::Hover => state.hover_chain.is_empty(),
+        PseudoClass::Active => state.active_chain.is_empty(),
+        PseudoClass::Focus => state.focused.is_none(),
+        PseudoClass::FocusWithin => state.focus_chain.is_empty(),
+        _ => false,
+    })
+}
+
+/// The nodes worth testing against `selector`: when the subject itself
+/// requires an interactive pseudo-class, only nodes in that state chain
+/// can match — a tiny set compared to the whole tree. Otherwise the full
+/// descendant walk (as before).
+fn candidates<'a>(
+    document: &'a Document,
+    state: &'a InteractionState,
+    selector: &lumen_css::Selector,
+) -> Box<dyn Iterator<Item = NodeId> + 'a> {
+    for pseudo in &selector.subject().pseudo_classes {
+        let chain = match pseudo {
+            PseudoClass::Hover => &state.hover_chain,
+            PseudoClass::Active => &state.active_chain,
+            PseudoClass::Focus => &state.focus_chain,
+            PseudoClass::FocusWithin => &state.focus_chain,
+            _ => continue,
+        };
+        return Box::new(chain.iter().copied());
+    }
+    Box::new(document.descendants(document.root()))
+}
+
 /// Whether any interactive rule (:hover/:active/:focus...) actually
 /// applies under `state` — i.e. whether entering/leaving this state can
 /// change styles.
@@ -121,14 +158,24 @@ pub fn interaction_styles_may_change(
     if state.hover_chain.is_empty() && state.active_chain.is_empty() && state.focused.is_none() {
         return false;
     }
-    for rule in &sheet.rules {
+    let matcher = MatchContext::new(document, state);
+    for rule in sheet.rules.iter() {
         for selector in &rule.selectors {
             if !selector.compounds.iter().any(uses_interactive) {
                 continue;
             }
-            for id in document.descendants(document.root()) {
+            // A compound whose interactive state is empty can never
+            // match: skip the whole selector without touching the tree.
+            if selector
+                .compounds
+                .iter()
+                .any(|compound| blocked_by_state(compound, state))
+            {
+                continue;
+            }
+            for id in candidates(document, state, selector) {
                 if let Some(element) = document.element(id)
-                    && selector_matches(document, id, element, selector, state)
+                    && selector_matches(&matcher, id, element, selector)
                 {
                     return true;
                 }

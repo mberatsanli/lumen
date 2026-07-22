@@ -11,8 +11,8 @@
 //! [`ComputedStyle`]; layout and paint never parse strings.
 
 use crate::geometry::{Corners, EdgeSizes};
-use lumen_css::{Color, CssValue, Specificity, Stylesheet};
 use crate::ua::{default_display, user_agent_stylesheet};
+use lumen_css::{Color, CssValue, Specificity, Stylesheet};
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -25,7 +25,7 @@ pub use interaction::{
     HoverImpact, InteractionState, hover_impact, hover_styles_may_change,
     interaction_styles_may_change,
 };
-pub(crate) use matching::selector_matches;
+pub(crate) use matching::MatchContext;
 pub use model::*;
 
 /// Declared values keyed by property name. `Cow` keys let the fixed
@@ -91,19 +91,94 @@ pub fn compute_styles_interactive(
     let mut by_node = HashMap::new();
     let mut pseudo_texts = Vec::new();
     let inherited = HashMap::new();
+    let context = StyleContext::new(document, author, interaction);
     compute_node(
         document,
         document.root(),
-        author,
+        &context,
         &inherited,
         DEFAULT_FONT_SIZE,
-        interaction,
         &mut by_node,
         &mut pseudo_texts,
+        0,
     );
     StyleMap {
         by_node,
         pseudo_texts,
+    }
+}
+
+/// One stylesheet in the cascade with data precomputed once per style
+/// pass instead of per element: selector specificities, and whether any
+/// selector targets `::before`/`::after` (so pseudo passes on sheets
+/// without such rules — the common case — are skipped entirely).
+struct CascadeSheet<'a> {
+    sheet: &'a Stylesheet,
+    /// `specificities[rule][selector]`, aligned with `sheet.rules`.
+    specificities: Vec<Vec<Specificity>>,
+    has_before: bool,
+    has_after: bool,
+}
+
+impl<'a> CascadeSheet<'a> {
+    fn new(sheet: &'a Stylesheet) -> Self {
+        let mut has_before = false;
+        let mut has_after = false;
+        let specificities = sheet
+            .rules
+            .iter()
+            .map(|rule| {
+                rule.selectors
+                    .iter()
+                    .map(|selector| {
+                        match selector.subject().pseudo_element.as_deref() {
+                            Some("before") => has_before = true,
+                            Some("after") => has_after = true,
+                            _ => {}
+                        }
+                        selector.specificity()
+                    })
+                    .collect()
+            })
+            .collect();
+        Self {
+            sheet,
+            specificities,
+            has_before,
+            has_after,
+        }
+    }
+
+    /// Whether any rule in the sheet targets this pseudo-element.
+    fn has_pseudo(&self, kind: &str) -> bool {
+        match kind {
+            "before" => self.has_before,
+            "after" => self.has_after,
+            _ => false,
+        }
+    }
+}
+
+/// Per-style-pass shared state: the sibling/matching cache and the
+/// cascade sheets, weakest origin (UA) first.
+struct StyleContext<'a> {
+    matcher: MatchContext<'a>,
+    sheets: [CascadeSheet<'a>; 2],
+}
+
+impl<'a> StyleContext<'a> {
+    fn new(
+        document: &'a Document,
+        author: &'a Stylesheet,
+        interaction: &'a InteractionState,
+    ) -> Self {
+        Self {
+            matcher: MatchContext::new(document, interaction),
+            sheets: [
+                CascadeSheet::new(user_agent_stylesheet()),
+                CascadeSheet::new(author),
+            ],
+        }
     }
 }
 
@@ -356,13 +431,18 @@ fn evaluate_calc(expression: &str, font_size: f32, root_font_size: f32) -> Optio
 fn compute_node(
     document: &Document,
     node_id: NodeId,
-    author: &Stylesheet,
+    context: &StyleContext<'_>,
     parent_raw: &RawStyle,
     root_font_size: f32,
-    interaction: &InteractionState,
     output: &mut HashMap<NodeId, ComputedStyle>,
     pseudo_texts: &mut Vec<PseudoText>,
+    depth: usize,
 ) {
+    // Depth guard: absurdly nested documents stop here; the skipped
+    // subtree keeps no style entry, so layout treats it as unstyled.
+    if depth >= crate::MAX_DEPTH {
+        return;
+    }
     let mut raw = RawStyle::new();
     for property in lumen_css::properties::inherited() {
         if let Some(value) = parent_raw.get(property) {
@@ -381,14 +461,27 @@ fn compute_node(
         _ => None,
     };
 
+    // Text runs are anonymous inline content: CSS does not inherit
+    // `vertical-align` or `transition`, but both apply to the inline box
+    // the text belongs to — and this engine flattens inline boxes into
+    // per-text-node runs, so the parent's values must reach text nodes
+    // for `sup`/`sub` shifts and hover color fades to work on text.
+    if element.is_none() {
+        for property in ["vertical-align", "transition"] {
+            if let Some(value) = parent_raw.get(property) {
+                raw.insert(Cow::Borrowed(property), value.clone());
+            }
+        }
+    }
+
     if let Some(element) = element {
         // Weakest origin first; each stronger origin overwrites per
         // property — unless a weaker origin declared it `!important`
         // (author important beats inline normal).
         let mut important: HashSet<String> = HashSet::new();
-        for sheet in [user_agent_stylesheet(), author] {
+        for cascade_sheet in &context.sheets {
             for (name, (is_important, _, _, value)) in
-                winning_declarations(document, node_id, element, sheet, interaction, None)
+                winning_declarations(node_id, element, cascade_sheet, &context.matcher, None)
             {
                 if is_important || !important.contains(&name) {
                     if is_important {
@@ -507,6 +600,11 @@ fn compute_node(
     // a child and needs a string `content` to generate anything.
     if let Some(element) = element {
         for (kind, leading) in [("before", true), ("after", false)] {
+            // No rule in either sheet targets this pseudo-element (the
+            // common case): the pass below would produce nothing.
+            if !context.sheets.iter().any(|sheet| sheet.has_pseudo(kind)) {
+                continue;
+            }
             let mut pseudo_raw = RawStyle::new();
             for property in lumen_css::properties::inherited() {
                 if let Some(value) = raw.get(property) {
@@ -518,10 +616,14 @@ fn compute_node(
                 CssValue::Length(computed.font_size, lumen_css::Unit::Px),
             );
             let mut any = false;
-            for sheet in [user_agent_stylesheet(), author] {
-                for (name, (_, _, _, value)) in
-                    winning_declarations(document, node_id, element, sheet, interaction, Some(kind))
-                {
+            for cascade_sheet in &context.sheets {
+                for (name, (_, _, _, value)) in winning_declarations(
+                    node_id,
+                    element,
+                    cascade_sheet,
+                    &context.matcher,
+                    Some(kind),
+                ) {
                     pseudo_raw.insert(Cow::Owned(name), value);
                     any = true;
                 }
@@ -563,30 +665,36 @@ fn compute_node(
         compute_node(
             document,
             *child,
-            author,
+            context,
             &raw,
             root_font_size,
-            interaction,
             output,
             pseudo_texts,
+            depth + 1,
         );
     }
 }
 
 /// Per-property winner within one origin: highest (importance,
 /// specificity, source order) triple wins; later rules win ties.
+/// Specificities come precomputed from the [`CascadeSheet`]; matching
+/// reuses the shared sibling cache in the [`MatchContext`].
 fn winning_declarations(
-    document: &Document,
     node_id: NodeId,
     element: &ElementData,
-    sheet: &Stylesheet,
-    interaction: &InteractionState,
+    cascade_sheet: &CascadeSheet<'_>,
+    matcher: &MatchContext<'_>,
     pseudo: Option<&str>,
 ) -> HashMap<String, (bool, Specificity, usize, CssValue)> {
     let mut winners: HashMap<String, (bool, Specificity, usize, CssValue)> = HashMap::new();
-    for rule in &sheet.rules {
-        for selector in &rule.selectors {
-            if selector_matches(document, node_id, element, selector, interaction) {
+    for (rule, specificities) in cascade_sheet
+        .sheet
+        .rules
+        .iter()
+        .zip(&cascade_sheet.specificities)
+    {
+        for (selector, specificity) in rule.selectors.iter().zip(specificities) {
+            if matching::selector_matches(matcher, node_id, element, selector) {
                 // `::selection` rules style the highlight, not the element:
                 // only their background-color/color apply, under internal
                 // property names.
@@ -609,7 +717,7 @@ fn winning_declarations(
                     };
                     let candidate = (
                         declaration.important,
-                        selector.specificity(),
+                        *specificity,
                         rule.source_order,
                         declaration.value.clone(),
                     );
@@ -625,6 +733,10 @@ fn winning_declarations(
     }
     winners
 }
+
+/// Upper bound for a computed `font-size`: bigger values only occur in
+/// pathological pages and would explode glyph caches and layouts.
+const MAX_FONT_SIZE: f32 = 512.0;
 
 /// Converts raw declared values into a typed [`ComputedStyle`].
 /// `parent_font_size` anchors relative font sizes (`em`, `%`).
@@ -643,10 +755,20 @@ fn to_computed(
         }
         _ => parent_font_size,
     };
+    // Keep the resolved size sane: negatives/NaN/inf (huge `em` chains,
+    // hostile calc()) fall back to the inherited size or clamp.
+    style.font_size = if style.font_size.is_finite() {
+        style.font_size.clamp(0.0, MAX_FONT_SIZE)
+    } else {
+        parent_font_size
+    };
 
     style.line_height = match raw.get("line-height") {
         Some(CssValue::Number(factor)) => factor * style.font_size,
         Some(CssValue::Length(factor, lumen_css::Unit::Em)) => factor * style.font_size,
+        Some(CssValue::Length(percent, lumen_css::Unit::Percent)) => {
+            percent / 100.0 * style.font_size
+        }
         Some(value) => value
             .as_px()
             .unwrap_or(style.font_size * DEFAULT_LINE_HEIGHT_FACTOR),
@@ -1007,46 +1129,52 @@ fn to_computed(
 
     // animation: name duration [delay] [iterations] [timing] (first
     // comma-separated entry only).
-    style.animation = raw.get("animation").map(CssValue::raw_text).and_then(|text| {
-        let entry = text.split(',').next()?;
-        let mut name = String::new();
-        let mut times: Vec<f32> = Vec::new();
-        let mut iterations = 1.0f32;
-        let mut ease = true;
-        for piece in entry.split_whitespace() {
-            if let Some(millis) = piece.strip_suffix("ms") {
-                if let Ok(value) = millis.parse::<f32>() {
-                    times.push(value / 1000.0);
+    style.animation = raw
+        .get("animation")
+        .map(CssValue::raw_text)
+        .and_then(|text| {
+            let entry = text.split(',').next()?;
+            let mut name = String::new();
+            let mut times: Vec<f32> = Vec::new();
+            let mut iterations = 1.0f32;
+            let mut ease = true;
+            for piece in entry.split_whitespace() {
+                if let Some(millis) = piece.strip_suffix("ms") {
+                    if let Ok(value) = millis.parse::<f32>() {
+                        times.push(value / 1000.0);
+                    }
+                } else if let Some(seconds) = piece.strip_suffix('s')
+                    && let Ok(value) = seconds.parse::<f32>()
+                {
+                    times.push(value);
+                } else if piece == "infinite" {
+                    iterations = f32::INFINITY;
+                } else if let Ok(count) = piece.parse::<f32>() {
+                    iterations = count;
+                } else if piece == "linear" {
+                    ease = false;
+                } else if matches!(piece, "ease" | "ease-in" | "ease-out" | "ease-in-out")
+                    || piece.starts_with("cubic-bezier")
+                    || matches!(
+                        piece,
+                        "normal" | "forwards" | "backwards" | "both" | "alternate"
+                    )
+                {
+                    // Timing keywords keep the default; fill/direction modes
+                    // are accepted but not modeled.
+                } else {
+                    name = piece.to_string();
                 }
-            } else if let Some(seconds) = piece.strip_suffix('s')
-                && let Ok(value) = seconds.parse::<f32>()
-            {
-                times.push(value);
-            } else if piece == "infinite" {
-                iterations = f32::INFINITY;
-            } else if let Ok(count) = piece.parse::<f32>() {
-                iterations = count;
-            } else if piece == "linear" {
-                ease = false;
-            } else if matches!(piece, "ease" | "ease-in" | "ease-out" | "ease-in-out")
-                || piece.starts_with("cubic-bezier")
-                || matches!(piece, "normal" | "forwards" | "backwards" | "both" | "alternate")
-            {
-                // Timing keywords keep the default; fill/direction modes
-                // are accepted but not modeled.
-            } else {
-                name = piece.to_string();
             }
-        }
-        let duration = times.first().copied()?;
-        (duration > 0.0 && !name.is_empty()).then_some(AnimationSpec {
-            name,
-            duration,
-            delay: times.get(1).copied().unwrap_or(0.0),
-            iterations,
-            ease,
-        })
-    });
+            let duration = times.first().copied()?;
+            (duration > 0.0 && !name.is_empty()).then_some(AnimationSpec {
+                name,
+                duration,
+                delay: times.get(1).copied().unwrap_or(0.0),
+                iterations,
+                ease,
+            })
+        });
 
     style.list_style_none = matches!(
         raw.get("list-style-type")
@@ -1379,6 +1507,11 @@ fn to_computed(
 fn dimension(raw: &RawStyle, name: &str, font_size: f32) -> Dimension {
     raw.get(name)
         .and_then(|value| Dimension::from_value(value, font_size))
+        .map(|dimension| match dimension {
+            // Negative sizes are invalid per CSS; clamp them to zero.
+            Dimension::Px(value) => Dimension::Px(value.max(0.0)),
+            other => other,
+        })
         .unwrap_or(Dimension::Auto)
 }
 
@@ -2195,5 +2328,234 @@ mod tests {
             ),
             Some(150.0)
         );
+    }
+
+    #[test]
+    fn font_size_is_clamped_to_a_sane_range() {
+        let (document, styles) =
+            styles_for("<style>div { font-size: 99999px; }</style><div>t</div>");
+        assert_eq!(style_of(&document, &styles, "div").font_size, 512.0);
+        let (document, styles) = styles_for("<style>div { font-size: -5px; }</style><div>t</div>");
+        assert_eq!(style_of(&document, &styles, "div").font_size, 0.0);
+    }
+
+    #[test]
+    fn line_height_percent_resolves_against_font_size() {
+        let (document, styles) =
+            styles_for("<style>div { font-size: 20px; line-height: 150%; }</style><div>t</div>");
+        assert_eq!(style_of(&document, &styles, "div").line_height, 30.0);
+    }
+
+    #[test]
+    fn negative_dimensions_clamp_to_zero() {
+        let (document, styles) =
+            styles_for("<style>div { width: -50px; height: -10px; }</style><div>t</div>");
+        let style = style_of(&document, &styles, "div");
+        assert_eq!(style.width, Dimension::Px(0.0));
+        assert_eq!(style.height, Dimension::Px(0.0));
+    }
+
+    #[test]
+    fn absurdly_deep_nesting_stops_at_the_depth_cap() {
+        // Big-stack thread: see the layout depth test for why.
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let mut html = String::new();
+                for _ in 0..crate::MAX_DEPTH * 4 {
+                    html.push_str("<div>");
+                }
+                let (document, styles) = styles_for(&html);
+                // The walk completed without overflowing the stack; nodes
+                // past the cap carry no computed style.
+                let styled = document
+                    .descendants(document.root())
+                    .filter(|id| styles.by_node.contains_key(id))
+                    .count();
+                assert!(styled <= crate::MAX_DEPTH + 2, "styled {styled} nodes");
+            })
+            .expect("spawn")
+            .join()
+            .expect("no stack overflow");
+    }
+
+    /// Builds the wide-DOM fixture: 100 sections × 20 items (2000
+    /// elements) and a 50-rule stylesheet mixing tag/class selectors,
+    /// child and descendant combinators, and the sibling/nth/of-type
+    /// pseudo-class families — the selectors whose matching used to
+    /// rebuild sibling vectors and recompute specificity per element.
+    fn wide_fixture() -> (Document, StyleMap) {
+        use std::fmt::Write as _;
+        let mut css = String::new();
+        // Tag + class rules for every item class.
+        for i in 0..5 {
+            let _ = writeln!(css, ".c{i} {{ color: #11111{i}; }}");
+            let _ = writeln!(css, "div.c{i} {{ margin-top: {i}px; }}");
+        }
+        // Sibling and nth machinery, exercised per rule × element.
+        css.push_str(
+            "section > div:first-child { color: #010203; }
+             section > div:last-child { color: #030201; }
+             div:nth-child(2n) { font-weight: 700; }
+             div:nth-child(3n+1) { text-align: right; }
+             div:nth-last-child(1) { font-style: italic; }
+             div:first-of-type { line-height: 21px; }
+             div:last-of-type { line-height: 22px; }
+             div:nth-of-type(2n+1) { letter-spacing: 1px; }
+             div:only-child { display: block; }
+             section div + div { border-top-width: 1px; }
+             section div ~ div { padding-top: 2px; }
+             section > .c0 { width: 10px; }
+             section .c1 { width: 11px; }
+             div:not(.c4) { min-height: 1px; }
+             div:is(.c0, .c2) { max-width: 50px; }
+             div:where(.c3) { max-height: 51px; }",
+        );
+        // Pad out to 50 rules with descendant-combinator rules.
+        for i in 0..24 {
+            let _ = writeln!(
+                css,
+                "section div.c{} {{ border-left-width: {}px; }}",
+                i % 5,
+                i % 3
+            );
+        }
+        let mut body = String::from("<body>");
+        for section in 0..100 {
+            let _ = write!(body, "<section id='s{section}'>");
+            for item in 0..20 {
+                let _ = write!(body, "<div class='c{}'>x</div>", (section + item) % 5);
+            }
+            body.push_str("</section>");
+        }
+        body.push_str("</body>");
+        let html = format!("<style>{css}</style>{body}");
+        let document = parse_document(&html);
+        let author = lumen_css::parse_stylesheet(&css);
+        // Sanity: the fixture really is 50 rules × 2000 item elements.
+        assert_eq!(author.rules.len(), 50);
+        let styles = compute_styles(&document, &author);
+        (document, styles)
+    }
+
+    fn item_style<'a>(
+        document: &Document,
+        styles: &'a StyleMap,
+        section: usize,
+        item: usize,
+    ) -> &'a ComputedStyle {
+        let section_id = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.id() == Some(format!("s{section}").as_str()))
+            })
+            .unwrap_or_else(|| panic!("no section s{section}"));
+        let items: Vec<NodeId> = document
+            .children(section_id)
+            .iter()
+            .copied()
+            .filter(|id| document.element(*id).is_some())
+            .collect();
+        assert_eq!(items.len(), 20);
+        &styles.by_node[&items[item]]
+    }
+
+    #[test]
+    fn wide_dom_matching_stays_correct() {
+        // Correctness of the shared sibling cache and the precomputed
+        // specificity table on a 2000-element × 50-rule tree: nth/of-type
+        // and combinator results must match the plain cascade semantics.
+        let (document, styles) = wide_fixture();
+
+        // :first-child / :last-child colors.
+        assert_eq!(
+            item_style(&document, &styles, 7, 0).color,
+            Color::rgb(0x01, 0x02, 0x03)
+        );
+        assert_eq!(
+            item_style(&document, &styles, 7, 19).color,
+            Color::rgb(0x03, 0x02, 0x01)
+        );
+        // :nth-child(2n) → bold on even 1-based positions (odd 0-based).
+        assert_eq!(
+            item_style(&document, &styles, 3, 1).font_weight,
+            FontWeight(700)
+        );
+        assert_eq!(
+            item_style(&document, &styles, 3, 2).font_weight,
+            FontWeight(400)
+        );
+        // :nth-of-type(2n+1) → letter spacing on odd 1-based positions.
+        assert_eq!(item_style(&document, &styles, 5, 0).letter_spacing, 1.0);
+        assert_eq!(item_style(&document, &styles, 5, 1).letter_spacing, 0.0);
+        // `div + div` skips the first child; `div ~ div` covers the rest.
+        assert_eq!(item_style(&document, &styles, 9, 0).border_width.top, 0.0);
+        assert_eq!(item_style(&document, &styles, 9, 4).border_width.top, 1.0);
+        assert_eq!(
+            item_style(&document, &styles, 9, 0).padding.top,
+            Dimension::Px(0.0)
+        );
+        assert_eq!(
+            item_style(&document, &styles, 9, 8).padding.top,
+            Dimension::Px(2.0)
+        );
+        // :not() and :is() specificity/matching.
+        let c4_item = item_style(&document, &styles, 0, 4); // class c4 at (0,4)
+        assert_eq!(c4_item.min_height, Dimension::Auto);
+        assert_eq!(
+            item_style(&document, &styles, 0, 0).min_height,
+            Dimension::Px(1.0)
+        );
+        assert_eq!(
+            item_style(&document, &styles, 0, 0).max_width,
+            Dimension::Px(50.0)
+        );
+    }
+
+    #[test]
+    fn wide_flat_sibling_lists_do_not_rebuild_per_check() {
+        // One parent with 2000 element children, several nth/of-type
+        // rules: the old matcher rebuilt the 2000-entry sibling Vec per
+        // pseudo-class per rule (O(n²) allocations); with the shared
+        // cache this completes with the list built once. Correctness is
+        // asserted per position.
+        let css = "div:nth-child(2n) { font-weight: 700; }
+                   div:first-child { color: #010203; }
+                   div:last-child { color: #030201; }
+                   div:nth-of-type(4n) { letter-spacing: 2px; }
+                   div + div { margin-top: 3px; }";
+        let mut body = String::from("<body><section>");
+        for _ in 0..2000 {
+            body.push_str("<div>x</div>");
+        }
+        body.push_str("</section></body>");
+        let html = format!("<style>{css}</style>{body}");
+        let document = parse_document(&html);
+        let author = lumen_css::parse_stylesheet(css);
+        let styles = compute_styles(&document, &author);
+        let items: Vec<NodeId> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "div")
+            })
+            .collect();
+        assert_eq!(items.len(), 2000);
+        assert_eq!(
+            styles.by_node[&items[0]].color,
+            Color::rgb(0x01, 0x02, 0x03)
+        );
+        assert_eq!(
+            styles.by_node[&items[1999]].color,
+            Color::rgb(0x03, 0x02, 0x01)
+        );
+        assert_eq!(styles.by_node[&items[1]].font_weight, FontWeight(700));
+        assert_eq!(styles.by_node[&items[2]].font_weight, FontWeight(400));
+        assert_eq!(styles.by_node[&items[3]].letter_spacing, 2.0);
+        assert_eq!(styles.by_node[&items[0]].margin.top, Dimension::Px(0.0));
+        assert_eq!(styles.by_node[&items[1]].margin.top, Dimension::Px(3.0));
     }
 }

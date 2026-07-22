@@ -477,17 +477,30 @@ impl LineBuilder<'_> {
                         monospace: style.monospace,
                         letter_spacing: style.letter_spacing,
                     };
-                    let mut cut = String::new();
-                    for character in text.chars() {
-                        let mut candidate = cut.clone();
-                        candidate.push(character);
-                        if fragment.x + self.measurer.measure(&candidate, &text_style).width
-                            > budget
-                        {
-                            break;
+                    // Binary search the longest prefix that fits, instead
+                    // of re-measuring a cloned candidate per character
+                    // (O(n²) → O(n log n)). Assumes prefix widths are
+                    // non-decreasing, which holds for any real measurer.
+                    let boundaries: Vec<usize> = text
+                        .char_indices()
+                        .map(|(index, _)| index)
+                        .chain(std::iter::once(text.len()))
+                        .collect();
+                    let fits = |end: usize| {
+                        fragment.x + self.measurer.measure(&text[..end], &text_style).width
+                            <= budget
+                    };
+                    let mut low = 0; // the empty prefix always "fits"
+                    let mut high = boundaries.len();
+                    while low + 1 < high {
+                        let mid = (low + high) / 2;
+                        if fits(boundaries[mid]) {
+                            low = mid;
+                        } else {
+                            high = mid;
                         }
-                        cut = candidate;
                     }
+                    let mut cut = text[..boundaries[low]].to_string();
                     cut.push('…');
                     let width = self.measurer.measure(&cut, &text_style).width;
                     kept.push(Fragment {

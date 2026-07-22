@@ -43,6 +43,11 @@ pub use text::{HeuristicMeasurer, TextMeasurer, TextMetrics, TextStyle};
 
 use lumen_html::{Document, NodeKind};
 
+/// Recursion depth cap for the tree walks (style, layout, paint,
+/// selection): deeper branches are skipped so pathologically nested
+/// documents cannot overflow the stack.
+pub(crate) const MAX_DEPTH: usize = 512;
+
 /// A fully processed page with every pipeline stage retained.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Page {

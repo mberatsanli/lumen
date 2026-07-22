@@ -1488,7 +1488,7 @@ fn blit_image(
         for pixel_x in x0..x1 {
             let u = ((pixel_x as f32 - rect.x) / rect.width).clamp(0.0, 1.0);
             let source_x = ((u * image.width as f32) as u32).min(image.width - 1);
-            let offset = ((source_y * image.width + source_x) * 4) as usize;
+            let offset = (source_y as usize * image.width as usize + source_x as usize) * 4;
             let [r, g, b, a] = image.rgba[offset..offset + 4] else {
                 continue;
             };

@@ -210,6 +210,10 @@ impl TextMeasurer for SystemFont {
 fn woff1_to_ttf(data: &[u8]) -> Option<Vec<u8>> {
     use std::io::Read as _;
 
+    /// A decompressed table claims its size in the (untrusted) directory;
+    /// refuse absurd claims instead of pre-allocating them.
+    const MAX_TABLE_LENGTH: usize = 64 * 1024 * 1024; // 64 MiB
+
     let u32_at = |at: usize| -> Option<u32> {
         data.get(at..at + 4)
             .map(|bytes| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
@@ -250,10 +254,17 @@ fn woff1_to_ttf(data: &[u8]) -> Option<Vec<u8>> {
         let offset = u32_at(entry + 4)? as usize;
         let compressed_length = u32_at(entry + 8)? as usize;
         let original_length = u32_at(entry + 12)? as usize;
+        if original_length > MAX_TABLE_LENGTH {
+            return None;
+        }
         let raw = data.get(offset..offset + compressed_length)?;
         let table = if compressed_length < original_length {
             let mut inflated = Vec::with_capacity(original_length);
+            // Bound the inflate: a hostile stream may expand past the
+            // declared length, so stop one byte beyond it (the length
+            // check below then rejects the table).
             flate2::read::ZlibDecoder::new(raw)
+                .take(original_length as u64 + 1)
                 .read_to_end(&mut inflated)
                 .ok()?;
             inflated
@@ -348,6 +359,25 @@ mod tests {
         }
         woff.extend_from_slice(&body);
         assert!(SystemFont::from_bytes(&woff).is_some());
+    }
+
+    #[test]
+    fn woff1_rejects_absurd_table_lengths() {
+        // A hostile directory claims a 200 MiB table: the unpacker must
+        // refuse instead of pre-allocating it.
+        let mut woff: Vec<u8> = Vec::new();
+        woff.extend_from_slice(b"wOFF");
+        woff.extend_from_slice(&0u32.to_be_bytes()); // flavor
+        woff.extend_from_slice(&0u32.to_be_bytes()); // length (unused)
+        woff.extend_from_slice(&1u16.to_be_bytes()); // numTables
+        woff.extend_from_slice(&0u16.to_be_bytes()); // reserved
+        woff.extend_from_slice(&[0; 28]); // totalSfntSize..privLength
+        woff.extend_from_slice(b"head");
+        woff.extend_from_slice(&64u32.to_be_bytes()); // offset (bogus)
+        woff.extend_from_slice(&4u32.to_be_bytes()); // compLength
+        woff.extend_from_slice(&(200u32 * 1024 * 1024).to_be_bytes()); // origLength
+        woff.extend_from_slice(&0u32.to_be_bytes()); // checksum
+        assert!(woff1_to_ttf(&woff).is_none());
     }
 
     /// Runs only where a system font exists (macOS/Linux/Windows dev boxes

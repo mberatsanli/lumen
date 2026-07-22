@@ -115,10 +115,25 @@ impl LayoutBox {
             Some(offset) if self.style.overflow.clips() => (x, y + offset),
             _ => (x, y),
         };
-        for child in self.children_in_paint_order().into_iter().rev() {
-            if let Some(found) = child.scrollable_under(child_x, child_y, scroll_offsets) {
-                return Some(found);
-            }
+        // Fast path: with no z-index anywhere, paint order is DOM order,
+        // so neither the collecting Vec nor the sort is needed.
+        let found = if self
+            .children
+            .iter()
+            .all(|child| child.style.z_index.unwrap_or(0) == 0)
+        {
+            self.children
+                .iter()
+                .rev()
+                .find_map(|child| child.scrollable_under(child_x, child_y, scroll_offsets))
+        } else {
+            self.children_in_paint_order()
+                .into_iter()
+                .rev()
+                .find_map(|child| child.scrollable_under(child_x, child_y, scroll_offsets))
+        };
+        if found.is_some() {
+            return found;
         }
         if inside && self.style.overflow == crate::style::Overflow::Scroll {
             let max = self.max_inner_scroll();
@@ -193,10 +208,25 @@ impl LayoutBox {
             Some(offset) if self.style.overflow.clips() => (x, y + offset),
             _ => (x, y),
         };
-        for child in self.children_in_paint_order().into_iter().rev() {
-            if let Some(hit) = child.hit_test_scrolled(child_x, child_y, scroll_offsets) {
-                return Some(hit);
-            }
+        // Fast path: with no z-index anywhere, paint order is DOM order,
+        // so neither the collecting Vec nor the sort is needed.
+        let hit = if self
+            .children
+            .iter()
+            .all(|child| child.style.z_index.unwrap_or(0) == 0)
+        {
+            self.children
+                .iter()
+                .rev()
+                .find_map(|child| child.hit_test_scrolled(child_x, child_y, scroll_offsets))
+        } else {
+            self.children_in_paint_order()
+                .into_iter()
+                .rev()
+                .find_map(|child| child.hit_test_scrolled(child_x, child_y, scroll_offsets))
+        };
+        if let Some(hit) = hit {
+            return Some(hit);
         }
         let rect = self.border_box();
         let inside =
@@ -229,6 +259,32 @@ impl LayoutBox {
     }
 }
 
+/// Memoized shrink-to-fit probes for a single layout pass.
+///
+/// [`natural_content_width`] re-lays a whole subtree to measure it, and
+/// nested auto-width atomic boxes (inline-blocks, floats, table cells)
+/// would otherwise redo the same probes exponentially often — O(2^depth).
+/// A probe is a pure function of the node, the available width and the
+/// depth (the depth guard can truncate deep subtrees, so the depth is
+/// part of the key), so results are cached per `layout_document` call.
+#[derive(Debug, Default)]
+pub(crate) struct ProbeCache(std::cell::RefCell<std::collections::HashMap<(NodeId, u32, usize), f32>>);
+
+impl ProbeCache {
+    fn get(&self, node_id: NodeId, available: f32, depth: usize) -> Option<f32> {
+        self.0
+            .borrow()
+            .get(&(node_id, available.to_bits(), depth))
+            .copied()
+    }
+
+    fn insert(&self, node_id: NodeId, available: f32, depth: usize, width: f32) {
+        self.0
+            .borrow_mut()
+            .insert((node_id, available.to_bits(), depth), width);
+    }
+}
+
 /// The containing block for absolutely positioned descendants: the
 /// content box of the nearest positioned ancestor (the viewport at the
 /// root). Height is known only when that ancestor's height is explicit.
@@ -256,6 +312,7 @@ pub fn layout_document(
         .cloned()
         .unwrap_or_default();
 
+    let probe_cache = ProbeCache::default();
     let mut cursor_y = 0.0;
     let mut children = Vec::new();
     for child in document.children(document.root()) {
@@ -276,6 +333,8 @@ pub fn layout_document(
             viewport,
             measurer,
             images,
+            &probe_cache,
+            0,
         ) {
             children.push(layout);
         }
@@ -312,6 +371,8 @@ fn layout_node(
     viewport: Size,
     measurer: &dyn TextMeasurer,
     images: &ImageMap,
+    probe_cache: &ProbeCache,
+    depth: usize,
 ) -> Option<LayoutBox> {
     let style = styles.by_node.get(&node_id)?.clone();
     if style.display == Display::None {
@@ -335,6 +396,8 @@ fn layout_node(
             viewport,
             measurer,
             images,
+            probe_cache,
+            depth,
         )),
     }
 }
@@ -384,8 +447,16 @@ fn first_block_child_top_margin(
     viewport: Size,
 ) -> Option<f32> {
     for child in document.children(node_id) {
-        let style = styles.by_node.get(child)?;
+        let Some(style) = styles.by_node.get(child) else {
+            continue;
+        };
         if style.display == Display::None {
+            continue;
+        }
+        // Floats and out-of-flow boxes never collapse margins.
+        if style.float != Float::None
+            || matches!(style.position, Position::Absolute | Position::Fixed)
+        {
             continue;
         }
         if is_inline_level(document, styles, *child) {
@@ -459,26 +530,33 @@ pub(crate) fn natural_content_width(
     viewport: Size,
     measurer: &dyn TextMeasurer,
     images: &ImageMap,
+    probe_cache: &ProbeCache,
+    depth: usize,
 ) -> f32 {
+    if let Some(cached) = probe_cache.get(node_id, available, depth) {
+        return cached;
+    }
     let NodeKind::Element(element) = &document.node(node_id).kind else {
         return 0.0;
     };
     let style = styles.by_node.get(&node_id).cloned().unwrap_or_default();
     let probe = layout_element(
         document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, None, viewport,
-        measurer, images,
+        measurer, images, probe_cache, depth,
     );
     // Measure the probe's children (the target's own padding/border sit
     // outside its content width and must not be double-counted).
     let content_x = probe.content_box().x;
-    (probe
+    let width = (probe
         .children
         .iter()
         .map(natural_right)
         .fold(content_x, f32::max)
         - content_x)
         .min(available)
-        .max(0.0)
+        .max(0.0);
+    probe_cache.insert(node_id, available, depth, width);
+    width
 }
 
 /// Lays out an element as an isolated box with an explicit style (used by
@@ -493,13 +571,15 @@ pub(crate) fn layout_isolated_with_style(
     viewport: Size,
     measurer: &dyn TextMeasurer,
     images: &ImageMap,
+    probe_cache: &ProbeCache,
+    depth: usize,
 ) -> LayoutBox {
     let NodeKind::Element(element) = &document.node(node_id).kind else {
         unreachable!("isolated boxes are always elements");
     };
     layout_element(
         document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, None, viewport,
-        measurer, images,
+        measurer, images, probe_cache, depth,
     )
 }
 
@@ -514,6 +594,8 @@ pub(crate) fn layout_atomic_box(
     viewport: Size,
     measurer: &dyn TextMeasurer,
     images: &ImageMap,
+    probe_cache: &ProbeCache,
+    depth: usize,
 ) -> LayoutBox {
     let NodeKind::Element(element) = &document.node(node_id).kind else {
         unreachable!("atomic boxes are always elements");
@@ -521,23 +603,23 @@ pub(crate) fn layout_atomic_box(
     let mut style = styles.by_node.get(&node_id).cloned().unwrap_or_default();
     if matches!(style.width, Dimension::Auto) && element.tag_name != "img" {
         let natural = natural_content_width(
-            document, styles, node_id, available, viewport, measurer, images,
+            document, styles, node_id, available, viewport, measurer, images, probe_cache, depth,
         );
         style.width = Dimension::Px(natural);
         style.box_sizing = BoxSizing::ContentBox;
     }
     layout_element(
         document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, None, viewport,
-        measurer, images,
+        measurer, images, probe_cache, depth,
     )
 }
 
 /// Resolves a specified size to its content-box value: border-box sizes
 /// shrink by the given edge total (border + padding on that axis),
-/// content-box sizes pass through.
+/// content-box sizes pass through. Negative specified sizes clamp to 0.
 fn content_size(specified: f32, box_sizing: BoxSizing, edges: f32) -> f32 {
     match box_sizing {
-        BoxSizing::ContentBox => specified,
+        BoxSizing::ContentBox => specified.max(0.0),
         BoxSizing::BorderBox => (specified - edges).max(0.0),
     }
 }
@@ -580,7 +662,21 @@ fn layout_element(
     viewport: Size,
     measurer: &dyn TextMeasurer,
     images: &ImageMap,
+    probe_cache: &ProbeCache,
+    depth: usize,
 ) -> LayoutBox {
+    // Depth guard: absurdly nested subtrees collapse to an empty box so
+    // pathological documents cannot overflow the stack.
+    if depth >= crate::MAX_DEPTH {
+        return LayoutBox {
+            node_id,
+            box_type: BoxType::Block,
+            kind: LayoutKind::Element(element.tag_name.clone()),
+            dimensions: Dimensions::default(),
+            style,
+            children: Vec::new(),
+        };
+    }
     if element.tag_name == "img" {
         return layout_image(
             node_id,
@@ -742,6 +838,8 @@ fn layout_element(
             viewport,
             measurer,
             images,
+            probe_cache,
+            depth + 1,
         );
         let content_height = explicit_height.unwrap_or(used_height);
         let dimensions = Dimensions {
@@ -779,6 +877,8 @@ fn layout_element(
             viewport,
             measurer,
             images,
+            probe_cache,
+            depth + 1,
         );
         let content_height = explicit_content_height.unwrap_or(used_height);
         let dimensions = Dimensions {
@@ -816,6 +916,8 @@ fn layout_element(
             viewport,
             measurer,
             images,
+            probe_cache,
+            depth + 1,
         );
         // Shrink-to-fit: an auto-width table hugs its columns.
         let used_width = children
@@ -874,7 +976,9 @@ fn layout_element(
         viewport: Size,
         measurer: &dyn TextMeasurer,
         images: &ImageMap,
+        probe_cache: &ProbeCache,
         children: &mut Vec<LayoutBox>,
+        depth: usize,
     ) {
         if run.is_empty() {
             return;
@@ -883,7 +987,8 @@ fn layout_element(
         let bounds = |line_top: f32| floats.bounds_at(content_x, content_width, run_top + line_top);
         let mut layout_atomic = |node_id: NodeId, available: f32| {
             layout_atomic_box(
-                document, styles, node_id, available, viewport, measurer, images,
+                document, styles, node_id, available, viewport, measurer, images, probe_cache,
+                depth,
             )
         };
         let (lines, height) = layout_inline_run(
@@ -948,7 +1053,15 @@ fn layout_element(
                 }
             };
             let laid = layout_atomic_box(
-                document, styles, *child, cb_width, viewport, measurer, images,
+                document,
+                styles,
+                *child,
+                cb_width,
+                viewport,
+                measurer,
+                images,
+                probe_cache,
+                depth + 1,
             );
             let margin_box = laid.margin_box();
             let offsets = &child_style.offsets;
@@ -959,10 +1072,17 @@ fn layout_element(
             } else {
                 content_x // static-position fallback
             };
-            let y = if let Some(top) = offsets.top.resolve(cb_width, viewport) {
+            // Vertical offsets resolve against the containing block
+            // *height*; a percent against an unknown height behaves as
+            // `auto` (falls through to `bottom`, then the static spot).
+            let vertical = |dimension: Dimension| match dimension {
+                Dimension::Percent(_) if cb_height.is_nan() => None,
+                other => other.resolve(cb_height, viewport),
+            };
+            let y = if let Some(top) = vertical(offsets.top) {
                 cb_y + top
             } else if !cb_height.is_nan()
-                && let Some(bottom) = offsets.bottom.resolve(cb_width, viewport)
+                && let Some(bottom) = vertical(offsets.bottom)
             {
                 cb_y + cb_height - margin_box.height - bottom
             } else {
@@ -988,6 +1108,8 @@ fn layout_element(
                 viewport,
                 measurer,
                 images,
+                probe_cache,
+                depth + 1,
             );
             let margin_box = laid.margin_box();
             let (width, height) = (margin_box.width, margin_box.height);
@@ -995,6 +1117,7 @@ fn layout_element(
             // fits. The probe is bounded so pathological float stacks
             // cannot loop forever; real pages need only a few steps.
             const FLOAT_PLACEMENT_ATTEMPTS: usize = 64;
+            let mut spot = None;
             let mut y = child_cursor_y;
             for _ in 0..FLOAT_PLACEMENT_ATTEMPTS {
                 let (indent, available) = floats.bounds_at(content_x, content_width, y);
@@ -1003,23 +1126,34 @@ fn layout_element(
                         Float::Right => content_x + indent + available - width,
                         _ => content_x + indent,
                     };
-                    let mut laid = laid;
-                    laid.translate(x - margin_box.x, y - margin_box.y);
-                    let rect = Rect {
-                        x,
-                        y,
-                        width,
-                        height,
-                    };
-                    match side {
-                        Float::Right => floats.right.push(rect),
-                        _ => floats.left.push(rect),
-                    }
-                    children.push(laid);
+                    spot = Some((x, y));
                     break;
                 }
                 y = floats.lowest_bottom().max(y + 1.0);
             }
+            // Out of probe budget: stack below the lowest float rather
+            // than dropping the box entirely.
+            let (x, y) = spot.unwrap_or_else(|| {
+                let y = floats.lowest_bottom().max(child_cursor_y);
+                let x = match side {
+                    Float::Right => (content_x + content_width - width).max(content_x),
+                    _ => content_x,
+                };
+                (x, y)
+            });
+            let mut laid = laid;
+            laid.translate(x - margin_box.x, y - margin_box.y);
+            let rect = Rect {
+                x,
+                y,
+                width,
+                height,
+            };
+            match side {
+                Float::Right => floats.right.push(rect),
+                _ => floats.left.push(rect),
+            }
+            children.push(laid);
             continue;
         }
 
@@ -1049,7 +1183,9 @@ fn layout_element(
                 viewport,
                 measurer,
                 images,
+                probe_cache,
                 &mut children,
+                depth + 1,
             );
             // clear: drop below the floats of the given side(s).
             if child_style.clear != Clear::None {
@@ -1087,6 +1223,8 @@ fn layout_element(
                 viewport,
                 measurer,
                 images,
+                probe_cache,
+                depth + 1,
             ) {
                 previous_bottom_margin = Some(layout.dimensions.margin.bottom);
                 children.push(layout);
@@ -1107,7 +1245,9 @@ fn layout_element(
         viewport,
         measurer,
         images,
+        probe_cache,
         &mut children,
+        depth + 1,
     );
     let trailing_inline = children.len() > blocks_before_trailing_run;
 
@@ -2567,5 +2707,138 @@ mod tests {
         let anonymous = &div.children[0];
         assert_eq!(anonymous.box_type, BoxType::AnonymousBlock);
         assert!(matches!(&anonymous.kind, LayoutKind::Inline { lines } if lines.len() == 1));
+    }
+
+    #[test]
+    fn absolute_top_percent_resolves_against_containing_height() {
+        let layout = layout_of(
+            "<style>.outer { position: relative; height: 100px; }\
+                    .inner { position: absolute; top: 50%; height: 10px; }</style>\
+             <div class='outer'><div class='inner'></div></div>",
+        );
+        let outer = &layout.children[0];
+        assert_eq!(outer.content_box().height, 100.0);
+        let inner = outer
+            .children
+            .iter()
+            .find(|child| child.style.position == crate::style::Position::Absolute)
+            .expect("absolute child is laid out");
+        // 50% of the 100px containing block height, not of its width.
+        assert_eq!(inner.content_box().y, outer.content_box().y + 50.0);
+    }
+
+    #[test]
+    fn parent_margin_collapses_past_a_float_first_child() {
+        // The float first child is out of flow: the parent's top margin
+        // collapses with the first *in-flow* block child's 20px margin.
+        let layout = layout_of(
+            "<style>.parent { margin-top: 10px; }\
+                    .fl { float: left; width: 10px; height: 10px; }\
+                    .child { margin-top: 20px; height: 5px; }</style>\
+             <div class='parent'><div class='fl'></div><div class='child'></div></div>",
+        );
+        let parent = &layout.children[0];
+        assert_eq!(parent.dimensions.margin.top, 20.0);
+        // Both children are laid out (the float was not dropped either).
+        assert_eq!(parent.children.len(), 2);
+    }
+
+    #[test]
+    fn negative_explicit_width_clamps_to_zero() {
+        let layout = layout_of("<style>div { width: -50px; height: 10px; }</style><div>x</div>");
+        assert_eq!(layout.children[0].content_box().width, 0.0);
+    }
+
+    #[test]
+    fn deeply_nested_auto_width_inline_blocks_lay_out_fast() {
+        // Without probe memoization this is O(2^depth): every auto-width
+        // atomic box probes (fully lays out) its subtree and then lays it
+        // out again, doubling the work per nesting level.
+        let mut html = String::from("<style>.ib { display: inline-block; }</style><div>");
+        for _ in 0..30 {
+            html.push_str("<span class='ib'>");
+        }
+        html.push('x');
+        for _ in 0..30 {
+            html.push_str("</span>");
+        }
+        html.push_str("</div>");
+        let start = std::time::Instant::now();
+        let layout = layout_of(&html);
+        assert!(layout.content_box().width > 0.0);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "30 nested auto-width inline-blocks took {:?}",
+            start.elapsed()
+        );
+    }
+
+    #[test]
+    fn deeply_nested_tables_lay_out_fast() {
+        // Each auto-width cell triggers a shrink-to-fit probe of its
+        // subtree; nested tables compound that exponentially without
+        // probe memoization.
+        let mut html = String::new();
+        for _ in 0..16 {
+            html.push_str("<table><tr><td>");
+        }
+        html.push('x');
+        for _ in 0..16 {
+            html.push_str("</td></tr></table>");
+        }
+        let start = std::time::Instant::now();
+        let layout = layout_of(&html);
+        assert!(layout.content_box().width > 0.0);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "16 nested tables took {:?}",
+            start.elapsed()
+        );
+    }
+
+    #[test]
+    fn ellipsis_on_very_long_text_stays_fast() {
+        // The truncation search measures a prefix per binary-search step
+        // instead of cloning and re-measuring per character (O(n²)).
+        let words = "word ".repeat(10_000);
+        let html = format!(
+            "<style>div {{ width: 80px; white-space: nowrap; overflow: hidden; \
+                          text-overflow: ellipsis; }}</style><div>{words}</div>"
+        );
+        let start = std::time::Instant::now();
+        let layout = layout_of(&html);
+        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+            panic!("expected inline content");
+        };
+        let text = lines[0].fragments[0].text().unwrap();
+        assert!(text.ends_with('…'), "{text}");
+        assert!(lines[0].fragments[0].width <= 80.0);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "ellipsis over 50k chars took {:?}",
+            start.elapsed()
+        );
+    }
+
+    #[test]
+    fn absurdly_deep_nesting_lays_out_without_overflow() {
+        // Test threads have small stacks; run on a thread with a
+        // main-thread-sized stack so the depth cap (not the harness) is
+        // what bounds the recursion.
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let mut html = String::new();
+                for _ in 0..crate::MAX_DEPTH * 4 {
+                    html.push_str("<div>");
+                }
+                // Completes without a stack overflow; the subtree past
+                // the cap collapses into empty boxes.
+                let layout = layout_of(&html);
+                assert!(layout.content_box().width > 0.0);
+            })
+            .expect("spawn")
+            .join()
+            .expect("no stack overflow");
     }
 }

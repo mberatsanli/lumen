@@ -12,7 +12,7 @@
 
 use crate::geometry::Size;
 use crate::image::ImageMap;
-use crate::layout::{LayoutBox, layout_isolated_with_style, natural_content_width};
+use crate::layout::{LayoutBox, ProbeCache, layout_isolated_with_style, natural_content_width};
 use crate::style::{BoxSizing, ComputedStyle, Dimension, Display, StyleMap};
 use crate::text::TextMeasurer;
 use lumen_html::{Document, NodeId};
@@ -125,6 +125,8 @@ pub(crate) fn layout_table_children(
     viewport: Size,
     measurer: &dyn TextMeasurer,
     images: &ImageMap,
+    probe_cache: &ProbeCache,
+    depth: usize,
 ) -> (Vec<LayoutBox>, f32) {
     let (rows, column_count) = collect_grid(document, styles, table);
     if column_count == 0 {
@@ -146,6 +148,7 @@ pub(crate) fn layout_table_children(
                 .unwrap_or_else(|| {
                     natural_content_width(
                         document, styles, cell.node, available, viewport, measurer, images,
+                        probe_cache, depth,
                     )
                 })
                 .min(available);
@@ -200,6 +203,7 @@ pub(crate) fn layout_table_children(
             style.box_sizing = BoxSizing::BorderBox;
             let mut laid = layout_isolated_with_style(
                 document, styles, cell.node, style, span_width, viewport, measurer, images,
+                probe_cache, depth,
             );
             let margin_box = laid.margin_box();
             laid.translate(

@@ -142,6 +142,7 @@ pub fn build_display_list_scrolled(
         (0.0, 0.0),
         scroll_offsets,
         &mut commands,
+        0,
     );
     commands
 }
@@ -167,7 +168,13 @@ fn paint_box(
     shift: (f32, f32),
     scroll_offsets: &std::collections::HashMap<lumen_html::NodeId, f32>,
     commands: &mut Vec<DisplayCommand>,
+    depth: usize,
 ) {
+    // Depth guard: deeper subtrees are simply not painted (layout already
+    // caps nesting, this is the second line of defense).
+    if depth >= crate::MAX_DEPTH {
+        return;
+    }
     let place = |rect: Rect| Rect {
         x: rect.x + shift.0,
         y: rect.y + shift.1,
@@ -489,7 +496,15 @@ fn paint_box(
                         });
                     }
                     crate::inline::FragmentContent::Box(laid) => {
-                        paint_box(laid, images, opacity, child_shift, scroll_offsets, commands);
+                        paint_box(
+                            laid,
+                            images,
+                            opacity,
+                            child_shift,
+                            scroll_offsets,
+                            commands,
+                            depth + 1,
+                        );
                     }
                     crate::inline::FragmentContent::Text { .. } => {}
                 }
@@ -497,15 +512,37 @@ fn paint_box(
         }
     }
 
-    for child in layout.children_in_paint_order() {
-        paint_box(
-            child,
-            images,
-            opacity,
-            child_shift,
-            scroll_offsets,
-            commands,
-        );
+    // Fast path: with no z-index anywhere among the children, the stable
+    // paint-order sort is the identity — iterate in tree order without
+    // building (and sorting) a temporary Vec per box.
+    if layout
+        .children
+        .iter()
+        .all(|child| child.style.z_index.is_none())
+    {
+        for child in &layout.children {
+            paint_box(
+                child,
+                images,
+                opacity,
+                child_shift,
+                scroll_offsets,
+                commands,
+                depth + 1,
+            );
+        }
+    } else {
+        for child in layout.children_in_paint_order() {
+            paint_box(
+                child,
+                images,
+                opacity,
+                child_shift,
+                scroll_offsets,
+                commands,
+                depth + 1,
+            );
+        }
     }
 
     if clips {

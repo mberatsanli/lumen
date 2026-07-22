@@ -9,9 +9,21 @@
 use crate::geometry::Rect;
 use crate::inline::FragmentContent;
 use crate::layout::{LayoutBox, LayoutKind};
-use crate::style::ComputedStyle;
+use crate::style::FontWeight;
 use crate::text::{TextMeasurer, TextStyle};
 use lumen_css::Color;
+
+/// The style fields selection actually uses (text metrics for caret
+/// math, the `::selection` highlight override). Carrying these instead
+/// of a full `ComputedStyle` avoids a deep clone per run.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextRunStyle {
+    pub font_size: f32,
+    pub font_weight: FontWeight,
+    pub monospace: bool,
+    pub letter_spacing: f32,
+    pub selection_background: Option<Color>,
+}
 
 /// One selectable text fragment with its absolute geometry.
 #[derive(Debug, Clone)]
@@ -19,18 +31,23 @@ pub struct TextRun {
     pub text: String,
     /// The fragment's slot: line top/height, fragment x/width.
     pub rect: Rect,
-    pub style: ComputedStyle,
+    pub style: TextRunStyle,
 }
 
 /// Flattens all text fragments in paint order.
 #[must_use]
 pub fn collect_text_runs(layout: &LayoutBox) -> Vec<TextRun> {
     let mut runs = Vec::new();
-    collect(layout, &mut runs);
+    collect(layout, &mut runs, 0);
     runs
 }
 
-fn collect(layout: &LayoutBox, runs: &mut Vec<TextRun>) {
+fn collect(layout: &LayoutBox, runs: &mut Vec<TextRun>, depth: usize) {
+    // Depth guard: text below the cap is not selectable (and cannot
+    // overflow the stack).
+    if depth >= crate::MAX_DEPTH {
+        return;
+    }
     if let LayoutKind::Inline { lines } = &layout.kind {
         let content = layout.content_box();
         for line in lines {
@@ -46,15 +63,21 @@ fn collect(layout: &LayoutBox, runs: &mut Vec<TextRun>) {
                             width: fragment.width,
                             height: line.height,
                         },
-                        style: style.as_ref().clone(),
+                        style: TextRunStyle {
+                            font_size: style.font_size,
+                            font_weight: style.font_weight,
+                            monospace: style.monospace,
+                            letter_spacing: style.letter_spacing,
+                            selection_background: style.selection_background,
+                        },
                     }),
-                    FragmentContent::Box(laid) => collect(laid, runs),
+                    FragmentContent::Box(laid) => collect(laid, runs, depth + 1),
                 }
             }
         }
     }
     for child in &layout.children {
-        collect(child, runs);
+        collect(child, runs, depth + 1);
     }
 }
 
@@ -89,15 +112,28 @@ impl Selection {
     }
 }
 
-fn prefix_width(run: &TextRun, offset: usize, measurer: &dyn TextMeasurer) -> f32 {
-    let prefix: String = run.text.chars().take(offset).collect();
-    let text_style = TextStyle {
+fn text_style(run: &TextRun) -> TextStyle {
+    TextStyle {
         font_size: run.style.font_size,
         font_weight: run.style.font_weight,
         monospace: run.style.monospace,
         letter_spacing: run.style.letter_spacing,
-    };
-    measurer.measure(&prefix, &text_style).width
+    }
+}
+
+/// Byte length of the run's first `offset` characters (offsets are char
+/// indices; slicing at a char boundary avoids building a prefix String).
+fn prefix_end(run: &TextRun, offset: usize) -> usize {
+    run.text
+        .char_indices()
+        .nth(offset)
+        .map_or(run.text.len(), |(byte, _)| byte)
+}
+
+fn prefix_width(run: &TextRun, offset: usize, measurer: &dyn TextMeasurer) -> f32 {
+    measurer
+        .measure(&run.text[..prefix_end(run, offset)], &text_style(run))
+        .width
 }
 
 /// The caret nearest to a page-coordinate point. Points between lines
@@ -136,14 +172,20 @@ pub fn caret_at_point(
     let run = &runs[index];
 
     let target = x - run.rect.x;
+    // Walk the prefix widths once, carrying the previous measurement.
+    // The strings measured are exactly those the old offset loop
+    // measured, but each is a slice of the run — no per-character String.
+    let style = text_style(run);
     let mut offset = 0;
-    let count = run.text.chars().count();
-    while offset < count {
-        let before = prefix_width(run, offset, measurer);
-        let after = prefix_width(run, offset + 1, measurer);
+    let mut before = measurer.measure("", &style).width;
+    for (index, character) in run.text.char_indices() {
+        let after = measurer
+            .measure(&run.text[..index + character.len_utf8()], &style)
+            .width;
         if target < (before + after) / 2.0 {
             break;
         }
+        before = after;
         offset += 1;
     }
     Some(Caret { run: index, offset })
