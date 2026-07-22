@@ -7,6 +7,21 @@
 
 pub use url::Url;
 
+use std::io::Read as _;
+
+/// Most bytes a single response body (or local file) may occupy in
+/// memory — unbounded reads are a memory-DoS vector, so every load
+/// funnels through [`read_body_capped`].
+const MAX_BODY_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Reads at most `limit` bytes from `reader`, silently truncating the
+/// rest.
+fn read_body_capped(reader: impl std::io::Read, limit: u64) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader.take(limit).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 /// A request for one resource.
 #[derive(Debug, Clone)]
 pub struct ResourceRequest {
@@ -101,7 +116,7 @@ impl ResourceLoader for FileLoader {
             .url
             .to_file_path()
             .map_err(|()| LoadError::InvalidUrl(request.url.to_string()))?;
-        let body = std::fs::read(&path)?;
+        let body = read_body_capped(std::fs::File::open(&path)?, MAX_BODY_BYTES)?;
         Ok(ResourceResponse {
             final_url: request.url.clone(),
             content_type: guess_content_type(&path).map(str::to_string),
@@ -138,8 +153,8 @@ fn agent() -> &'static ureq::Agent {
 
 /// Merges the caller's `Cookie` header with cookies collected along the
 /// redirect chain (later hops override earlier same-name values). The
-/// redirects here stay on one host, so `name=value` pairs suffice without
-/// full domain/path matching.
+/// caller keeps the chain on one origin: a cross-origin hop stops
+/// sending the base header and drops the pairs collected so far.
 fn chain_cookie_header(base: Option<&str>, chain: &[(String, String)]) -> Option<String> {
     let mut pairs: Vec<(String, String)> = Vec::new();
     if let Some(base) = base {
@@ -173,9 +188,17 @@ impl ResourceLoader for HttpLoader {
         let mut all_set_cookies: Vec<String> = Vec::new();
         // Name=value pairs to replay as `Cookie` on the next hop.
         let mut chain: Vec<(String, String)> = Vec::new();
+        // The caller's `Cookie` header belongs to the original URL's
+        // origin; a cross-origin hop must never see it.
+        let mut send_base = true;
 
         for _ in 0..=MAX_REDIRECTS {
-            let cookie = chain_cookie_header(request.cookie.as_deref(), &chain);
+            let base = if send_base {
+                request.cookie.as_deref()
+            } else {
+                None
+            };
+            let cookie = chain_cookie_header(base, &chain);
             let mut response = match &body {
                 Some((content_type, bytes)) => {
                     let mut builder = agent()
@@ -216,7 +239,14 @@ impl ResourceLoader for HttpLoader {
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_string);
             if let (301..=303 | 307 | 308, Some(location)) = (status, location.as_deref()) {
-                url = resolve(&url, location)?;
+                let next = resolve(&url, location)?;
+                if next.origin() != url.origin() {
+                    // Cross-origin hop: neither the caller's cookies nor
+                    // the pairs collected so far may leak to the new host.
+                    send_base = false;
+                    chain.clear();
+                }
+                url = next;
                 // 301/302/303 downgrade the method to GET; 307/308 keep it.
                 if matches!(status, 301..=303) {
                     body = None;
@@ -234,9 +264,7 @@ impl ResourceLoader for HttpLoader {
                 .get("content-type")
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_string);
-            let bytes = response
-                .body_mut()
-                .read_to_vec()
+            let bytes = read_body_capped(response.body_mut().as_reader(), MAX_BODY_BYTES)
                 .map_err(|error| LoadError::Http(error.to_string()))?;
             return Ok(ResourceResponse {
                 final_url,
@@ -347,5 +375,92 @@ mod tests {
             url_from_user_input("examples/hello.html").unwrap().scheme(),
             "file"
         );
+    }
+
+    /// Runs a stub HTTP server that answers one request per queued
+    /// response, then reports the request heads it saw. Responses must
+    /// carry `Connection: close` so ureq never pools a dead socket.
+    fn serve(responses: Vec<String>) -> (String, std::sync::mpsc::Receiver<Vec<String>>) {
+        use std::io::{BufRead as _, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            for response in &responses {
+                let (stream, _) = listener.accept().unwrap();
+                let mut head = String::new();
+                let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    head.push_str(&line);
+                    if line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                }
+                seen.push(head);
+                let mut stream = stream;
+                stream.write_all(response.as_bytes()).unwrap();
+            }
+            tx.send(seen).unwrap();
+        });
+        (base, rx)
+    }
+
+    fn seen(seen: std::sync::mpsc::Receiver<Vec<String>>) -> Vec<String> {
+        seen.recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap()
+    }
+
+    #[test]
+    fn same_origin_redirect_replays_chain_cookies() {
+        let (base, rx) = serve(vec![
+            "HTTP/1.1 302 Found\r\nLocation: /final\r\nSet-Cookie: hop=1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string(),
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_string(),
+        ]);
+        let mut request = ResourceRequest::get(Url::parse(&format!("{base}/start")).unwrap());
+        request.cookie = Some("base=1".to_string());
+        let response = HttpLoader.load(&request).unwrap();
+        assert_eq!(response.text(), "ok");
+        assert_eq!(response.set_cookies, vec!["hop=1"]);
+        let seen = seen(rx);
+        assert!(
+            seen[1].to_ascii_lowercase().contains("cookie: base=1; hop=1"),
+            "second hop must carry base + chain cookies: {}",
+            seen[1]
+        );
+    }
+
+    #[test]
+    fn cross_origin_redirect_drops_cookies() {
+        // Two servers on different ports: same host, different origin.
+        let (base_b, rx_b) = serve(vec![
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_string(),
+        ]);
+        let (base_a, rx_a) = serve(vec![format!(
+            "HTTP/1.1 302 Found\r\nLocation: {base_b}/final\r\nSet-Cookie: hop=1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        )]);
+        let mut request = ResourceRequest::get(Url::parse(&format!("{base_a}/start")).unwrap());
+        request.cookie = Some("base=1".to_string());
+        let response = HttpLoader.load(&request).unwrap();
+        assert_eq!(response.text(), "ok");
+        let seen_b = seen(rx_b);
+        assert!(
+            !seen_b[0].to_ascii_lowercase().contains("cookie:"),
+            "cross-origin hop must not see any cookie: {}",
+            seen_b[0]
+        );
+        // The Set-Cookie is still reported for the caller's jar (which
+        // does its own domain matching).
+        assert_eq!(response.set_cookies, vec!["hop=1"]);
+        seen(rx_a);
+    }
+
+    #[test]
+    fn bodies_are_capped() {
+        let data = vec![b'x'; 1024];
+        assert_eq!(read_body_capped(&data[..], 10).unwrap().len(), 10);
+        assert_eq!(read_body_capped(&data[..], MAX_BODY_BYTES).unwrap().len(), 1024);
     }
 }
