@@ -23,16 +23,18 @@ mod text_input;
 
 use lumen_browser::{EditOp, Motion, Session};
 use lumen_engine::{
-    Caret, DisplayCommand, HeuristicMeasurer, Rect, Selection, Size, SystemFont, caret_at_point,
-    collect_text_runs, highlight_rects, rasterize_over, rasterize_region, rasterize_with,
-    selected_text,
+    Caret, DisplayCommand, HeuristicMeasurer, Rect, Selection, Size, SystemFont, TextRun,
+    caret_at_point, collect_text_runs, highlight_rects, rasterize_over, rasterize_region,
+    rasterize_with, selected_text,
 };
 use lumen_engine::{FontWeight, TextMeasurer, TextMetrics, TextStyle};
 use lumen_platform::{DefaultLoader, Url, url_from_user_input};
 use popups::{
     COLOR_SWATCHES, ColorPopup, SELECT_ROW_HEIGHT, SWATCH_COLUMNS, SWATCH_GAP, SWATCH_SIZE,
-    SelectPopup, rect_contains, swatch_rect,
+    SelectPopup, ViolationPopup, rect_contains, swatch_rect, violation_rect,
 };
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::num::NonZeroU32;
 use std::rc::Rc;
@@ -42,7 +44,7 @@ use text_input::{EditOutcome, TextInput, apply_edit};
 use winit::application::ApplicationHandler;
 use winit::event::Modifiers;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::CursorIcon;
 use winit::window::{Window, WindowId};
@@ -83,6 +85,9 @@ impl Nav {
 
 /// Sent back from the loader thread when a navigation finishes.
 struct NavDone {
+    /// Id of the tab that started the navigation; the user may have
+    /// switched away (or closed it) while the loader was working.
+    tab: u64,
     session: Box<Session<DefaultLoader>>,
     error: Option<String>,
 }
@@ -95,9 +100,12 @@ enum SessionState {
 
 /// One browser tab's swappable state. The active tab's copy lives in the
 /// `App` fields directly (`state`, `scroll_y`, `input`, `page_scripts`);
-/// this holds the parked state of every other tab. Only the active tab
-/// may be loading, so no loader results ever target a parked tab.
+/// this holds the parked state of every other tab. Loader results carry
+/// the tab id they started from, so a result lands in its own tab even
+/// when the user switched away mid-load.
 struct Tab {
+    /// Stable identity: survives switching and positional shifts.
+    id: u64,
     state: SessionState,
     scroll_y: f32,
     input: String,
@@ -138,11 +146,11 @@ impl Bookmarks {
     /// Writes the list back to disk, creating the directory as needed.
     fn save(&self) {
         let Some(path) = Self::path() else { return };
-        if let Some(parent) = path.parent() {
-            if let Err(error) = std::fs::create_dir_all(parent) {
-                eprintln!("bookmarks: {error}");
-                return;
-            }
+        if let Some(parent) = path.parent()
+            && let Err(error) = std::fs::create_dir_all(parent)
+        {
+            eprintln!("bookmarks: {error}");
+            return;
         }
         match serde_json::to_vec_pretty(self) {
             Ok(bytes) => {
@@ -280,6 +288,12 @@ fn page_edit_action(key: &Key, command: bool, shift: bool, alt: bool) -> Option<
     })
 }
 
+/// The slot of tab `id`, if it still exists — a navigation result whose
+/// tab closed mid-load has nowhere to land and is dropped.
+fn tab_position(tabs: &[Tab], id: u64) -> Option<usize> {
+    tabs.iter().position(|tab| tab.id == id)
+}
+
 /// The session's inner scroll offsets (empty map while loading).
 fn session_offsets(state: &SessionState) -> &std::collections::HashMap<usize, f32> {
     static EMPTY: std::sync::OnceLock<std::collections::HashMap<usize, f32>> =
@@ -323,6 +337,106 @@ fn draw_inner_scrollbars(
 
 fn count_boxes(layout: &lumen_engine::LayoutBox) -> usize {
     1 + layout.children.iter().map(count_boxes).sum::<usize>()
+}
+
+/// Clipboard text bound for a form control: single-line inputs flatten
+/// newlines into spaces, multiline textareas keep them.
+fn paste_text(pasted: String, multiline: bool) -> String {
+    if multiline {
+        pasted
+    } else {
+        pasted.replace(['\n', '\r'], " ")
+    }
+}
+
+/// Gets or rebuilds a generation-keyed cache slot: a hit returns the
+/// stored value, a bumped generation rebuilds exactly once.
+fn cached<T>(slot: &mut Option<(u64, T)>, generation: u64, build: impl FnOnce() -> T) -> &T {
+    if !matches!(slot, Some((key, _)) if *key == generation) {
+        *slot = Some((generation, build()));
+    }
+    match slot {
+        Some((_, value)) => value,
+        None => unreachable!("just stored"),
+    }
+}
+
+/// One text run prepared for find-in-page: the ASCII-lowercased text plus
+/// the byte offset of each char boundary, so match byte offsets convert to
+/// caret (char) offsets without rescanning the string.
+struct FindRun {
+    lower: String,
+    char_starts: Vec<usize>,
+}
+
+impl FindRun {
+    fn new(text: &str) -> Self {
+        // ASCII-only lowercasing never changes byte or char lengths, so
+        // these boundaries also index the original text.
+        let lower = text.to_ascii_lowercase();
+        let char_starts = lower.char_indices().map(|(index, _)| index).collect();
+        Self { lower, char_starts }
+    }
+
+    /// The char offset of a byte offset that sits on a char boundary.
+    fn char_offset(&self, byte: usize) -> usize {
+        self.char_starts.partition_point(|start| *start < byte)
+    }
+}
+
+/// All (case-insensitive) matches of `needle` across the runs, as
+/// selections in caret offsets. Matches never span runs.
+fn find_matches_in_runs(runs: &[FindRun], needle: &str) -> Vec<Selection> {
+    let needle_chars = needle.chars().count();
+    let mut matches = Vec::new();
+    for (index, run) in runs.iter().enumerate() {
+        // match_indices yields byte offsets, always on char boundaries.
+        for (byte_start, _) in run.lower.match_indices(needle) {
+            let start = run.char_offset(byte_start);
+            matches.push(Selection {
+                anchor: Caret {
+                    run: index,
+                    offset: start,
+                },
+                focus: Caret {
+                    run: index,
+                    offset: start + needle_chars,
+                },
+            });
+        }
+    }
+    matches
+}
+
+/// Ellipsizes `text` to fit `max_width`: keeps the longest char prefix
+/// whose width with a trailing "…" still fits, then appends "…". The
+/// caller handles the fits-unclipped case; `measure` must be monotone
+/// over prefixes (binary search replaces the old O(n²) char-at-a-time
+/// re-measurement).
+fn clip_with_ellipsis(text: &str, max_width: f32, measure: impl Fn(&str) -> f32) -> String {
+    // Byte offsets of char boundaries; boundaries[k] ends the k-char prefix.
+    let mut boundaries: Vec<usize> = text.char_indices().map(|(index, _)| index).collect();
+    boundaries.push(text.len());
+    let fits = |chars: usize| {
+        let mut candidate = String::with_capacity(boundaries[chars] + 3);
+        candidate.push_str(&text[..boundaries[chars]]);
+        candidate.push('…');
+        measure(&candidate) <= max_width
+    };
+    // The largest fitting prefix.
+    let (mut low, mut high) = (0usize, boundaries.len() - 1);
+    while low < high {
+        let mid = low + (high - low).div_ceil(2);
+        if fits(mid) {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+    let mut clipped = String::with_capacity(boundaries[low] + 3);
+    clipped.push_str(&text[..boundaries[low]]);
+    clipped.push('…');
+    clipped
 }
 
 fn clipboard_set(text: &str) {
@@ -378,6 +492,8 @@ struct App {
     select_popup: Option<SelectPopup>,
     /// Open color-input palette.
     color_popup: Option<ColorPopup>,
+    /// Open form-validation bubble (a blocked submit's message).
+    violation_popup: Option<ViolationPopup>,
     /// The current page's JavaScript world (main-thread only: Boa's GC
     /// handles cannot cross the loader thread).
     page_scripts: Option<lumen_browser::PageScripts>,
@@ -404,12 +520,26 @@ struct App {
     /// so the cached page raster stays pristine without a fresh allocation
     /// on every frame.
     compose_frame: Option<lumen_engine::Framebuffer>,
+    /// The page's text runs, collected at most once per page generation
+    /// and shared by hover hit-testing, the caret, selection and find
+    /// (each used to re-walk the whole layout on its own). The inner
+    /// `Option` is `None` while no page is loaded.
+    text_runs: Option<(u64, Option<Rc<Vec<TextRun>>>)>,
+    /// Find-in-page's per-run lowercase + boundary tables, rebuilt only
+    /// when the page generation changes — not on every keystroke.
+    find_runs: Option<(u64, Rc<Vec<FindRun>>)>,
+    /// Ellipsized chrome strings keyed by (text, font size bits, max width
+    /// bits, web-font identity); tabs and bookmark rows re-clip the same
+    /// strings every frame.
+    clip_cache: RefCell<HashMap<(String, u32, u32, usize), String>>,
     /// Parked tabs (all except the active one, whose live state is in the
     /// fields above). Indexed positionally; `active` selects the live one.
     tabs: Vec<Tab>,
     /// Index of the active tab within the strip. The parked entry at this
     /// index is a placeholder — the live state is in the `App` fields.
     active: usize,
+    /// Next never-reused tab id.
+    next_tab_id: u64,
     /// Saved pages, persisted to disk.
     bookmarks: Bookmarks,
     /// Whether the bookmarks dropdown is open.
@@ -450,6 +580,7 @@ impl App {
             input_drag: false,
             select_popup: None,
             color_popup: None,
+            violation_popup: None,
             page_scripts: None,
             range_drag: None,
             find_matches: Vec::new(),
@@ -463,9 +594,13 @@ impl App {
             rss_checked: None,
             page_frame: None,
             compose_frame: None,
+            text_runs: None,
+            find_runs: None,
+            clip_cache: RefCell::new(HashMap::new()),
             // A single placeholder tab; its parked fields are overwritten by
             // `park_active` before they are ever read.
             tabs: vec![Tab {
+                id: 0,
                 state: SessionState::Loading {
                     target: String::new(),
                 },
@@ -474,6 +609,7 @@ impl App {
                 page_scripts: None,
             }],
             active: 0,
+            next_tab_id: 1,
             bookmarks: Bookmarks::load(),
             bookmarks_open: false,
         }
@@ -524,6 +660,7 @@ impl App {
         self.select_anchor = None;
         self.select_popup = None;
         self.color_popup = None;
+        self.violation_popup = None;
         self.range_drag = None;
         self.page_frame = None;
         self.invalidate_page();
@@ -544,8 +681,11 @@ impl App {
     /// Opens a blank tab, switches to it, and focuses the address bar.
     fn new_tab(&mut self) {
         let session = self.blank_session();
+        let id = self.next_tab_id;
+        self.next_tab_id += 1;
         self.park_active();
         self.tabs.push(Tab {
+            id,
             state: SessionState::Ready(Box::new(session)),
             scroll_y: 0.0,
             input: String::new(),
@@ -627,11 +767,41 @@ impl App {
             .or_else(|| self.font.clone())
     }
 
-    fn caret_at_cursor(&self) -> Option<Caret> {
+    fn caret_at_cursor(&mut self) -> Option<Caret> {
         let (x, y) = self.page_cursor()?;
-        let page = self.session()?.page()?;
-        let runs = collect_text_runs(&page.layout);
+        let runs = self.text_runs()?;
         caret_at_point(&runs, x, y, self.measurer().as_ref())
+    }
+
+    /// The page's text runs, collected at most once per `page_generation`
+    /// (`invalidate_page` marks every raster-affecting change, which is
+    /// exactly when a re-collection is needed). The `Rc` clone callers get
+    /// is free compared to re-walking the layout.
+    fn text_runs(&mut self) -> Option<Rc<Vec<TextRun>>> {
+        let generation = self.page_generation;
+        let state = &self.state;
+        cached(&mut self.text_runs, generation, || match state {
+            SessionState::Ready(session) => session
+                .page()
+                .map(|page| Rc::new(collect_text_runs(&page.layout))),
+            SessionState::Loading { .. } => None,
+        })
+        .clone()
+    }
+
+    /// The find-in-page run tables (lowercase text + char boundaries),
+    /// built once per page generation instead of on every keystroke.
+    fn find_runs(&mut self) -> Option<Rc<Vec<FindRun>>> {
+        let generation = self.page_generation;
+        let runs = self.text_runs()?;
+        let find = cached(&mut self.find_runs, generation, || {
+            Rc::new(
+                runs.iter()
+                    .map(|run| FindRun::new(&run.text))
+                    .collect::<Vec<_>>(),
+            )
+        });
+        Some(find.clone())
     }
 
     fn clear_selection(&mut self) {
@@ -642,11 +812,12 @@ impl App {
     }
 
     fn copy_selection(&mut self) {
-        let (Some(selection), Some(session)) = (self.selection, self.session()) else {
+        let Some(selection) = self.selection else {
             return;
         };
-        let Some(page) = session.page() else { return };
-        let runs = collect_text_runs(&page.layout);
+        let Some(runs) = self.text_runs() else {
+            return;
+        };
         let text = selected_text(&runs, &selection);
         if text.is_empty() {
             return;
@@ -681,6 +852,7 @@ impl App {
         self.select_anchor = None;
         self.select_popup = None;
         self.color_popup = None;
+        self.violation_popup = None;
         self.range_drag = None;
         let SessionState::Ready(mut session) =
             std::mem::replace(&mut self.state, SessionState::Loading { target })
@@ -689,6 +861,7 @@ impl App {
         };
         let viewport = self.viewport();
         let proxy = self.proxy.clone();
+        let tab = self.tabs[self.active].id;
         std::thread::spawn(move || {
             session.set_viewport(viewport);
             let result = match nav {
@@ -702,6 +875,7 @@ impl App {
             // Failure means the event loop is gone (window closed while
             // loading); the navigation result has nowhere to go.
             if let Err(error) = proxy.send_event(NavDone {
+                tab,
                 session,
                 error: result.err().map(|error| error.to_string()),
             }) {
@@ -754,7 +928,7 @@ impl App {
         let gap = 2.0;
         let available = (width - plus - 8.0).max(0.0);
         let count = self.tabs.len().max(1) as f32;
-        let tab_width = (((available - gap * (count - 1.0)) / count).min(200.0)).max(40.0);
+        let tab_width = ((available - gap * (count - 1.0)) / count).clamp(40.0, 200.0);
         let mut rects = Vec::with_capacity(self.tabs.len());
         let mut x = 4.0;
         for _ in 0..self.tabs.len() {
@@ -862,19 +1036,37 @@ impl App {
     }
 
     /// Truncates chrome text with an ellipsis so it fits `max_width`.
+    /// Results are cached by (text, size, width, font): tab titles and
+    /// bookmark rows re-clip the same strings on every frame.
     fn clip_chrome_text(&self, text: &str, font_size: f32, max_width: f32) -> String {
-        if self.chrome_text_width(text, font_size) <= max_width {
-            return text.to_string();
+        // A loaded web font changes widths, so its identity is in the key.
+        let font_key = self
+            .session()
+            .and_then(Session::web_font)
+            .map_or(0, |font| Arc::as_ptr(&font) as usize);
+        let key = (
+            text.to_string(),
+            font_size.to_bits(),
+            max_width.to_bits(),
+            font_key,
+        );
+        if let Some(clipped) = self.clip_cache.borrow().get(&key) {
+            return clipped.clone();
         }
-        let mut clipped = String::new();
-        for ch in text.chars() {
-            let candidate = format!("{clipped}{ch}…");
-            if self.chrome_text_width(&candidate, font_size) > max_width {
-                break;
-            }
-            clipped.push(ch);
+        let clipped = if self.chrome_text_width(text, font_size) <= max_width {
+            text.to_string()
+        } else {
+            clip_with_ellipsis(text, max_width, |prefix| {
+                self.chrome_text_width(prefix, font_size)
+            })
+        };
+        let mut cache = self.clip_cache.borrow_mut();
+        // Bound the cache: widths change with every window resize.
+        if cache.len() >= 512 {
+            cache.clear();
         }
-        format!("{clipped}…")
+        cache.insert(key, clipped.clone());
+        clipped
     }
 
     /// Routes a click within the tab strip (switch, close, or new tab).
@@ -1292,13 +1484,15 @@ impl App {
     /// Scroll-only cache reuse: shifts the cached page raster by the scroll
     /// delta and rasterizes just the strip that scrolling exposed.
     ///
-    /// The shift is confined to the page area (below the chrome). Rows under
-    /// the chrome are never moved and never repainted — the chrome is opaque
-    /// and covers them every frame — so scrolling costs one memmove plus the
-    /// exposed strip, with no fixed per-frame chrome-height repaint.
+    /// The old cached buffer is consumed and shifted in place (`copy_within`)
+    /// — no ~14 MB clone per scroll step. The shift is confined to the page
+    /// area (below the chrome). Rows under the chrome are never moved and
+    /// never repainted — the chrome is opaque and covers them every frame —
+    /// so scrolling costs one memmove plus the exposed strip, with no fixed
+    /// per-frame chrome-height repaint.
     fn blit_scrolled(
         &self,
-        frame: &lumen_engine::Framebuffer,
+        mut shifted: lumen_engine::Framebuffer,
         old_scroll: f32,
         width: u32,
         height: u32,
@@ -1311,7 +1505,6 @@ impl App {
             return None;
         }
         let page = self.session().and_then(Session::page)?;
-        let mut shifted = frame.clone();
         let row = width as usize;
         let kept = (page_rows - delta.abs()) as usize;
         let exposed = if delta > 0 {
@@ -1361,16 +1554,16 @@ impl App {
                 .is_some_and(|session| session.link_target(node).is_some())
         });
         let over_text = !over_link
-            && self.caret_at_cursor().is_some_and(|_| {
-                // Only show the I-beam when actually over a text run's rect.
-                self.page_cursor().is_some_and(|(x, y)| {
-                    self.session().and_then(Session::page).is_some_and(|page| {
-                        collect_text_runs(&page.layout).iter().any(|run| {
-                            x >= run.rect.x
-                                && x < run.rect.x + run.rect.width
-                                && y >= run.rect.y
-                                && y < run.rect.y + run.rect.height
-                        })
+            && self.caret_at_cursor().is_some()
+            && self.page_cursor().is_some_and(|(x, y)| {
+                // Only show the I-beam when actually over a text run's
+                // rect; both checks share the generation-cached runs.
+                self.text_runs().is_some_and(|runs| {
+                    runs.iter().any(|run| {
+                        x >= run.rect.x
+                            && x < run.rect.x + run.rect.width
+                            && y >= run.rect.y
+                            && y < run.rect.y + run.rect.height
                     })
                 })
             });
@@ -1413,6 +1606,11 @@ impl App {
     }
 
     fn click(&mut self) {
+        // An open validation bubble dismisses on any click; the click
+        // itself still goes through (Chrome behaves the same).
+        if self.violation_popup.take().is_some() {
+            self.request_redraw();
+        }
         // An open bookmarks dropdown captures the click: a row navigates,
         // anywhere else just closes it.
         if self.bookmarks_open {
@@ -1655,6 +1853,43 @@ impl App {
             hovered: selected,
             selected,
             options,
+        });
+        self.request_redraw();
+    }
+
+    /// Opens the validation bubble for a blocked submit: a dark
+    /// Chrome-style card below the violating control.
+    fn open_violation_popup(&mut self) {
+        let Some(session) = self.session() else {
+            return;
+        };
+        let Some(violation) = session.form_violation() else {
+            return;
+        };
+        let Some(control) = session
+            .page()
+            .and_then(|page| page.layout.find_by_node(violation.node))
+            .map(|laid| laid.border_box())
+        else {
+            return;
+        };
+        let (node, message) = (violation.node, violation.message.clone());
+        // The card caps at 320 px; a longer message clips with an
+        // ellipsis instead of overflowing it.
+        let max_text = 320.0 - 24.0;
+        let message = if self.chrome_text_width(&message, 13.0) > max_text {
+            clip_with_ellipsis(&message, max_text, |prefix| {
+                self.chrome_text_width(prefix, 13.0)
+            })
+        } else {
+            message
+        };
+        let text_width = self.chrome_text_width(&message, 13.0);
+        let rect = violation_rect(control, text_width, self.viewport().width);
+        self.violation_popup = Some(ViolationPopup {
+            node,
+            message,
+            rect,
         });
         self.request_redraw();
     }
@@ -1976,7 +2211,9 @@ impl App {
     }
 
     /// Recomputes find matches for the current query (ASCII
-    /// case-insensitive, per text run — matches never span runs).
+    /// case-insensitive, per text run — matches never span runs). The
+    /// per-run lowercase text and char-boundary tables come from the
+    /// generation cache, so a keystroke only pays for the actual scan.
     fn refresh_find_matches(&mut self) {
         self.find_matches.clear();
         self.find_index = 0;
@@ -1986,33 +2223,11 @@ impl App {
         if query.is_empty() {
             return;
         }
-        let Some(page) = self.session().and_then(Session::page) else {
+        let Some(runs) = self.find_runs() else {
             return;
         };
         let needle = query.to_ascii_lowercase();
-        let needle_chars = needle.chars().count();
-        for (index, run) in collect_text_runs(&page.layout).iter().enumerate() {
-            let haystack = run.text.to_ascii_lowercase();
-            // match_indices yields byte offsets; carets use char offsets, so
-            // convert incrementally (matches come back in ascending order).
-            let mut prev_byte = 0;
-            let mut prev_char = 0;
-            for (byte_start, matched) in haystack.match_indices(&needle) {
-                prev_char += haystack[prev_byte..byte_start].chars().count();
-                self.find_matches.push(Selection {
-                    anchor: Caret {
-                        run: index,
-                        offset: prev_char,
-                    },
-                    focus: Caret {
-                        run: index,
-                        offset: prev_char + needle_chars,
-                    },
-                });
-                prev_char += needle_chars;
-                prev_byte = byte_start + matched.len();
-            }
-        }
+        self.find_matches = find_matches_in_runs(&runs, &needle);
     }
 
     /// Scrolls the current find match into view (upper third).
@@ -2021,10 +2236,9 @@ impl App {
             let Some(selection) = self.find_matches.get(self.find_index).copied() else {
                 return;
             };
-            let Some(page) = self.session().and_then(Session::page) else {
+            let Some(runs) = self.text_runs() else {
                 return;
             };
-            let runs = collect_text_runs(&page.layout);
             let measurer = self.measurer();
             highlight_rects(&runs, &selection, measurer.as_ref())
                 .into_iter()
@@ -2058,10 +2272,9 @@ impl App {
 
     /// Cmd/Ctrl+A on the page: selects all text runs.
     fn select_all_page_text(&mut self) {
-        let Some(page) = self.session().and_then(Session::page) else {
+        let Some(runs) = self.text_runs() else {
             return;
         };
-        let runs = collect_text_runs(&page.layout);
         let Some(last) = runs.last() else { return };
         self.selection = Some(Selection {
             anchor: Caret { run: 0, offset: 0 },
@@ -2182,6 +2395,12 @@ impl App {
         }
     }
 
+    /// The wall-clock instant at which a script timer due at `due_ms`
+    /// (on the `started` clock) should wake the event loop.
+    fn timer_wake(&self, due_ms: f64) -> Instant {
+        self.started + Duration::from_secs_f64((due_ms / 1000.0).max(0.0))
+    }
+
     fn update_title(&self) {
         if let Some(window) = &self.window {
             let label = match &self.state {
@@ -2195,7 +2414,7 @@ impl App {
         }
     }
 
-    fn redraw(&mut self) {
+    fn redraw(&mut self, event_loop: &ActiveEventLoop) {
         let frame_started = Instant::now();
         // Step running CSS transitions and script timers; keep redrawing
         // while any are live.
@@ -2209,13 +2428,14 @@ impl App {
             if transitioned || scripted {
                 self.invalidate_page();
                 self.request_redraw();
-            } else if self
+            } else if let Some(due_ms) = self
                 .page_scripts
                 .as_ref()
-                .is_some_and(lumen_browser::PageScripts::has_timers)
+                .and_then(lumen_browser::PageScripts::next_timer_due_ms)
             {
-                // A timer is pending: keep frames coming so it fires.
-                self.request_redraw();
+                // A timer waits for a future deadline: sleep until then
+                // instead of spinning redraws at 100% CPU.
+                event_loop.set_control_flow(ControlFlow::WaitUntil(self.timer_wake(due_ms)));
             }
             self.follow_script_navigation();
         }
@@ -2245,17 +2465,21 @@ impl App {
             .as_ref()
             .is_none_or(|(key, _)| *key != cache_key)
         {
-            // Same page, same size, different scroll: blit instead of a
-            // full re-rasterization.
-            let blitted = match &self.page_frame {
-                Some((key, frame))
+            // Same page, same size, different scroll: hand the old buffer
+            // to the blit, which shifts it in place instead of cloning.
+            let blit_viable = matches!(
+                &self.page_frame,
+                Some((key, _))
                     if key.0 == self.page_generation
                         && key.2 == size.width
-                        && key.3 == size.height =>
-                {
+                        && key.3 == size.height
+            );
+            let blitted = if blit_viable {
+                self.page_frame.take().and_then(|(key, frame)| {
                     self.blit_scrolled(frame, f32::from_bits(key.1), size.width, size.height, scale)
-                }
-                _ => None,
+                })
+            } else {
+                None
             };
             let frame = match blitted {
                 Some(frame) => {
@@ -2293,11 +2517,15 @@ impl App {
             }
             _ => base.clone(),
         };
-        if let (Some(selection), Some(page)) =
-            (self.selection, self.session().and_then(Session::page))
-            && !selection.is_empty()
+        let selection_runs = if self
+            .selection
+            .is_some_and(|selection| !selection.is_empty())
         {
-            let runs = collect_text_runs(&page.layout);
+            self.text_runs()
+        } else {
+            None
+        };
+        if let (Some(selection), Some(runs)) = (self.selection, selection_runs) {
             let measurer = self.measurer();
             for region in highlight_rects(&runs, &selection, measurer.as_ref()) {
                 // ::selection backgrounds render stronger than the default
@@ -2319,11 +2547,12 @@ impl App {
             }
         }
         // Find matches highlight in yellow; the current one in orange.
-        if self.find_input.is_some()
-            && !self.find_matches.is_empty()
-            && let Some(page) = self.session().and_then(Session::page)
-        {
-            let runs = collect_text_runs(&page.layout);
+        let find_runs = if self.find_input.is_some() && !self.find_matches.is_empty() {
+            self.text_runs()
+        } else {
+            None
+        };
+        if let Some(runs) = find_runs {
             let measurer = self.measurer();
             for (index, matched) in self.find_matches.iter().enumerate() {
                 let (color, alpha) = if index == self.find_index {
@@ -2511,6 +2740,57 @@ impl App {
                     radius: lumen_engine::Corners::uniform(4.0),
                 });
             }
+            rasterize_over(
+                &mut framebuffer,
+                &commands,
+                self.scroll_y - CHROME_HEIGHT,
+                scale,
+                self.effective_font().as_deref(),
+            );
+        }
+        // Form-validation bubble: a dark Chrome-style card under the
+        // violating control. It only draws while the session still
+        // reports the violation — a cleared one closes the bubble.
+        if let Some(popup) = &self.violation_popup
+            && self
+                .session()
+                .and_then(Session::form_violation)
+                .is_some_and(|violation| violation.node == popup.node)
+        {
+            let rect = popup.rect;
+            let commands = vec![
+                DisplayCommand::DrawShadow {
+                    rect: Rect {
+                        x: rect.x,
+                        y: rect.y + 2.0,
+                        ..rect
+                    },
+                    radius: lumen_engine::Corners::uniform(6.0),
+                    blur: 12.0,
+                    color: lumen_css::Color::rgba(0x20, 0x1c, 0x2a, 90),
+                    inset: false,
+                },
+                DisplayCommand::FillRect {
+                    rect,
+                    color: lumen_css::Color::rgb(0x32, 0x2f, 0x35),
+                    radius: lumen_engine::Corners::uniform(6.0),
+                },
+                DisplayCommand::DrawText {
+                    x: rect.x + 12.0,
+                    y: rect.y + rect.height - 10.0,
+                    text: popup.message.clone(),
+                    color: lumen_css::Color::rgb(0xff, 0xff, 0xff),
+                    font_size: 13.0,
+                    font_weight: 400,
+                    underline: false,
+                    italic: false,
+                    monospace: false,
+                    line_through: false,
+                    letter_spacing: 0.0,
+                    decoration_color: lumen_css::Color::rgb(0, 0, 0),
+                    decoration_style: lumen_engine::BorderStyle::Solid,
+                },
+            ];
             rasterize_over(
                 &mut framebuffer,
                 &commands,
@@ -2746,8 +3026,11 @@ impl App {
             }
             PageEdit::Paste => {
                 if let Some(pasted) = clipboard_get() {
+                    let multiline = self
+                        .session()
+                        .is_some_and(|session| session.is_textarea(control));
                     if let SessionState::Ready(session) = &mut self.state {
-                        session.edit(EditOp::Insert(pasted.replace(['\n', '\r'], " ")));
+                        session.edit(EditOp::Insert(paste_text(pasted, multiline)));
                     }
                     self.dispatch_script_event(control, "input");
                     self.invalidate_page();
@@ -2828,6 +3111,11 @@ impl App {
     }
 
     fn handle_key(&mut self, key: &Key) {
+        // Any key dismisses an open validation bubble; unlike the select
+        // dropdown it never captures the key itself.
+        if self.violation_popup.take().is_some() {
+            self.request_redraw();
+        }
         let command_held =
             self.modifiers.state().super_key() || self.modifiers.state().control_key();
         // Ctrl/Cmd+F toggles the find bar from anywhere.
@@ -3000,27 +3288,70 @@ impl ApplicationHandler<NavDone> for App {
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, done: NavDone) {
         let failed = done.error.is_some();
-        if let Some(error) = done.error {
+        if let Some(error) = &done.error {
             eprintln!("navigation: {error}");
-        } else {
-            self.scroll_y = 0.0;
         }
+        let Some(index) = tab_position(&self.tabs, done.tab) else {
+            // The tab closed while loading; drop the result.
+            return;
+        };
         let mut session = done.session;
         // The window may have resized while the session was away.
         session.set_viewport(self.viewport());
-        // A landed navigation gets a fresh script world (run here, on the
-        // main thread); a failed one keeps the old page AND its scripts.
-        if !failed || self.page_scripts.is_none() {
-            self.page_scripts = lumen_browser::PageScripts::new(&mut session);
+        if index == self.active {
+            if !failed {
+                self.scroll_y = 0.0;
+            }
+            // A landed navigation gets a fresh script world (run here, on the
+            // main thread); a failed one keeps the old page AND its scripts.
+            if !failed || self.page_scripts.is_none() {
+                self.page_scripts = lumen_browser::PageScripts::new(&mut session);
+            }
+            self.state = SessionState::Ready(session);
+            self.follow_script_navigation();
+            self.invalidate_page();
+            self.scroll_to_fragment();
+            self.refresh_find_matches();
+            self.update_hover();
+            // A blocked submit reports its violation on the session:
+            // show the bubble next to the offending control.
+            self.open_violation_popup();
+        } else {
+            // The user switched away while this tab was loading: the
+            // result parks in its own slot instead of clobbering the
+            // now-active tab. A script's follow-up navigation is dropped
+            // — the parked tab is not live to perform it.
+            let tab = &mut self.tabs[index];
+            if !failed {
+                tab.scroll_y = 0.0;
+            }
+            if !failed || tab.page_scripts.is_none() {
+                tab.page_scripts = lumen_browser::PageScripts::new(&mut session);
+            }
+            tab.state = SessionState::Ready(session);
         }
-        self.state = SessionState::Ready(session);
-        self.follow_script_navigation();
-        self.invalidate_page();
-        self.scroll_to_fragment();
-        self.refresh_find_matches();
         self.update_title();
-        self.update_hover();
         self.request_redraw();
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // A pending script timer woke (or re-arms) the loop: fire it once
+        // its deadline passed, sleep until then otherwise. No timers —
+        // back to the default flow.
+        let Some(due_ms) = self
+            .page_scripts
+            .as_ref()
+            .and_then(lumen_browser::PageScripts::next_timer_due_ms)
+        else {
+            event_loop.set_control_flow(ControlFlow::Poll);
+            return;
+        };
+        let wake = self.timer_wake(due_ms);
+        if Instant::now() >= wake {
+            self.request_redraw();
+        } else {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
+        }
     }
 
     fn window_event(
@@ -3232,7 +3563,7 @@ impl ApplicationHandler<NavDone> for App {
             } => {
                 self.dispatch_key_event("keyup", &logical_key);
             }
-            WindowEvent::RedrawRequested => self.redraw(),
+            WindowEvent::RedrawRequested => self.redraw(event_loop),
             _ => {}
         }
     }
@@ -3243,10 +3574,10 @@ impl ApplicationHandler<NavDone> for App {
 /// path opens as a file, a bare dotted token (or `localhost`) becomes an
 /// `https://` host, and anything else is a web search.
 fn resolve_omnibox(input: &str) -> Url {
-    if let Ok(url) = Url::parse(input) {
-        if matches!(url.scheme(), "http" | "https" | "file") {
-            return url;
-        }
+    if let Ok(url) = Url::parse(input)
+        && matches!(url.scheme(), "http" | "https" | "file")
+    {
+        return url;
     }
     let single_token = input.split_whitespace().count() == 1;
     if single_token {
@@ -3262,12 +3593,11 @@ fn resolve_omnibox(input: &str) -> Url {
         }
         // A dotted token or `localhost[:port]` is a bare hostname.
         let host_like = input.contains('.') || input == "localhost" || input.starts_with("localhost:");
-        if host_like {
-            if let Ok(url) = Url::parse(&format!("https://{input}")) {
-                if url.host().is_some() {
-                    return url;
-                }
-            }
+        if host_like
+            && let Ok(url) = Url::parse(&format!("https://{input}"))
+            && url.host().is_some()
+        {
+            return url;
         }
     }
     // Fall back to a search; query_pairs_mut handles percent-encoding.
@@ -3305,5 +3635,147 @@ mod tests {
             resolve_omnibox("weather").host_str(),
             Some("duckduckgo.com")
         );
+    }
+
+    use super::{SessionState, Tab, paste_text, tab_position};
+
+    fn parked_tab(id: u64) -> Tab {
+        Tab {
+            id,
+            state: SessionState::Loading {
+                target: String::new(),
+            },
+            scroll_y: 0.0,
+            input: String::new(),
+            page_scripts: None,
+        }
+    }
+
+    #[test]
+    fn nav_results_route_by_stable_tab_id() {
+        let tabs = vec![parked_tab(1), parked_tab(2), parked_tab(3)];
+        assert_eq!(tab_position(&tabs, 1), Some(0));
+        assert_eq!(tab_position(&tabs, 3), Some(2));
+        // A closed tab's late result is dropped, not misapplied.
+        assert_eq!(tab_position(&tabs, 9), None);
+    }
+
+    #[test]
+    fn paste_text_keeps_newlines_only_for_textareas() {
+        // Single-line inputs flatten newlines; textareas keep them.
+        assert_eq!(paste_text("a\nb\rc".to_string(), false), "a b c");
+        assert_eq!(paste_text("a\nb".to_string(), true), "a\nb");
+    }
+
+    use super::{FindRun, cached, clip_with_ellipsis, find_matches_in_runs};
+
+    #[test]
+    fn generation_cache_rebuilds_only_on_bump() {
+        let mut slot = None;
+        let mut builds = 0;
+        let value = cached(&mut slot, 7, || {
+            builds += 1;
+            "page-a"
+        });
+        assert_eq!(*value, "page-a");
+        // Same generation: a hit, no rebuild.
+        let value = cached(&mut slot, 7, || {
+            builds += 1;
+            "page-b"
+        });
+        assert_eq!(*value, "page-a");
+        assert_eq!(builds, 1);
+        // A bumped generation rebuilds exactly once.
+        let value = cached(&mut slot, 8, || {
+            builds += 1;
+            "page-b"
+        });
+        assert_eq!(*value, "page-b");
+        assert_eq!(builds, 2);
+    }
+
+    /// The pre-optimization clip loop, kept as the reference the
+    /// binary-search version must match (monotone measures only).
+    fn reference_clip(text: &str, max_width: f32, measure: impl Fn(&str) -> f32) -> String {
+        if measure(text) <= max_width {
+            return text.to_string();
+        }
+        let mut clipped = String::new();
+        for ch in text.chars() {
+            let candidate = format!("{clipped}{ch}…");
+            if measure(&candidate) > max_width {
+                break;
+            }
+            clipped.push(ch);
+        }
+        format!("{clipped}…")
+    }
+
+    #[test]
+    fn clip_with_ellipsis_matches_reference_loop() {
+        let measure = |text: &str| text.chars().count() as f32 * 10.0;
+        let clip = |text: &str, max_width: f32| {
+            if measure(text) <= max_width {
+                text.to_string()
+            } else {
+                clip_with_ellipsis(text, max_width, measure)
+            }
+        };
+        for text in [
+            "",
+            "short",
+            "a much longer tab title",
+            "ünïcödé başlık ✓",
+            ".........",
+        ] {
+            for max_width in [0.0, 5.0, 10.0, 25.0, 55.0, 90.0, 200.0, 1000.0] {
+                assert_eq!(
+                    clip(text, max_width),
+                    reference_clip(text, max_width, measure),
+                    "clip({text:?}, {max_width})"
+                );
+            }
+        }
+    }
+
+    /// The pre-optimization find scan (incremental byte→char conversion),
+    /// kept as the reference for the boundary-table version.
+    fn reference_find(runs: &[&str], needle: &str) -> Vec<(usize, usize, usize)> {
+        let needle_chars = needle.chars().count();
+        let mut out = Vec::new();
+        for (index, text) in runs.iter().enumerate() {
+            let haystack = text.to_ascii_lowercase();
+            let mut prev_byte = 0;
+            let mut prev_char = 0;
+            for (byte_start, matched) in haystack.match_indices(needle) {
+                prev_char += haystack[prev_byte..byte_start].chars().count();
+                out.push((index, prev_char, prev_char + needle_chars));
+                prev_char += needle_chars;
+                prev_byte = byte_start + matched.len();
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn find_matches_map_byte_offsets_to_char_offsets() {
+        let runs = [
+            "Hello hELLO",
+            "dünya DÜNYA",
+            "aa aa aa",
+            "ünïcödé",
+            "no match here",
+            "",
+        ];
+        for needle in ["hello", "dünya", "aa", "é", "zzz", "n"] {
+            let needle = needle.to_ascii_lowercase();
+            let prepared: Vec<FindRun> = runs.iter().map(|text| FindRun::new(text)).collect();
+            let matches = find_matches_in_runs(&prepared, &needle);
+            let actual: Vec<(usize, usize, usize)> = matches
+                .iter()
+                .map(|found| (found.anchor.run, found.anchor.offset, found.focus.offset))
+                .collect();
+            assert_eq!(actual, reference_find(&runs, &needle), "needle {needle:?}");
+        }
     }
 }
