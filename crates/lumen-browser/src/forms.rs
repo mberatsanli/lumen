@@ -5,6 +5,16 @@
 use crate::{LoadError, Page, ResourceLoader, Session, resolve};
 use lumen_html::NodeId;
 
+/// A form control that failed constraint validation, blocking the
+/// submission (Chrome reports the first one in a bubble by the control).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormViolation {
+    /// The first invalid control in document order.
+    pub node: NodeId,
+    /// Chrome-style validation message (engine UI text stays English).
+    pub message: String,
+}
+
 /// Minimal application/x-www-form-urlencoded percent encoding.
 fn url_encode(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
@@ -375,18 +385,23 @@ impl<L: ResourceLoader> Session<L> {
                 self.form_checked.insert(node, !current);
             }
             "radio" => {
+                // Only same-named radios form a group: nameless radios
+                // check independently instead of clearing each other.
                 let group = element.attributes.get("name").map(str::to_string);
-                let peers: Vec<NodeId> = page
-                    .document
-                    .descendants(page.document.root())
-                    .filter(|candidate| {
-                        page.document.element(*candidate).is_some_and(|peer| {
-                            peer.tag_name == "input"
-                                && peer.attributes.get("type") == Some("radio")
-                                && peer.attributes.get("name").map(str::to_string) == group
+                let peers: Vec<NodeId> = match &group {
+                    Some(group) => page
+                        .document
+                        .descendants(page.document.root())
+                        .filter(|candidate| {
+                            page.document.element(*candidate).is_some_and(|peer| {
+                                peer.tag_name == "input"
+                                    && peer.attributes.get("type") == Some("radio")
+                                    && peer.attributes.get("name") == Some(group)
+                            })
                         })
-                    })
-                    .collect();
+                        .collect(),
+                    None => vec![node],
+                };
                 for peer in peers {
                     self.form_checked.insert(peer, peer == node);
                 }
@@ -408,9 +423,99 @@ impl<L: ResourceLoader> Session<L> {
         })
     }
 
+    /// Checks the form containing `node` against the supported
+    /// constraint-validation rules (`required`, number `min`/`max`) in
+    /// document order, returning the first violation — like Chrome, one
+    /// blocked control is reported at a time.
+    #[must_use]
+    pub fn validate_form(&self, node: NodeId) -> Option<FormViolation> {
+        let page = self.page.as_ref()?;
+        let document = &page.document;
+        let form = std::iter::once(node)
+            .chain(document.ancestors(node))
+            .find(|candidate| {
+                document
+                    .element(*candidate)
+                    .is_some_and(|element| element.tag_name == "form")
+            })?;
+        for control in document.descendants(form) {
+            let Some(element) = document.element(control) else {
+                continue;
+            };
+            // Disabled controls are barred from constraint validation.
+            if element.attributes.contains("disabled") {
+                continue;
+            }
+            let tag = element.tag_name.as_str();
+            let kind = element.attributes.get("type").unwrap_or("text");
+            let text_like = tag == "textarea"
+                || (tag == "input"
+                    && matches!(
+                        kind,
+                        "text" | "search" | "email" | "url" | "password" | "tel" | "number"
+                    ));
+            if !text_like {
+                continue;
+            }
+            let value = self.form_value(control);
+            // valueMissing outranks the range checks (spec order).
+            if element.attributes.contains("required") && value.is_empty() {
+                return Some(FormViolation {
+                    node: control,
+                    message: "Please fill out this field.".to_string(),
+                });
+            }
+            // Range constraints only apply to a parseable number; the
+            // message quotes the attribute text as written, like Chrome.
+            if tag == "input" && kind == "number" && !value.trim().is_empty() {
+                let limit = |name: &str| {
+                    element
+                        .attributes
+                        .get(name)
+                        .and_then(|raw| raw.parse::<f32>().ok().map(|parsed| (raw, parsed)))
+                };
+                if let Ok(number) = value.trim().parse::<f32>() {
+                    if let Some((raw, max)) = limit("max")
+                        && number > max
+                    {
+                        return Some(FormViolation {
+                            node: control,
+                            message: format!("Value must be less than or equal to {raw}."),
+                        });
+                    }
+                    if let Some((raw, min)) = limit("min")
+                        && number < min
+                    {
+                        return Some(FormViolation {
+                            node: control,
+                            message: format!("Value must be greater than or equal to {raw}."),
+                        });
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// The violation that blocked the last submit attempt, if any.
+    /// Cleared by a passing validation and by every navigation.
+    #[must_use]
+    pub fn form_violation(&self) -> Option<&FormViolation> {
+        self.form_violation.as_ref()
+    }
+
     /// Submits the form containing `node` with method GET: name=value
-    /// pairs of its controls become the action URL's query.
+    /// pairs of its enabled controls become the action URL's query.
+    /// When `node` itself is a named submit button it is the submitter,
+    /// so its own name=value joins the pairs.
     pub fn submit_form(&mut self, node: NodeId) -> Result<&Page, LoadError> {
+        // Constraint validation runs before anything submits: the first
+        // violation blocks the navigation and stays on the session for
+        // the shell to show (Chrome's bubble), leaving the page in place.
+        self.form_violation = self.validate_form(node);
+        if self.form_violation.is_some() {
+            return Ok(self.page.as_ref().expect("a validated page is loaded"));
+        }
         let base = self.require_current()?;
         let (action, method, pairs) = {
             let page = self
@@ -436,11 +541,32 @@ impl<L: ResourceLoader> Session<L> {
                 .and_then(|element| element.attributes.get("method"))
                 .unwrap_or("get")
                 .to_ascii_lowercase();
+            // The submitter: `node` when it is an enabled, named submit
+            // button (clicked); implicit submission (Enter in a field)
+            // has none.
+            let submitter = document.element(node).and_then(|element| {
+                let submits = match element.tag_name.as_str() {
+                    "input" => element.attributes.get("type") == Some("submit"),
+                    "button" => !matches!(element.attributes.get("type"), Some("button" | "reset")),
+                    _ => false,
+                };
+                if !submits || element.attributes.contains("disabled") {
+                    return None;
+                }
+                Some((
+                    element.attributes.get("name")?.to_string(),
+                    element.attributes.get("value").unwrap_or("").to_string(),
+                ))
+            });
             let mut pairs: Vec<(String, String)> = Vec::new();
             for control in document.descendants(form) {
                 let Some(element) = document.element(control) else {
                     continue;
                 };
+                // Disabled controls are not successful: nothing submits.
+                if element.attributes.contains("disabled") {
+                    continue;
+                }
                 let tag = element.tag_name.clone();
                 if !matches!(tag.as_str(), "input" | "select" | "textarea") {
                     continue;
@@ -486,6 +612,9 @@ impl<L: ResourceLoader> Session<L> {
                     _ => pairs.push((name.to_string(), self.form_value(control))),
                 }
             }
+            if let Some((name, value)) = submitter {
+                pairs.push((name, value));
+            }
             (action, method, pairs)
         };
         let mut url = resolve(&base, &action)?;
@@ -506,5 +635,145 @@ impl<L: ResourceLoader> Session<L> {
         }
         url.set_query(if encoded.is_empty() { None } else { Some(&encoded) });
         self.load(url)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lumen_platform::{ResourceRequest, ResourceResponse, Url};
+    use std::collections::HashMap;
+
+    struct FakeLoader {
+        pages: HashMap<String, Vec<u8>>,
+    }
+
+    impl FakeLoader {
+        fn new(pages: &[(&str, &str)]) -> Self {
+            Self {
+                pages: pages
+                    .iter()
+                    .map(|(url, html)| ((*url).to_string(), html.as_bytes().to_vec()))
+                    .collect(),
+            }
+        }
+    }
+
+    impl ResourceLoader for FakeLoader {
+        fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
+            let body = self
+                .pages
+                .get(request.url.as_str())
+                .ok_or_else(|| LoadError::Http(format!("404: {}", request.url)))?;
+            Ok(ResourceResponse {
+                final_url: request.url.clone(),
+                content_type: None,
+                body: body.clone(),
+                set_cookies: Vec::new(),
+            })
+        }
+    }
+
+    fn session_with(pages: &[(&str, &str)]) -> Session<FakeLoader> {
+        let mut session = Session::new(
+            FakeLoader::new(pages),
+            lumen_engine::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        session.load(Url::parse("https://a.test/").unwrap()).unwrap();
+        session
+    }
+
+    fn by_id(session: &Session<FakeLoader>, id: &str) -> NodeId {
+        session.page().unwrap().document.get_element_by_id(id).unwrap()
+    }
+
+    #[test]
+    fn disabled_controls_do_not_submit() {
+        let mut session = session_with(&[
+            (
+                "https://a.test/",
+                "<form action='/go'>\
+                 <input id='kapali' name='a' value='1' disabled>\
+                 <input id='acik' name='b' value='2'>\
+                 <select id='sec' name='s' disabled><option value='x'>X</option></select>\
+                 </form>",
+            ),
+            ("https://a.test/go?b=2", "<p>ok</p>"),
+        ]);
+        let field = by_id(&session, "acik");
+        session.submit_form(field).unwrap();
+        assert_eq!(
+            session.current_url().unwrap().as_str(),
+            "https://a.test/go?b=2"
+        );
+    }
+
+    #[test]
+    fn the_clicked_submit_button_joins_the_pairs() {
+        let mut session = session_with(&[
+            (
+                "https://a.test/",
+                "<form action='/go'>\
+                 <input id='q' name='q' value='x'>\
+                 <input id='gonder' type='submit' name='islem' value='Ara'>\
+                 </form>",
+            ),
+            ("https://a.test/go?q=x&islem=Ara", "<p>ok</p>"),
+        ]);
+        let button = by_id(&session, "gonder");
+        session.submit_form(button).unwrap();
+        assert_eq!(
+            session.current_url().unwrap().as_str(),
+            "https://a.test/go?q=x&islem=Ara"
+        );
+    }
+
+    #[test]
+    fn implicit_submission_has_no_submitter_pair() {
+        // Enter inside a text field submits without a clicked button.
+        let mut session = session_with(&[
+            (
+                "https://a.test/",
+                "<form action='/go'>\
+                 <input id='q' name='q' value='x'>\
+                 <input id='gonder' type='submit' name='islem' value='Ara'>\
+                 </form>",
+            ),
+            ("https://a.test/go?q=x", "<p>ok</p>"),
+        ]);
+        let field = by_id(&session, "q");
+        session.submit_form(field).unwrap();
+        assert_eq!(
+            session.current_url().unwrap().as_str(),
+            "https://a.test/go?q=x"
+        );
+    }
+
+    #[test]
+    fn nameless_radios_do_not_form_a_group() {
+        let mut session = session_with(&[(
+            "https://a.test/",
+            "<form>\
+             <input id='r1' type='radio'>\
+             <input id='r2' type='radio'>\
+             <input id='g1' type='radio' name='g'>\
+             <input id='g2' type='radio' name='g'>\
+             </form>",
+        )]);
+        let (r1, r2) = (by_id(&session, "r1"), by_id(&session, "r2"));
+        let (g1, g2) = (by_id(&session, "g1"), by_id(&session, "g2"));
+        // Nameless radios check independently...
+        assert!(session.toggle_checkable(r1));
+        assert!(session.toggle_checkable(r2));
+        assert!(session.is_checked(r1));
+        assert!(session.is_checked(r2));
+        // ...while a named group stays exclusive.
+        assert!(session.toggle_checkable(g1));
+        assert!(session.toggle_checkable(g2));
+        assert!(!session.is_checked(g1));
+        assert!(session.is_checked(g2));
     }
 }

@@ -94,7 +94,10 @@ struct Timer {
 /// timer registries. Lives on the shell's thread, next to the window.
 pub struct PageScripts {
     context: Context,
-    listeners: Vec<(NodeId, String, JsObject)>,
+    /// Event listeners indexed by (node, event kind) so dispatch does
+    /// not scan every registration for every bubble target. Each inner
+    /// Vec keeps registration order.
+    listeners: HashMap<NodeId, HashMap<String, Vec<JsObject>>>,
     timers: Vec<Timer>,
     /// fetch() calls awaiting their network round-trip.
     pending_fetches: Vec<(String, JsObject, JsObject)>,
@@ -118,7 +121,7 @@ impl PageScripts {
         install_globals(&mut context);
         let mut scripts = Self {
             context,
-            listeners: Vec::new(),
+            listeners: HashMap::new(),
             timers: Vec::new(),
             pending_fetches: Vec::new(),
             navigation: None,
@@ -143,8 +146,9 @@ impl PageScripts {
     #[must_use]
     pub fn has_listener(&self, node: NodeId, event: &str) -> bool {
         self.listeners
-            .iter()
-            .any(|(target, kind, _)| *target == node && kind == event)
+            .get(&node)
+            .and_then(|by_event| by_event.get(event))
+            .is_some_and(|callbacks| !callbacks.is_empty())
     }
 
     /// Dispatches an event at `node`, bubbling to its ancestors.
@@ -174,10 +178,11 @@ impl PageScripts {
             .iter()
             .flat_map(|target| {
                 self.listeners
-                    .iter()
-                    .filter(|(node, kind, _)| node == target && kind == event)
-                    .map(|(node, _, callback)| (*node, callback.clone()))
-                    .collect::<Vec<_>>()
+                    .get(target)
+                    .and_then(|by_event| by_event.get(event))
+                    .into_iter()
+                    .flatten()
+                    .map(|callback| (*target, callback.clone()))
             })
             .collect();
         let mut outcome = DispatchOutcome {
@@ -240,12 +245,23 @@ impl PageScripts {
     }
 
     /// Runs timers due at `now_ms`. Returns whether anything ran.
+    ///
+    /// The due set is snapshotted up front: timers a callback registers
+    /// wait for the next tick, so a `setTimeout(f, 0)` chain cannot spin
+    /// this call forever. A callback can still clearTimeout a later
+    /// sibling of the same snapshot — that one is then skipped.
     pub fn tick<L: ResourceLoader>(&mut self, session: &mut Session<L>, now_ms: f64) -> bool {
         self.now_ms = now_ms;
+        let due: Vec<u64> = self
+            .timers
+            .iter()
+            .filter(|timer| timer.due_ms <= now_ms)
+            .map(|timer| timer.id)
+            .collect();
         let mut ran = false;
-        loop {
-            let Some(index) = self.timers.iter().position(|timer| timer.due_ms <= now_ms) else {
-                break;
+        for id in due {
+            let Some(index) = self.timers.iter().position(|timer| timer.id == id) else {
+                continue; // cleared by an earlier callback of this tick
             };
             let timer = self.timers.remove(index);
             if let Some(interval) = timer.interval_ms {
@@ -336,6 +352,16 @@ impl PageScripts {
         !self.timers.is_empty()
     }
 
+    /// The nearest pending timer's due time, if any — the shell sleeps
+    /// until then instead of spinning frames while a timer waits.
+    #[must_use]
+    pub fn next_timer_due_ms(&self) -> Option<f64> {
+        self.timers
+            .iter()
+            .map(|timer| timer.due_ms)
+            .reduce(f64::min)
+    }
+
     /// Runs `action` with the session's page checked into the bridge,
     /// then checks it back out, collecting registrations and relayouting
     /// if the DOM changed.
@@ -368,7 +394,12 @@ impl PageScripts {
             session.page = bridge.page.take();
             session.form_values = std::mem::take(&mut bridge.form_values);
             for (node, event, callback) in bridge.pending_listeners.drain(..) {
-                self.listeners.push((node, event, callback));
+                self.listeners
+                    .entry(node)
+                    .or_default()
+                    .entry(event)
+                    .or_default()
+                    .push(callback);
             }
             for (id, delay, interval, callback) in bridge.pending_timers.drain(..) {
                 self.timers.push(Timer {
@@ -581,14 +612,22 @@ fn cookie_get_(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> Js
 fn cookie_set_(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     let header = string_arg(args, 0, context);
     with_bridge(|bridge| {
-        // Reads within the same entry see the write too.
+        // Reads within the same entry see the write too; rewriting a
+        // name replaces its earlier pair instead of duplicating it.
         let pair = header.split(';').next().unwrap_or("").trim().to_string();
         if !pair.is_empty() {
-            if bridge.cookie_header.is_empty() {
-                bridge.cookie_header = pair;
-            } else {
-                bridge.cookie_header = format!("{}; {}", bridge.cookie_header, pair);
-            }
+            let name = pair.split('=').next().unwrap_or("").trim();
+            let mut pairs: Vec<&str> = bridge
+                .cookie_header
+                .split(';')
+                .map(str::trim)
+                .filter(|existing| {
+                    !existing.is_empty()
+                        && existing.split('=').next().unwrap_or("").trim() != name
+                })
+                .collect();
+            pairs.push(&pair);
+            bridge.cookie_header = pairs.join("; ");
         }
         bridge.pending_cookies.push(header);
     });
@@ -929,11 +968,35 @@ fn set_interval(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsR
 
 // ---- elements ----
 
-/// The engine node id an element wrapper points at.
-fn this_node(this: &JsValue, context: &mut Context) -> Option<NodeId> {
-    let object = this.as_object()?;
-    let value = object.get(js_string!("__node"), context).ok()?;
-    value.as_number().map(|number| number as NodeId)
+/// The engine node id an element wrapper points at. A forged `__node`
+/// outside the document arena is a TypeError, not an indexing panic.
+fn this_node(this: &JsValue, context: &mut Context) -> JsResult<Option<NodeId>> {
+    let Some(object) = this.as_object() else {
+        return Ok(None);
+    };
+    let Ok(value) = object.get(js_string!("__node"), context) else {
+        return Ok(None);
+    };
+    let Some(number) = value.as_number() else {
+        return Ok(None);
+    };
+    let node = number as NodeId;
+    let valid = number.is_finite()
+        && number >= 0.0
+        && number.fract() == 0.0
+        && with_bridge(|bridge| {
+            bridge
+                .page
+                .as_ref()
+                .is_none_or(|page| node < page.document.nodes().len())
+        });
+    if valid {
+        Ok(Some(node))
+    } else {
+        Err(boa_engine::JsNativeError::typ()
+            .with_message("element handle points outside the document")
+            .into())
+    }
 }
 
 /// Builds the JS wrapper for a DOM node: methods plus live accessor
@@ -1088,13 +1151,21 @@ fn node_proxy(node: NodeId, get: Trap, set: Trap, context: &mut Context) -> JsOb
 }
 
 /// Proxy traps receive [target, key, (value), receiver].
-fn trap_context(args: &[JsValue], context: &mut Context) -> Option<(NodeId, String)> {
-    let node = this_node(args.first()?, context)?;
-    let key = args
+fn trap_context(args: &[JsValue], context: &mut Context) -> JsResult<Option<(NodeId, String)>> {
+    let Some(first) = args.first() else {
+        return Ok(None);
+    };
+    let Some(node) = this_node(first, context)? else {
+        return Ok(None);
+    };
+    let Some(key) = args
         .get(1)
         .and_then(|value| value.to_string(context).ok())
-        .map(|value| value.to_std_string_escaped())?;
-    Some((node, key))
+        .map(|value| value.to_std_string_escaped())
+    else {
+        return Ok(None);
+    };
+    Ok(Some((node, key)))
 }
 
 /// camelCase to kebab-case (backgroundColor -> background-color).
@@ -1122,7 +1193,7 @@ fn style_decls(attribute: &str) -> Vec<(String, String)> {
 }
 
 fn style_get_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some((node, key)) = trap_context(args, context) else {
+    let Some((node, key)) = trap_context(args, context)? else {
         return Ok(JsValue::undefined());
     };
     let property = kebab(&key);
@@ -1148,7 +1219,7 @@ fn style_get_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) -> J
 }
 
 fn style_set_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some((node, key)) = trap_context(args, context) else {
+    let Some((node, key)) = trap_context(args, context)? else {
         return Ok(JsValue::from(true));
     };
     let value = args
@@ -1190,7 +1261,7 @@ fn style_set_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) -> J
 }
 
 fn dataset_get_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some((node, key)) = trap_context(args, context) else {
+    let Some((node, key)) = trap_context(args, context)? else {
         return Ok(JsValue::undefined());
     };
     let attribute = format!("data-{}", kebab(&key));
@@ -1208,7 +1279,7 @@ fn dataset_get_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) ->
 }
 
 fn dataset_set_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some((node, key)) = trap_context(args, context) else {
+    let Some((node, key)) = trap_context(args, context)? else {
         return Ok(JsValue::from(true));
     };
     let value = args
@@ -1227,7 +1298,7 @@ fn dataset_set_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) ->
 }
 
 fn parent_element_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::null());
     };
     let parent = with_bridge(|bridge| {
@@ -1244,7 +1315,7 @@ fn parent_element_get(this: &JsValue, _args: &[JsValue], context: &mut Context) 
 }
 
 fn children_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let children = with_bridge(|bridge| {
@@ -1269,7 +1340,7 @@ fn children_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> Js
 }
 
 fn element_query_selector(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::null());
     };
     let selector = string_arg(args, 0, context);
@@ -1284,7 +1355,7 @@ fn element_query_selector_all(
     args: &[JsValue],
     context: &mut Context,
 ) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let selector = string_arg(args, 0, context);
@@ -1296,7 +1367,7 @@ fn element_query_selector_all(
 }
 
 fn bounding_client_rect(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let rect = with_bridge(|bridge| {
@@ -1326,7 +1397,7 @@ fn bounding_client_rect(this: &JsValue, _args: &[JsValue], context: &mut Context
 }
 
 fn inner_html_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let html = with_bridge(|bridge| {
@@ -1340,7 +1411,7 @@ fn inner_html_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> J
 }
 
 fn inner_html_set(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let html = string_arg(args, 0, context);
@@ -1354,7 +1425,7 @@ fn inner_html_set(this: &JsValue, args: &[JsValue], context: &mut Context) -> Js
 }
 
 fn class_name_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let classes = with_bridge(|bridge| {
@@ -1370,7 +1441,7 @@ fn class_name_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> J
 }
 
 fn class_name_set(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let classes = string_arg(args, 0, context);
@@ -1390,7 +1461,7 @@ fn class_list_op(
     context: &mut Context,
     op: fn(&mut Vec<String>, &str) -> bool,
 ) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let class = string_arg(args, 0, context);
@@ -1444,7 +1515,7 @@ fn class_toggle(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
 }
 
 fn class_contains(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let class = string_arg(args, 0, context);
@@ -1461,7 +1532,7 @@ fn class_contains(this: &JsValue, args: &[JsValue], context: &mut Context) -> Js
 }
 
 fn text_content_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let text = with_bridge(|bridge| {
@@ -1475,7 +1546,7 @@ fn text_content_get(this: &JsValue, _args: &[JsValue], context: &mut Context) ->
 }
 
 fn text_content_set(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let text = string_arg(args, 0, context);
@@ -1489,7 +1560,7 @@ fn text_content_set(this: &JsValue, args: &[JsValue], context: &mut Context) -> 
 }
 
 fn value_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let value = with_bridge(|bridge| {
@@ -1508,7 +1579,7 @@ fn value_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsRes
 }
 
 fn value_set_(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let value = string_arg(args, 0, context);
@@ -1533,7 +1604,7 @@ fn value_set_(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResu
 }
 
 fn id_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let id = with_bridge(|bridge| {
@@ -1549,7 +1620,7 @@ fn id_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult
 }
 
 fn add_event_listener(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let event = string_arg(args, 0, context);
@@ -1563,14 +1634,13 @@ fn add_event_listener(this: &JsValue, args: &[JsValue], context: &mut Context) -
 }
 
 fn append_child(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(parent) = this_node(this, context) else {
+    let Some(parent) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
-    let child = args
-        .first()
-        .cloned()
-        .map(|value| this_node(&value, context));
-    let Some(Some(child)) = child else {
+    let Some(argument) = args.first() else {
+        return Ok(JsValue::undefined());
+    };
+    let Some(child) = this_node(argument, context)? else {
         return Ok(JsValue::undefined());
     };
     with_bridge(|bridge| {
@@ -1584,7 +1654,7 @@ fn append_child(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
 }
 
 fn focus_element(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    if let Some(node) = this_node(this, context) {
+    if let Some(node) = this_node(this, context)? {
         with_bridge(|bridge| bridge.pending_focus = Some(Some(node)));
     }
     Ok(JsValue::undefined())
@@ -1596,7 +1666,7 @@ fn blur_element(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> J
 }
 
 fn remove_node(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     with_bridge(|bridge| {
@@ -1609,7 +1679,7 @@ fn remove_node(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsRe
 }
 
 fn get_attribute(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let name = string_arg(args, 0, context);
@@ -1627,7 +1697,7 @@ fn get_attribute(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsR
 }
 
 fn set_attribute(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context) else {
+    let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
     let name = string_arg(args, 0, context);
@@ -1652,4 +1722,176 @@ fn set_attribute(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsR
         bridge.dirty = true;
     });
     Ok(JsValue::undefined())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lumen_platform::{LoadError, ResourceRequest, ResourceResponse, Url};
+    use std::collections::HashMap;
+
+    struct FakeLoader {
+        pages: HashMap<String, Vec<u8>>,
+    }
+
+    impl FakeLoader {
+        fn new(pages: &[(&str, &str)]) -> Self {
+            Self {
+                pages: pages
+                    .iter()
+                    .map(|(url, html)| ((*url).to_string(), html.as_bytes().to_vec()))
+                    .collect(),
+            }
+        }
+    }
+
+    impl ResourceLoader for FakeLoader {
+        fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
+            let body = self
+                .pages
+                .get(request.url.as_str())
+                .ok_or_else(|| LoadError::Http(format!("404: {}", request.url)))?;
+            Ok(ResourceResponse {
+                final_url: request.url.clone(),
+                content_type: None,
+                body: body.clone(),
+                set_cookies: Vec::new(),
+            })
+        }
+    }
+
+    fn session_with(html: &str) -> Session<FakeLoader> {
+        let mut session = Session::new(
+            FakeLoader::new(&[("https://a.test/", html)]),
+            lumen_engine::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        session.load(Url::parse("https://a.test/").unwrap()).unwrap();
+        session
+    }
+
+    fn out_text(session: &Session<FakeLoader>) -> String {
+        let document = &session.page().unwrap().document;
+        let out = document.get_element_by_id("out").unwrap();
+        document.text_content(out)
+    }
+
+    #[test]
+    fn zero_delay_timer_chains_run_once_per_tick() {
+        let mut session = session_with(
+            "<p id='out'>0</p><script>\
+             let n = 0;\
+             const out = document.getElementById('out');\
+             function again() {\
+               n++; out.textContent = String(n);\
+               if (n < 3) { setTimeout(again, 0); }\
+             }\
+             setTimeout(again, 0);\
+             </script>",
+        );
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // One tick runs only the snapshot: a setTimeout(f, 0) chain must
+        // not spin forever inside a single tick.
+        assert!(scripts.tick(&mut session, 0.0));
+        assert_eq!(out_text(&session), "1");
+        assert!(scripts.tick(&mut session, 0.0));
+        assert_eq!(out_text(&session), "2");
+        assert!(scripts.tick(&mut session, 0.0));
+        assert_eq!(out_text(&session), "3");
+        assert!(!scripts.has_timers());
+    }
+
+    #[test]
+    fn clearing_a_due_sibling_inside_a_tick_skips_it() {
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             const out = document.getElementById('out');\
+             let second;\
+             setTimeout(() => { clearTimeout(second); out.textContent = 'birinci'; }, 0);\
+             second = setTimeout(() => { out.textContent = 'ikinci'; }, 0);\
+             </script>",
+        );
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert!(scripts.tick(&mut session, 0.0));
+        assert_eq!(out_text(&session), "birinci");
+        assert!(!scripts.has_timers());
+    }
+
+    #[test]
+    fn forged_node_handles_raise_type_errors() {
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             const out = document.getElementById('out');\
+             const getter = Object.getOwnPropertyDescriptor(out, 'textContent').get;\
+             try {\
+               getter.call({__node: 1e9});\
+               out.textContent = 'no-throw';\
+             } catch (error) {\
+               out.textContent = (error instanceof TypeError) ? 'type-error' : 'other-error';\
+             }\
+             </script>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // A fake {__node: 1e9} handle must not panic the arena index.
+        assert_eq!(out_text(&session), "type-error");
+    }
+
+    #[test]
+    fn cookie_writes_replace_the_same_name() {
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             document.cookie = 'a=1';\
+             document.cookie = 'b=1';\
+             document.cookie = 'a=2';\
+             document.getElementById('out').textContent = document.cookie;\
+             </script>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // The rewrite of `a` replaced its pair instead of duplicating it.
+        assert_eq!(out_text(&session), "b=1; a=2");
+    }
+
+    #[test]
+    fn next_timer_due_reports_the_earliest_deadline() {
+        let mut session = session_with(
+            "<script>\
+             setTimeout(() => {}, 50);\
+             setTimeout(() => {}, 10);\
+             </script>",
+        );
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(scripts.next_timer_due_ms(), Some(10.0));
+        assert!(scripts.tick(&mut session, 20.0));
+        assert_eq!(scripts.next_timer_due_ms(), Some(50.0));
+        assert!(scripts.tick(&mut session, 60.0));
+        assert_eq!(scripts.next_timer_due_ms(), None);
+    }
+
+    #[test]
+    fn dispatch_bubbles_in_registration_order() {
+        let mut session = session_with(
+            "<div id='outer'><button id='inner'>x</button></div><p id='out'></p><script>\
+             const out = document.getElementById('out');\
+             const inner = document.getElementById('inner');\
+             const outer = document.getElementById('outer');\
+             outer.addEventListener('click', () => { out.textContent += 'o1'; });\
+             inner.addEventListener('click', () => { out.textContent += 'i1'; });\
+             inner.addEventListener('click', () => { out.textContent += 'i2'; });\
+             outer.addEventListener('click', () => { out.textContent += 'o2'; });\
+             </script>",
+        );
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let document = &session.page().unwrap().document;
+        let inner = document.get_element_by_id("inner").unwrap();
+        let outer = document.get_element_by_id("outer").unwrap();
+        assert!(scripts.has_listener(inner, "click"));
+        assert!(scripts.has_listener(outer, "click"));
+        assert!(!scripts.has_listener(inner, "submit"));
+        let outcome = scripts.dispatch(&mut session, inner, "click");
+        assert!(outcome.handled);
+        // Target first (registration order), then the bubbling ancestors.
+        assert_eq!(out_text(&session), "i1i2o1o2");
+    }
 }

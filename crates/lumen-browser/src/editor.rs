@@ -151,12 +151,14 @@ impl TextBuffer {
     /// Start of the word before the caret (Option+Left target).
     #[must_use]
     pub fn previous_word(&self) -> usize {
-        let chars: Vec<char> = self.text.chars().collect();
-        let mut index = self.caret.min(chars.len());
-        while index > 0 && !chars[index - 1].is_alphanumeric() {
+        let mut index = self.caret.min(self.char_count());
+        // Walk backwards over the text without materializing a Vec<char>:
+        // skip trailing non-alphanumerics, then the word itself.
+        let mut rev = self.text[..self.byte_of(index)].chars().rev().peekable();
+        while rev.next_if(|ch| !ch.is_alphanumeric()).is_some() {
             index -= 1;
         }
-        while index > 0 && chars[index - 1].is_alphanumeric() {
+        while rev.next_if(|ch| ch.is_alphanumeric()).is_some() {
             index -= 1;
         }
         index
@@ -165,12 +167,13 @@ impl TextBuffer {
     /// End of the word after the caret (Option+Right target).
     #[must_use]
     pub fn next_word(&self) -> usize {
-        let chars: Vec<char> = self.text.chars().collect();
-        let mut index = self.caret.min(chars.len());
-        while index < chars.len() && !chars[index].is_alphanumeric() {
+        let count = self.char_count();
+        let mut index = self.caret.min(count);
+        let mut chars = self.text[self.byte_of(index)..].chars().peekable();
+        while chars.next_if(|ch| !ch.is_alphanumeric()).is_some() {
             index += 1;
         }
-        while index < chars.len() && chars[index].is_alphanumeric() {
+        while chars.next_if(|ch| ch.is_alphanumeric()).is_some() {
             index += 1;
         }
         index
@@ -259,12 +262,32 @@ impl<L: ResourceLoader> Session<L> {
     }
 
     /// Ends editing, restoring the full (head-clipped) value text when
-    /// the display was windowed.
+    /// the display was windowed. A number input's value is also clamped
+    /// into its min/max range here: the upper bound is already enforced
+    /// while typing (see `clamp_number_edit`), the lower bound only once
+    /// typing is done.
     pub fn end_edit(&mut self) {
-        if let Some(edit) = self.editor.take()
-            && edit.window != 0
+        let Some(edit) = self.editor.take() else {
+            return;
+        };
+        let mut value = edit.buffer.text;
+        let mut clamped = false;
+        if let Some((min, max)) = self.number_bounds(edit.node)
+            && let Ok(parsed) = value.trim().parse::<f32>()
         {
-            let value = edit.buffer.text;
+            let mut bounded = parsed;
+            if let Some(min) = min {
+                bounded = bounded.max(min);
+            }
+            if let Some(max) = max {
+                bounded = bounded.min(max);
+            }
+            if bounded != parsed {
+                value = format_number(bounded);
+                clamped = true;
+            }
+        }
+        if edit.window != 0 || clamped {
             self.set_form_value(edit.node, &value);
         }
     }
@@ -332,7 +355,60 @@ impl<L: ResourceLoader> Session<L> {
             }
         };
         self.sync_edit_display(result == EditResult::Edited);
+        if result == EditResult::Edited {
+            self.clamp_number_edit();
+        }
         result
+    }
+
+    /// Keeps a number input from exceeding its max while typing.
+    /// (Deliberate deviation from the HTML spec, which only clamps when
+    /// stepping or submitting.) Only the upper bound is enforced here:
+    /// digits only ever grow a value, so once past max it stays past —
+    /// whereas clamping to min mid-edit would mangle text the user is
+    /// still typing ("-123" would become "023"). The lower bound is
+    /// enforced when editing ends (see `end_edit`).
+    fn clamp_number_edit(&mut self) {
+        let Some(node) = self.editing() else {
+            return;
+        };
+        let Some((_, max)) = self.number_bounds(node) else {
+            return;
+        };
+        let Some(max) = max else {
+            return;
+        };
+        let Some(edit) = self.editor.as_mut() else {
+            return;
+        };
+        // Only clamp complete numbers; partial states like "" or "-"
+        // are left alone so typing is not interrupted mid-edit.
+        let Ok(value) = edit.buffer.text.trim().parse::<f32>() else {
+            return;
+        };
+        if value <= max {
+            return;
+        }
+        edit.buffer.text = format_number(max);
+        edit.buffer.move_to(usize::MAX, false);
+        self.sync_edit_display(true);
+    }
+
+    /// The parsed `min`/`max` attributes of a number input, `None` for
+    /// any other node.
+    fn number_bounds(&self, node: NodeId) -> Option<(Option<f32>, Option<f32>)> {
+        if !self.is_number_input(node) {
+            return None;
+        }
+        let page = self.page.as_ref()?;
+        let element = page.document.element(node)?;
+        let attr = |name: &str| -> Option<f32> {
+            element
+                .attributes
+                .get(name)
+                .and_then(|value| value.parse().ok())
+        };
+        Some((attr("min"), attr("max")))
     }
 
     /// Drag-selects: extends the selection to the caret index at page x.
@@ -379,7 +455,9 @@ impl<L: ResourceLoader> Session<L> {
     }
 
     /// The caret index (in value chars) under page x, given the current
-    /// display window. Binary-searches the monotonic prefix width.
+    /// display window. Prefix widths grow monotonically, so a single pass
+    /// with one reused buffer finds the first prefix reaching the click —
+    /// no per-probe string rebuilds like a binary search would need.
     fn caret_index_at_x(&self, node: NodeId, window: usize, x: f32) -> Option<usize> {
         let page = self.page.as_ref()?;
         let content = page.layout.find_by_node(node)?.content_box();
@@ -391,21 +469,17 @@ impl<L: ResourceLoader> Session<L> {
         let text_style = self.control_text_style(node)?;
         let measurer = self.effective_measurer();
         let relative = (x - content.x).max(0.0);
-        let count = value.chars().count();
-        let width_to = |index: usize| {
-            let prefix: String = value.chars().take(index).collect();
-            measurer.measure(&prefix, &text_style).width
-        };
-        let (mut low, mut high) = (0usize, count);
-        while low < high {
-            let mid = low + (high - low) / 2;
-            if width_to(mid) >= relative {
-                high = mid;
-            } else {
-                low = mid + 1;
+        if relative <= 0.0 {
+            return Some(window);
+        }
+        let mut prefix = String::with_capacity(value.len());
+        for (index, ch) in value.chars().enumerate() {
+            prefix.push(ch);
+            if measurer.measure(&prefix, &text_style).width >= relative {
+                return Some(window + index + 1);
             }
         }
-        Some(window + low)
+        Some(window + value.chars().count())
     }
 
     /// Pushes the edited value into the page. Single-line inputs keep
@@ -597,5 +671,194 @@ impl<L: ResourceLoader> Session<L> {
             });
 
         Some(EditOverlay { caret, selection })
+    }
+}
+
+/// Formats a clamped number the way number inputs display it: integral
+/// values without a fraction.
+fn format_number(value: f32) -> String {
+    if (value - value.round()).abs() < 1e-4 {
+        format!("{}", value.round() as i64)
+    } else {
+        format!("{value}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ResourceLoader;
+    use lumen_engine::Size;
+    use lumen_platform::{LoadError, ResourceRequest, ResourceResponse, Url};
+
+    struct FakeLoader {
+        pages: std::collections::HashMap<String, Vec<u8>>,
+    }
+
+    impl FakeLoader {
+        fn new(pages: &[(&str, &str)]) -> Self {
+            Self {
+                pages: pages
+                    .iter()
+                    .map(|(url, html)| ((*url).to_string(), html.as_bytes().to_vec()))
+                    .collect(),
+            }
+        }
+    }
+
+    impl ResourceLoader for FakeLoader {
+        fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
+            let body = self
+                .pages
+                .get(request.url.as_str())
+                .ok_or_else(|| LoadError::Http(format!("404: {}", request.url)))?;
+            Ok(ResourceResponse {
+                final_url: request.url.clone(),
+                content_type: None,
+                body: body.clone(),
+                set_cookies: Vec::new(),
+            })
+        }
+    }
+
+    /// The pre-optimization `previous_word` (Vec<char> based), kept as the
+    /// reference the allocation-free version must match exactly.
+    fn reference_previous_word(text: &str, caret: usize) -> usize {
+        let chars: Vec<char> = text.chars().collect();
+        let mut index = caret.min(chars.len());
+        while index > 0 && !chars[index - 1].is_alphanumeric() {
+            index -= 1;
+        }
+        while index > 0 && chars[index - 1].is_alphanumeric() {
+            index -= 1;
+        }
+        index
+    }
+
+    fn reference_next_word(text: &str, caret: usize) -> usize {
+        let chars: Vec<char> = text.chars().collect();
+        let mut index = caret.min(chars.len());
+        while index < chars.len() && !chars[index].is_alphanumeric() {
+            index += 1;
+        }
+        while index < chars.len() && chars[index].is_alphanumeric() {
+            index += 1;
+        }
+        index
+    }
+
+    #[test]
+    fn word_motions_match_reference_on_every_caret() {
+        let samples = [
+            "",
+            "a",
+            "hello world",
+            "  spaced  out  ",
+            "foo--bar__baz",
+            "merhaba dünya, nasılsın?",
+            "ünïcodé wörds ✓ ok",
+            "one\ntwo\tthree",
+        ];
+        for text in samples {
+            for caret in 0..=text.chars().count() + 1 {
+                let buffer = TextBuffer {
+                    text: text.to_string(),
+                    caret,
+                    anchor: caret,
+                };
+                assert_eq!(
+                    buffer.previous_word(),
+                    reference_previous_word(text, caret),
+                    "previous_word({text:?}, {caret})"
+                );
+                assert_eq!(
+                    buffer.next_word(),
+                    reference_next_word(text, caret),
+                    "next_word({text:?}, {caret})"
+                );
+            }
+        }
+    }
+
+    /// The pre-optimization binary search, kept as the reference the
+    /// single-pass `caret_index_at_x` must match exactly.
+    fn reference_caret_index_at_x(
+        session: &Session<FakeLoader>,
+        node: NodeId,
+        window: usize,
+        x: f32,
+    ) -> Option<usize> {
+        let page = session.page.as_ref()?;
+        let content = page.layout.find_by_node(node)?.content_box();
+        let value: String = session
+            .control_display_text(node, &session.form_value(node))
+            .chars()
+            .skip(window)
+            .collect();
+        let text_style = session.control_text_style(node)?;
+        let measurer = session.effective_measurer();
+        let relative = (x - content.x).max(0.0);
+        let count = value.chars().count();
+        let width_to = |index: usize| {
+            let prefix: String = value.chars().take(index).collect();
+            measurer.measure(&prefix, &text_style).width
+        };
+        let (mut low, mut high) = (0usize, count);
+        while low < high {
+            let mid = low + (high - low) / 2;
+            if width_to(mid) >= relative {
+                high = mid;
+            } else {
+                low = mid + 1;
+            }
+        }
+        Some(window + low)
+    }
+
+    #[test]
+    fn caret_index_at_x_matches_reference_binary_search() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<form><input id='q' type='text' value='hello dünya'></form>",
+            )]),
+            Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        session
+            .load(Url::parse("https://a.test/").unwrap())
+            .unwrap();
+        let field = session
+            .page()
+            .unwrap()
+            .document
+            .get_element_by_id("q")
+            .unwrap();
+        let content = session
+            .page()
+            .unwrap()
+            .layout
+            .find_by_node(field)
+            .unwrap()
+            .content_box();
+        // Sweep the click x across and past the box in fine steps.
+        let chars = "hello dünya".chars().count();
+        let mut seen = Vec::new();
+        let mut x = content.x - 5.0;
+        while x <= content.x + content.width + 5.0 {
+            let actual = session.caret_index_at_x(field, 0, x);
+            let expected = reference_caret_index_at_x(&session, field, 0, x);
+            assert_eq!(actual, expected, "caret_index_at_x at x={x}");
+            seen.push(actual.unwrap());
+            x += 0.5;
+        }
+        // The sweep covers every caret slot from 0 to the char count.
+        assert_eq!(seen.first(), Some(&0));
+        assert_eq!(seen.last(), Some(&chars));
+        for index in 0..=chars {
+            assert!(seen.contains(&index), "caret slot {index} unreachable");
+        }
     }
 }

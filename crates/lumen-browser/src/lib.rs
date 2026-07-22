@@ -13,6 +13,7 @@ use lumen_html::NodeId;
 use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, ResourceResponse, Url, resolve};
 
 pub use editor::{EditOp, EditOverlay, EditResult, Motion, TextBuffer};
+pub use forms::FormViolation;
 pub use scripting::{DispatchOutcome, PageScripts};
 use std::sync::Arc;
 
@@ -51,6 +52,8 @@ pub struct Session<L: ResourceLoader> {
     pub(crate) form_values: std::collections::HashMap<NodeId, String>,
     /// Live checkbox/radio state.
     pub(crate) form_checked: std::collections::HashMap<NodeId, bool>,
+    /// The constraint violation that blocked the last submit attempt.
+    pub(crate) form_violation: Option<FormViolation>,
     /// Final URLs of visited pages this session (drives `:visited`).
     visited: std::collections::HashSet<String>,
     /// Running property transitions, stepped by [`Session::tick`].
@@ -65,6 +68,11 @@ pub struct Session<L: ResourceLoader> {
     pub(crate) editor: Option<editor::TextEdit>,
     /// Session cookies (Set-Cookie in, Cookie header out).
     pub(crate) cookies: cookies::CookieJar,
+    /// Final URL of the page currently being fetched, set while its
+    /// subresources load — history is only updated once the page is
+    /// rendered, so `current_url` alone cannot tell whether the page
+    /// being loaded is remote.
+    loading_page: Option<Url>,
     /// First usable `@font-face` font of the page (TTF/OTF only —
     /// fontdue cannot parse WOFF), used as the document font.
     web_font: Option<Arc<lumen_engine::SystemFont>>,
@@ -139,6 +147,7 @@ impl<L: ResourceLoader> Session<L> {
             focused: None,
             form_values: std::collections::HashMap::new(),
             form_checked: std::collections::HashMap::new(),
+            form_violation: None,
             visited: std::collections::HashSet::new(),
             transitions: Vec::new(),
             animations: Vec::new(),
@@ -146,6 +155,7 @@ impl<L: ResourceLoader> Session<L> {
             scroll_offsets: std::collections::HashMap::new(),
             editor: None,
             cookies: cookies::CookieJar::default(),
+            loading_page: None,
             web_font: None,
             hover_impact: lumen_engine::HoverImpact::Nothing,
         }
@@ -737,14 +747,25 @@ impl<L: ResourceLoader> Session<L> {
 
     /// Loads a resource with the session's cookies attached, storing any
     /// `Set-Cookie` headers from the response. Every network access of
-    /// the session funnels through here.
+    /// the session funnels through here. A remote (http/https) page may
+    /// never read local files: `file:` requests are rejected while one
+    /// is loaded.
     pub(crate) fn fetch_resource(
         &mut self,
         url: Url,
         body: Option<(String, Vec<u8>)>,
     ) -> Result<ResourceResponse, LoadError> {
+        if url.scheme() == "file"
+            && self
+                .page_origin()
+                .is_some_and(|scheme| matches!(scheme, "http" | "https"))
+        {
+            return Err(LoadError::UnsupportedScheme(
+                "file (blocked from a remote page)".to_string(),
+            ));
+        }
         let request = ResourceRequest {
-            cookie: self.cookies.header_for(&url),
+            cookie: self.cookies.header_for_http(&url),
             url,
             body,
         };
@@ -753,6 +774,14 @@ impl<L: ResourceLoader> Session<L> {
             self.cookies.store(&response.final_url, header);
         }
         Ok(response)
+    }
+
+    /// The scheme of the page being shown or loaded, if any.
+    fn page_origin(&self) -> Option<&str> {
+        self.loading_page
+            .as_ref()
+            .or_else(|| self.current_url())
+            .map(Url::scheme)
     }
 
     #[must_use]
@@ -816,6 +845,9 @@ impl<L: ResourceLoader> Session<L> {
         body: Option<(String, Vec<u8>)>,
     ) -> Result<Url, LoadError> {
         let response = self.fetch_resource(url, body)?;
+        // Subresources of a remote page may not escape to file:; history
+        // is only updated once this page rendered, so remember it here.
+        self.loading_page = Some(response.final_url.clone());
         let source = response.text();
         let document = lumen_html::parse_document(&source);
 
@@ -917,6 +949,7 @@ impl<L: ResourceLoader> Session<L> {
         self.scroll_offsets.clear();
         self.form_values.clear();
         self.form_checked.clear();
+        self.form_violation = None;
         // Mark this page itself visited before building, so its own links
         // back to already-seen pages style immediately.
         self.visited.insert(response.final_url.to_string());
@@ -933,6 +966,7 @@ impl<L: ResourceLoader> Session<L> {
         ));
         self.source = Some(source);
         self.spawn_animations();
+        self.loading_page = None;
         Ok(response.final_url)
     }
 
@@ -1425,6 +1459,132 @@ mod tests {
         );
     }
 
+    /// Finds the first control whose attribute `name` matches.
+    fn control_with(session: &Session<FakeLoader>, name: &str, value: &str) -> NodeId {
+        let document = &session.page().unwrap().document;
+        document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.attributes.get(name) == Some(value))
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn range_overflow_blocks_submission_with_a_violation() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                (
+                    "https://a.test/",
+                    "<form action='/go'>\
+                     <input type='number' name='n' max='99' value='123'>\
+                     <input type='submit' value='Go'></form>",
+                ),
+                ("https://a.test/go?n=123", "<p>should not load</p>"),
+            ]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let field = control_with(&session, "name", "n");
+        session.submit_form(field).unwrap();
+        // The navigation never happened; the violation is on the session.
+        assert_eq!(session.current_url().unwrap().as_str(), "https://a.test/");
+        let violation = session.form_violation().unwrap();
+        assert_eq!(violation.node, field);
+        assert_eq!(
+            violation.message,
+            "Value must be less than or equal to 99."
+        );
+    }
+
+    #[test]
+    fn range_underflow_and_document_order_pick_the_first_violation() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<form action='/go'>\
+                 <input type='number' name='low' min='10' value='2'>\
+                 <input type='number' name='high' max='99' value='123'>\
+                 </form>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let high = control_with(&session, "name", "high");
+        // Both fields are invalid; the earlier one in the form wins.
+        session.submit_form(high).unwrap();
+        let violation = session.form_violation().unwrap();
+        assert_eq!(violation.node, control_with(&session, "name", "low"));
+        assert_eq!(
+            violation.message,
+            "Value must be greater than or equal to 10."
+        );
+        assert_eq!(session.current_url().unwrap().as_str(), "https://a.test/");
+    }
+
+    #[test]
+    fn required_empty_input_blocks_submission() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                (
+                    "https://a.test/",
+                    "<form action='/go'>\
+                     <input type='text' name='q' required>\
+                     <textarea name='not' required></textarea></form>",
+                ),
+                ("https://a.test/go?q=x&not=y", "<p>ok</p>"),
+            ]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let field = control_with(&session, "name", "q");
+        session.submit_form(field).unwrap();
+        assert_eq!(session.current_url().unwrap().as_str(), "https://a.test/");
+        let violation = session.form_violation().unwrap();
+        assert_eq!(violation.node, field);
+        assert_eq!(violation.message, "Please fill out this field.");
+        // Filling both required fields lets the submit through and
+        // clears the violation.
+        session.set_form_value(field, "x");
+        session.set_form_value(control_with(&session, "name", "not"), "y");
+        session.submit_form(field).unwrap();
+        assert_eq!(session.form_violation(), None);
+        assert_eq!(
+            session.current_url().unwrap().as_str(),
+            "https://a.test/go?q=x&not=y"
+        );
+    }
+
+    #[test]
+    fn a_valid_value_submits_and_clears_the_violation() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                (
+                    "https://a.test/",
+                    "<form action='/go'>\
+                     <input type='number' name='n' min='1' max='99' value='123'>\
+                     </form>",
+                ),
+                ("https://a.test/go?n=50", "<p>ok</p>"),
+            ]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let field = control_with(&session, "name", "n");
+        session.submit_form(field).unwrap();
+        assert!(session.form_violation().is_some());
+        // Correcting the value lets the same submit navigate.
+        session.set_form_value(field, "50");
+        session.submit_form(field).unwrap();
+        assert_eq!(session.form_violation(), None);
+        assert_eq!(
+            session.current_url().unwrap().as_str(),
+            "https://a.test/go?n=50"
+        );
+    }
+
     #[test]
     fn selects_textareas_and_ranges_submit_their_values() {
         let mut session = Session::new(
@@ -1744,10 +1904,86 @@ mod tests {
         assert_eq!(
             session
                 .cookies
-                .header_for(&url("https://a.test/x"))
+                .header_for_http(&url("https://a.test/x"))
                 .unwrap(),
             "sid=abc; tema=koyu"
         );
+    }
+
+    #[test]
+    fn http_only_cookies_are_hidden_from_document_cookie() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<p id='out'>-</p>\
+                 <script>\
+                 document.getElementById('out').textContent = document.cookie;\
+                 </script>",
+            )])
+            .with_set_cookie("https://a.test/", "sid=abc; HttpOnly; Path=/")
+            .with_set_cookie("https://a.test/", "tema=koyu; Path=/"),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let document = &session.page().unwrap().document;
+        let out = document.get_element_by_id("out").unwrap();
+        // The script only saw the script-visible cookie…
+        assert_eq!(document.text_content(out), "tema=koyu");
+        // …but the HttpOnly one still rides HTTP requests.
+        assert_eq!(
+            session
+                .cookies
+                .header_for_http(&url("https://a.test/x"))
+                .unwrap(),
+            "sid=abc; tema=koyu"
+        );
+    }
+
+    #[test]
+    fn secure_set_cookie_over_http_is_ignored() {
+        let mut session = Session::new(
+            FakeLoader::new(&[
+                ("http://a.test/", "<a href='/iki'>x</a>"),
+                ("http://a.test/iki", "<p>iki</p>"),
+            ])
+            .with_set_cookie("http://a.test/", "sid=abc; Secure; Path=/"),
+            VIEWPORT,
+        );
+        session.load(url("http://a.test/")).unwrap();
+        session.follow("/iki").unwrap();
+        let cookies = session.loader.cookies_sent.borrow();
+        // The insecure origin's Secure cookie was never stored.
+        assert_eq!(cookies[1], None);
+    }
+
+    #[test]
+    fn document_cookie_cannot_write_secure_over_http() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "http://a.test/",
+                "<script>document.cookie = 's=1; Secure; Path=/';</script>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("http://a.test/")).unwrap();
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert!(session.cookies.header_for_http(&url("http://a.test/")).is_none());
+    }
+
+    #[test]
+    fn remote_pages_cannot_fetch_file_urls() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<link rel='stylesheet' href='file:///etc/passwd'><p>hi</p>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        // The page still renders; the file: stylesheet never reached the loader.
+        assert!(session.page().is_some());
+        assert_eq!(*session.loader.loads.borrow(), vec!["https://a.test/"]);
     }
 
     #[test]
@@ -2100,6 +2336,84 @@ mod tests {
         assert_eq!(session.step_number_input(field, -1.0).as_deref(), Some("1"));
         assert_eq!(session.step_number_input(field, -1.0).as_deref(), Some("0"));
         assert_eq!(session.form_value(field), "0");
+    }
+
+    #[test]
+    fn number_input_clamps_typed_values_to_min_max() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<form><input type='number' name='n' value='' min='0' max='99'></form>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let field = {
+            let document = &session.page().unwrap().document;
+            document
+                .descendants(document.root())
+                .find(|id| {
+                    document
+                        .element(*id)
+                        .is_some_and(|element| element.tag_name == "input")
+                })
+                .unwrap()
+        };
+        assert!(session.begin_edit(field, None));
+        // Typing past the maximum clamps on the spot: 1, 12, 123 -> 99.
+        session.edit(EditOp::Insert("1".to_string()));
+        session.edit(EditOp::Insert("2".to_string()));
+        session.edit(EditOp::Insert("3".to_string()));
+        assert_eq!(session.form_value(field), "99");
+        // The lower bound is NOT enforced mid-edit: "-123" must stay
+        // exactly as typed instead of degenerating to "023".
+        session.edit(EditOp::SelectAll);
+        for digit in ["-", "1", "2", "3"] {
+            session.edit(EditOp::Insert(digit.to_string()));
+        }
+        assert_eq!(session.form_value(field), "-123");
+        // ...it clamps up when editing ends.
+        session.end_edit();
+        assert_eq!(session.form_value(field), "0");
+        // A partial state like "-" is left alone mid-edit.
+        assert!(session.begin_edit(field, None));
+        session.edit(EditOp::SelectAll);
+        session.edit(EditOp::Insert("-".to_string()));
+        assert_eq!(session.form_value(field), "-");
+    }
+
+    #[test]
+    fn number_input_below_min_is_not_mangled_while_typing() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<form><input type='number' name='n' value='' min='5' max='99'></form>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let field = {
+            let document = &session.page().unwrap().document;
+            document
+                .descendants(document.root())
+                .find(|id| {
+                    document
+                        .element(*id)
+                        .is_some_and(|element| element.tag_name == "input")
+                })
+                .unwrap()
+        };
+        // With min=5, typing "35" must not turn the leading "3" into "5".
+        assert!(session.begin_edit(field, None));
+        session.edit(EditOp::Insert("3".to_string()));
+        assert_eq!(session.form_value(field), "3");
+        session.edit(EditOp::Insert("5".to_string()));
+        assert_eq!(session.form_value(field), "35");
+        // Left below the minimum, the value clamps up when editing ends.
+        session.edit(EditOp::SelectAll);
+        session.edit(EditOp::Insert("2".to_string()));
+        session.end_edit();
+        assert_eq!(session.form_value(field), "5");
     }
 
     #[test]
