@@ -86,12 +86,25 @@ impl Color {
         if parts.len() != 3 && parts.len() != 4 {
             return None;
         }
-        let channel = |part: &str| part.parse::<u8>().ok();
+        // Channels accept integers (0-255) or percentages of 255.
+        let channel = |part: &str| {
+            if let Some(percent) = part.strip_suffix('%') {
+                let percent: f32 = percent.parse().ok()?;
+                Some((percent.clamp(0.0, 100.0) / 100.0 * 255.0).round() as u8)
+            } else {
+                part.parse::<u8>().ok()
+            }
+        };
         let color = Self::rgb(channel(parts[0])?, channel(parts[1])?, channel(parts[2])?);
         match parts.get(3) {
             None => Some(color),
             Some(alpha) => {
-                let alpha: f32 = alpha.parse().ok()?;
+                // Alpha accepts a fraction (0-1) or a percentage.
+                let alpha: f32 = if let Some(percent) = alpha.strip_suffix('%') {
+                    percent.parse::<f32>().ok()? / 100.0
+                } else {
+                    alpha.parse().ok()?
+                };
                 Some(Self {
                     a: (alpha.clamp(0.0, 1.0) * 255.0).round() as u8,
                     ..color
@@ -692,6 +705,23 @@ mod tests {
         );
         assert_eq!(Color::parse("rgb(300, 0, 0)"), None);
         assert_eq!(Color::parse("rgb(1, 2)"), None);
+    }
+
+    #[test]
+    fn parses_rgb_percentage_channels_and_alpha() {
+        assert_eq!(
+            Color::parse("rgb(100%, 0%, 0%)"),
+            Some(Color::rgb(255, 0, 0))
+        );
+        assert_eq!(
+            Color::parse("rgb(50%, 50%, 50%)"),
+            Some(Color::rgb(128, 128, 128))
+        );
+        assert_eq!(
+            Color::parse("rgba(0, 0, 0, 50%)"),
+            Some(Color::rgba(0, 0, 0, 128))
+        );
+        assert_eq!(Color::parse("rgb(150%, 0, 0)"), Some(Color::rgb(255, 0, 0)));
     }
 
     #[test]

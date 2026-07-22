@@ -14,9 +14,9 @@
 /// The universal selector contributes nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Specificity {
-    pub ids: u16,
-    pub classes: u16,
-    pub types: u16,
+    pub ids: u32,
+    pub classes: u32,
+    pub types: u32,
 }
 
 /// How a compound connects to the compound on its right.
@@ -115,30 +115,44 @@ pub struct CompoundSelector {
 impl CompoundSelector {
     #[must_use]
     pub fn specificity(&self) -> Specificity {
+        self.specificity_at(0)
+    }
+
+    /// Bounded recursion companion of [`CompoundSelector::specificity`]:
+    /// nesting is already capped at parse time, but hand-built selectors
+    /// get the same protection.
+    fn specificity_at(&self, depth: usize) -> Specificity {
         let mut specificity = Specificity {
-            ids: u16::from(self.id.is_some()),
-            classes: (self.classes.len() + self.attributes.len()) as u16,
-            types: u16::from(self.tag.is_some()) + u16::from(self.pseudo_element.is_some()),
+            ids: u32::from(self.id.is_some()),
+            classes: (self.classes.len() + self.attributes.len()) as u32,
+            types: u32::from(self.tag.is_some()) + u32::from(self.pseudo_element.is_some()),
         };
+        if depth >= MAX_PSEUDO_NESTING {
+            return specificity;
+        }
         for pseudo in &self.pseudo_classes {
             match pseudo {
                 // Per spec, :not() adds its argument's specificity.
                 PseudoClass::Not(inner) => {
-                    let inner = inner.specificity();
-                    specificity.ids += inner.ids;
-                    specificity.classes += inner.classes;
-                    specificity.types += inner.types;
+                    let inner = inner.specificity_at(depth + 1);
+                    specificity.ids = specificity.ids.saturating_add(inner.ids);
+                    specificity.classes = specificity.classes.saturating_add(inner.classes);
+                    specificity.types = specificity.types.saturating_add(inner.types);
                 }
                 // :is() takes its most specific argument; :where() none.
                 PseudoClass::Is(arguments) => {
-                    if let Some(most) = arguments.iter().map(CompoundSelector::specificity).max() {
-                        specificity.ids += most.ids;
-                        specificity.classes += most.classes;
-                        specificity.types += most.types;
+                    if let Some(most) = arguments
+                        .iter()
+                        .map(|compound| compound.specificity_at(depth + 1))
+                        .max()
+                    {
+                        specificity.ids = specificity.ids.saturating_add(most.ids);
+                        specificity.classes = specificity.classes.saturating_add(most.classes);
+                        specificity.types = specificity.types.saturating_add(most.types);
                     }
                 }
                 PseudoClass::Where(_) => {}
-                _ => specificity.classes += 1,
+                _ => specificity.classes = specificity.classes.saturating_add(1),
             }
         }
         specificity
@@ -163,9 +177,9 @@ impl Selector {
             .iter()
             .map(CompoundSelector::specificity)
             .fold(Specificity::default(), |sum, next| Specificity {
-                ids: sum.ids + next.ids,
-                classes: sum.classes + next.classes,
-                types: sum.types + next.types,
+                ids: sum.ids.saturating_add(next.ids),
+                classes: sum.classes.saturating_add(next.classes),
+                types: sum.types.saturating_add(next.types),
             })
     }
 
@@ -268,8 +282,16 @@ fn tokenize_complex(source: &str) -> Option<Vec<ComplexToken>> {
 
 const SUPPORTED_PSEUDO_ELEMENTS: [&str; 3] = ["selection", "before", "after"];
 
+/// How deep `:not()`/`:is()`/`:where()` arguments may nest; deeper
+/// selectors are rejected (the containing rule is dropped).
+const MAX_PSEUDO_NESTING: usize = 32;
+
 /// Parses one compound selector with a character scanner.
 fn parse_compound(source: &str) -> Option<CompoundSelector> {
+    parse_compound_inner(source, 0)
+}
+
+fn parse_compound_inner(source: &str, depth: usize) -> Option<CompoundSelector> {
     let mut compound = CompoundSelector::default();
     let chars: Vec<char> = source.chars().collect();
     let mut position = 0;
@@ -341,9 +363,11 @@ fn parse_compound(source: &str) -> Option<CompoundSelector> {
                 } else {
                     None
                 };
-                compound
-                    .pseudo_classes
-                    .push(parse_pseudo_class(&name, arguments.as_deref())?);
+                compound.pseudo_classes.push(parse_pseudo_class(
+                    &name,
+                    arguments.as_deref(),
+                    depth,
+                )?);
             }
             _ => return None,
         }
@@ -427,7 +451,7 @@ fn parse_attribute(source: &str) -> Option<AttributeSelector> {
     Some(AttributeSelector { name, operation })
 }
 
-fn parse_pseudo_class(name: &str, arguments: Option<&str>) -> Option<PseudoClass> {
+fn parse_pseudo_class(name: &str, arguments: Option<&str>, depth: usize) -> Option<PseudoClass> {
     match (name, arguments) {
         ("link", None) => Some(PseudoClass::Link),
         ("visited", None) => Some(PseudoClass::Visited),
@@ -456,9 +480,12 @@ fn parse_pseudo_class(name: &str, arguments: Option<&str>) -> Option<PseudoClass
             parse_nth(arguments).map(|(a, b)| PseudoClass::NthLastOfType(a, b))
         }
         ("is", Some(arguments)) | ("where", Some(arguments)) => {
+            if depth >= MAX_PSEUDO_NESTING {
+                return None;
+            }
             let compounds: Option<Vec<CompoundSelector>> = arguments
                 .split(',')
-                .map(|part| parse_compound(part.trim()))
+                .map(|part| parse_compound_inner(part.trim(), depth + 1))
                 .collect();
             let compounds = compounds?;
             if compounds.is_empty()
@@ -475,7 +502,10 @@ fn parse_pseudo_class(name: &str, arguments: Option<&str>) -> Option<PseudoClass
             })
         }
         ("not", Some(arguments)) => {
-            let inner = parse_compound(arguments.trim())?;
+            if depth >= MAX_PSEUDO_NESTING {
+                return None;
+            }
+            let inner = parse_compound_inner(arguments.trim(), depth + 1)?;
             // No pseudo-elements inside :not().
             if inner.pseudo_element.is_some() {
                 return None;
@@ -809,5 +839,42 @@ mod tests {
         let class = parse_selector(".a").unwrap().specificity();
         let types = parse_selector("html body div p").unwrap().specificity();
         assert!(class > types);
+    }
+
+    #[test]
+    fn deeply_nested_functional_pseudos_are_rejected() {
+        // Nesting within the limit still parses and computes specificity.
+        let ok = format!("p{}.a{}", ":not(".repeat(8), ")".repeat(8));
+        let selector = parse_selector(&ok).unwrap();
+        assert_eq!(
+            selector.specificity(),
+            Specificity {
+                ids: 0,
+                classes: 1,
+                types: 1
+            }
+        );
+        // Past the limit the selector (and so its rule) is dropped instead
+        // of recursing without bound.
+        let deep = format!(
+            "p{}.a{}",
+            ":not(".repeat(MAX_PSEUDO_NESTING + 8),
+            ")".repeat(MAX_PSEUDO_NESTING + 8)
+        );
+        assert!(parse_selector(&deep).is_none());
+    }
+
+    #[test]
+    fn huge_selector_specificity_does_not_overflow() {
+        // Regression: specificity fields were u16 and overflowed here.
+        let selector = parse_selector(&format!("p{}", ":hover".repeat(70_000))).unwrap();
+        assert_eq!(
+            selector.specificity(),
+            Specificity {
+                ids: 0,
+                classes: 70_000,
+                types: 1
+            }
+        );
     }
 }

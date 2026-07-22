@@ -94,27 +94,39 @@ pub struct Keyframes {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Stylesheet {
-    pub rules: Vec<Rule>,
-    pub font_faces: Vec<FontFace>,
-    pub keyframes: Vec<Keyframes>,
+    /// Arc-shared so `for_width` can hand out a viewport-filtered sheet
+    /// without deep-cloning every rule when nothing (or only a little)
+    /// is filtered out.
+    pub rules: std::sync::Arc<Vec<Rule>>,
+    pub font_faces: std::sync::Arc<Vec<FontFace>>,
+    pub keyframes: std::sync::Arc<Vec<Keyframes>>,
 }
 
 impl Stylesheet {
     /// The rules that apply at a viewport width: everything outside
     /// `@media`, plus matching media blocks.
+    ///
+    /// When every rule applies (the common case: no media queries, or a
+    /// viewport that matches them all) this is three `Arc` bumps instead
+    /// of a full deep clone; otherwise only the surviving rules clone.
     #[must_use]
     pub fn for_width(&self, viewport_width: f32) -> Stylesheet {
+        let applies = |rule: &Rule| {
+            rule.media
+                .as_ref()
+                .is_none_or(|media| media.matches(viewport_width))
+        };
+        if self.rules.iter().all(applies) {
+            return self.clone();
+        }
         Stylesheet {
-            rules: self
-                .rules
-                .iter()
-                .filter(|rule| {
-                    rule.media
-                        .as_ref()
-                        .is_none_or(|media| media.matches(viewport_width))
-                })
-                .cloned()
-                .collect(),
+            rules: std::sync::Arc::new(
+                self.rules
+                    .iter()
+                    .filter(|rule| applies(rule))
+                    .cloned()
+                    .collect(),
+            ),
             font_faces: self.font_faces.clone(),
             keyframes: self.keyframes.clone(),
         }
@@ -139,9 +151,12 @@ pub fn parse_stylesheet(source: &str) -> Stylesheet {
     let source = strip_comments(source);
     let mut sheet = Stylesheet::default();
     let mut source_order = 0;
-    parse_rule_list(&source, None, &mut sheet, &mut source_order);
+    parse_rule_list(&source, None, &mut sheet, &mut source_order, 0);
     sheet
 }
+
+/// How deep `@media` blocks may nest; deeper blocks are dropped.
+const MAX_MEDIA_NESTING: usize = 32;
 
 /// Parses a run of rules, attaching `media` to each. `@media` blocks with
 /// a supported condition recurse (nested conditions intersect); all other
@@ -151,6 +166,7 @@ fn parse_rule_list(
     media: Option<MediaQuery>,
     sheet: &mut Stylesheet,
     source_order: &mut usize,
+    depth: usize,
 ) {
     let mut rest = source;
     loop {
@@ -176,8 +192,11 @@ fn parse_rule_list(
                             f32::min,
                         ),
                     });
-                    let inner = &block_start[1..block_end.saturating_sub(1)];
-                    parse_rule_list(inner, combined, sheet, source_order);
+                    // Too-deep nesting is dropped, not recursed into.
+                    if depth < MAX_MEDIA_NESTING {
+                        let inner = &block_start[1..block_end.saturating_sub(1)];
+                        parse_rule_list(inner, combined, sheet, source_order, depth + 1);
+                    }
                 }
                 rest = &after_keyword[open + block_end..];
                 continue;
@@ -190,7 +209,7 @@ fn parse_rule_list(
                 let block_end = balanced_block_len(block_start);
                 let inner = &block_start[1..block_end.saturating_sub(1)];
                 if let Some(face) = parse_font_face(inner) {
-                    sheet.font_faces.push(face);
+                    std::sync::Arc::make_mut(&mut sheet.font_faces).push(face);
                 }
                 rest = &after_keyword[open + block_end..];
                 continue;
@@ -209,7 +228,7 @@ fn parse_rule_list(
                 if !name.is_empty() {
                     let block = parse_keyframes(&name, inner);
                     if !block.frames.is_empty() {
-                        sheet.keyframes.push(block);
+                        std::sync::Arc::make_mut(&mut sheet.keyframes).push(block);
                     }
                 }
                 rest = &after_keyword[open + block_end..];
@@ -246,7 +265,7 @@ fn parse_rule_list(
             continue;
         }
 
-        sheet.rules.push(Rule {
+        std::sync::Arc::make_mut(&mut sheet.rules).push(Rule {
             selectors,
             declarations: parse_declarations(declaration_source),
             source_order: *source_order,
@@ -1152,6 +1171,37 @@ mod tests {
     }
 
     #[test]
+    fn for_width_shares_instead_of_cloning() {
+        // No media queries: every rule applies, so the filtered sheet is
+        // the same storage, not a deep clone.
+        let sheet = parse_stylesheet("p { color: red; } div { color: blue; }");
+        let filtered = sheet.for_width(800.0);
+        assert!(std::sync::Arc::ptr_eq(&sheet.rules, &filtered.rules));
+        assert_eq!(filtered, sheet);
+
+        // With media queries, only the surviving rules are cloned;
+        // font faces and keyframes stay shared.
+        let sheet = parse_stylesheet(
+            "@font-face { font-family: x; src: url(x.ttf); }
+             @keyframes spin { from { opacity: 0; } to { opacity: 1; } }
+             p { color: red; }
+             @media (max-width: 500px) { div { color: blue; } }",
+        );
+        // 600px: the media rule drops out, so rules are re-collected.
+        let narrow = sheet.for_width(600.0);
+        assert_eq!(narrow.rules.len(), 1);
+        assert!(!std::sync::Arc::ptr_eq(&sheet.rules, &narrow.rules));
+        assert!(std::sync::Arc::ptr_eq(
+            &sheet.font_faces,
+            &narrow.font_faces
+        ));
+        assert!(std::sync::Arc::ptr_eq(&sheet.keyframes, &narrow.keyframes));
+        // The surviving rule itself is untouched.
+        assert_eq!(narrow.rules[0].source_order, sheet.rules[0].source_order);
+        assert_eq!(narrow.rules[0], sheet.rules[0]);
+    }
+
+    #[test]
     fn nested_media_conditions_intersect() {
         let sheet = parse_stylesheet(
             "@media (min-width: 400px) { @media (max-width: 800px) { p { color: red; } } }",
@@ -1160,6 +1210,26 @@ mod tests {
         let media = sheet.rules[0].media.unwrap();
         assert_eq!(media.min_width, Some(400.0));
         assert_eq!(media.max_width, Some(800.0));
+    }
+
+    #[test]
+    fn too_deeply_nested_media_is_dropped_without_recursing() {
+        // Nesting within the limit keeps working.
+        let ok = format!(
+            "{}p {{ color: red; }}{}",
+            "@media (min-width: 1px) { ".repeat(8),
+            "}".repeat(8)
+        );
+        assert_eq!(parse_stylesheet(&ok).rules.len(), 1);
+        // Past the limit the innermost rules are dropped, outer ones kept.
+        let deep = format!(
+            "a {{ color: blue; }} {}p {{ color: red; }}{}",
+            "@media (min-width: 1px) { ".repeat(MAX_MEDIA_NESTING + 16),
+            "}".repeat(MAX_MEDIA_NESTING + 16)
+        );
+        let sheet = parse_stylesheet(&deep);
+        assert_eq!(sheet.rules.len(), 1);
+        assert!(sheet.rules[0].media.is_none());
     }
 
     #[test]

@@ -43,7 +43,6 @@ pub const PROPERTIES: &[PropertyMeta] = &[
     row("text-indent", true, false),
     row("text-transform", true, false),
     row("user-select", true, false),
-    row("vertical-align", true, false),
     row("visibility", true, false),
     row("white-space", true, false),
     row("word-break", true, false),
@@ -56,7 +55,6 @@ pub const PROPERTIES: &[PropertyMeta] = &[
     row("::selection-color", true, false),
     // Inherited AND raw-kept (comma lists would not survive parsing).
     row("text-shadow", true, true),
-    row("transition", true, true),
     // Raw-kept only.
     row("animation", false, true),
     row("aspect-ratio", false, true),
@@ -69,6 +67,7 @@ pub const PROPERTIES: &[PropertyMeta] = &[
     row("grid-column", false, true),
     row("transform", false, true),
     row("transform-origin", false, true),
+    row("transition", false, true),
 ];
 
 /// Whether `name` inherits from the parent element.
@@ -93,4 +92,21 @@ pub fn inherited() -> impl Iterator<Item = &'static str> {
         .iter()
         .filter(|meta| meta.inherited)
         .map(|meta| meta.name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vertical_align_and_transition_are_not_inherited() {
+        // Per CSS both are non-inherited; `transition` still keeps raw.
+        assert!(!is_inherited("vertical-align"));
+        assert!(!is_inherited("transition"));
+        assert!(keeps_raw("transition"));
+        assert!(!inherited().any(|name| name == "vertical-align" || name == "transition"));
+        // Genuine inherited properties are unaffected.
+        assert!(is_inherited("color"));
+        assert!(is_inherited("font-size"));
+    }
 }
