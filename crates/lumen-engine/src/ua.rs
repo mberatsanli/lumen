@@ -59,7 +59,7 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
                 background-color: #2266aa; border-color: #2266aa; }
             input[type=checkbox]:checked { --lumen-mark: check; }
             input[type=radio]:checked { --lumen-mark: dot; }
-            input[type=hidden] { display: none; }
+            input[type=hidden] { display: none !important; }
             select { width: auto; }
             textarea { width: 300px; height: 64px; }
             select[multiple] { display: inline-block; width: 200px; max-height: 108px;

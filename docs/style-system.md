@@ -14,14 +14,20 @@ Origins, weakest to strongest:
 A stronger origin always wins per property, regardless of specificity — an
 author `* { font-size: 20px }` beats the UA's `h1 { font-size: 32px }`.
 Within one origin, the winner per property is the declaration with the
-highest `(Specificity, source_order)` pair; later rules win ties.
+highest `(specificity, source_order)` pair; later rules win ties.
+Specificity is parcel_selectors' layered `u32`.
 
 ## Selector matching
 
-`selector_matches` checks the subject compound against the element, then
-walks `Document::ancestors` right-to-left for the remaining compounds
-(descendant combinator). Compound matching requires tag, id, and all
-classes simultaneously.
+`parcel_selectors::matching::matches_selector` drives matching; the engine
+implements its `Element` trait over the DOM arena (`style/matching.rs`),
+answering pseudo-classes from `InteractionState`. The one gap upstream is
+`:has()` (parsed but `unreachable!()` in the matcher): selectors using it
+are *prepared* once per style pass — the `:has()` components are cut from
+the selector (serialize/re-parse) and evaluated as clauses over the
+element's descendants/children/siblings. Supported form: top-level in the
+subject compound, inner relative selectors without nested `:has()` or
+pseudo-elements; anything richer never matches.
 
 ## Inheritance
 

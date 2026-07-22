@@ -49,21 +49,34 @@ pub struct Rule {
 pub struct MediaQuery {
     pub min_width: Option<f32>,
     pub max_width: Option<f32>,
+    /// Strict range bounds (`width > 600px`): the bound itself is
+    /// excluded, unlike the inclusive `min-width` form.
+    pub min_exclusive: bool,
+    pub max_exclusive: bool,
 }
 
 impl MediaQuery {
     #[must_use]
     pub fn matches(&self, viewport_width: f32) -> bool {
-        self.min_width.is_none_or(|min| viewport_width >= min)
-            && self.max_width.is_none_or(|max| viewport_width <= max)
+        let above_min = match self.min_width {
+            Some(min) if self.min_exclusive => viewport_width > min,
+            Some(min) => viewport_width >= min,
+            None => true,
+        };
+        let below_max = match self.max_width {
+            Some(max) if self.max_exclusive => viewport_width < max,
+            Some(max) => viewport_width <= max,
+            None => true,
+        };
+        above_min && below_max
     }
 }
 
 /// Maps the lightningcss media query list of one `@media` prelude onto our
 /// model: a single query of type `screen`/`all` (or none) whose `and`-
-/// combined conditions only constrain width (inclusive bounds; `em`/`rem`
-/// count as 16px). Anything richer — comma lists, `not`/`or`, print,
-/// strict range comparisons — is unsupported: `None`, skip the block.
+/// combined conditions only constrain width (`em`/`rem` count as 16px).
+/// Anything richer — comma lists, `not`/`or`, print, equality — is
+/// unsupported: `None`, skip the block.
 fn parse_media_query(input: &mut Parser) -> Option<MediaQuery> {
     let list = MediaList::parse(input, &ParserOptions::default()).ok()?;
     let [query] = &list.media_queries[..] else {
@@ -79,6 +92,8 @@ fn parse_media_query(input: &mut Parser) -> Option<MediaQuery> {
     let mut result = MediaQuery {
         min_width: None,
         max_width: None,
+        min_exclusive: false,
+        max_exclusive: false,
     };
     if let Some(condition) = &query.condition {
         apply_media_condition(condition, &mut result)?;
@@ -105,7 +120,8 @@ fn apply_media_condition(condition: &MediaCondition, query: &mut MediaQuery) -> 
 
 fn apply_media_feature(feature: &QueryFeature<MediaFeatureId>, query: &mut MediaQuery) -> Option<()> {
     match feature {
-        // `(min-width: N)` arrives as a range with a legacy operator.
+        // `(min-width: N)` arrives as a range with a legacy operator;
+        // strict forms (`width > N`) keep their exclusive bound.
         QueryFeature::Range {
             name: MediaFeatureName::Standard(MediaFeatureId::Width),
             operator,
@@ -113,18 +129,16 @@ fn apply_media_feature(feature: &QueryFeature<MediaFeatureId>, query: &mut Media
         } => {
             let pixels = media_value_px(value)?;
             match operator {
-                MediaFeatureComparison::GreaterThanEqual => {
-                    query.min_width = Some(query.min_width.map_or(pixels, |min| min.max(pixels)));
-                }
-                MediaFeatureComparison::LessThanEqual => {
-                    query.max_width = Some(query.max_width.map_or(pixels, |max| max.min(pixels)));
-                }
-                // Strict bounds and equality don't fit the inclusive model.
+                MediaFeatureComparison::GreaterThanEqual => tighten_min(query, pixels, false),
+                MediaFeatureComparison::GreaterThan => tighten_min(query, pixels, true),
+                MediaFeatureComparison::LessThanEqual => tighten_max(query, pixels, false),
+                MediaFeatureComparison::LessThan => tighten_max(query, pixels, true),
+                // Equality doesn't fit the bound model.
                 _ => return None,
             }
             Some(())
         }
-        // `(400px <= width <= 900px)`: only the inclusive form maps.
+        // `(400px <= width <= 900px)`, bounds inclusive or strict.
         QueryFeature::Interval {
             name: MediaFeatureName::Standard(MediaFeatureId::Width),
             start,
@@ -132,18 +146,49 @@ fn apply_media_feature(feature: &QueryFeature<MediaFeatureId>, query: &mut Media
             end,
             end_operator,
         } => {
-            if !matches!(start_operator, MediaFeatureComparison::LessThanEqual)
-                || !matches!(end_operator, MediaFeatureComparison::LessThanEqual)
-            {
-                return None;
-            }
+            let min_exclusive = match start_operator {
+                MediaFeatureComparison::LessThan => true,
+                MediaFeatureComparison::LessThanEqual => false,
+                _ => return None,
+            };
+            let max_exclusive = match end_operator {
+                MediaFeatureComparison::LessThan => true,
+                MediaFeatureComparison::LessThanEqual => false,
+                _ => return None,
+            };
             let min = media_value_px(start)?;
             let max = media_value_px(end)?;
-            query.min_width = Some(query.min_width.map_or(min, |bound| bound.max(min)));
-            query.max_width = Some(query.max_width.map_or(max, |bound| bound.min(max)));
+            tighten_min(query, min, min_exclusive);
+            tighten_max(query, max, max_exclusive);
             Some(())
         }
         _ => None,
+    }
+}
+
+/// Narrows the min bound to the larger candidate; on ties the exclusive
+/// (strict) form wins, as it is the tighter constraint.
+fn tighten_min(query: &mut MediaQuery, pixels: f32, exclusive: bool) {
+    match query.min_width {
+        Some(current) if current > pixels => {}
+        Some(current) if current == pixels => query.min_exclusive |= exclusive,
+        _ => {
+            query.min_width = Some(pixels);
+            query.min_exclusive = exclusive;
+        }
+    }
+}
+
+/// Narrows the max bound to the smaller candidate; on ties the exclusive
+/// (strict) form wins, as it is the tighter constraint.
+fn tighten_max(query: &mut MediaQuery, pixels: f32, exclusive: bool) {
+    match query.max_width {
+        Some(current) if current < pixels => {}
+        Some(current) if current == pixels => query.max_exclusive |= exclusive,
+        _ => {
+            query.max_width = Some(pixels);
+            query.max_exclusive = exclusive;
+        }
     }
 }
 
@@ -308,18 +353,20 @@ impl<'i> AtRuleParser<'i> for SheetParser<'_> {
     ) -> Result<(), ParseError<'i, ()>> {
         match prelude {
             AtRulePrelude::Media(Some(query)) if self.depth < MAX_MEDIA_NESTING => {
-                let combined = MediaQuery {
-                    min_width: merge_bound(
-                        self.media.and_then(|outer| outer.min_width),
-                        query.min_width,
-                        f32::max,
-                    ),
-                    max_width: merge_bound(
-                        self.media.and_then(|outer| outer.max_width),
-                        query.max_width,
-                        f32::min,
-                    ),
+                let mut combined = MediaQuery {
+                    min_width: None,
+                    max_width: None,
+                    min_exclusive: false,
+                    max_exclusive: false,
                 };
+                for source in [self.media, Some(query)].into_iter().flatten() {
+                    if let Some(min) = source.min_width {
+                        tighten_min(&mut combined, min, source.min_exclusive);
+                    }
+                    if let Some(max) = source.max_width {
+                        tighten_max(&mut combined, max, source.max_exclusive);
+                    }
+                }
                 let mut nested = SheetParser {
                     sheet: self.sheet,
                     media: Some(combined),
@@ -499,6 +546,7 @@ impl<'i> QualifiedRuleParser<'i> for KeyframesParser {
                         .and_then(|percent| percent.trim().parse::<f32>().ok())
                         .map(|percent| percent / 100.0),
                 }
+                .filter(|offset| offset.is_finite())
                 .map(|offset| offset.clamp(0.0, 1.0))
             })
             .collect();
@@ -609,7 +657,8 @@ fn parse_font_face(input: &mut Parser) -> Option<FontFace> {
             }
             "src" => {
                 for part in split_top_level_commas(value) {
-                    let Some(url_start) = part.find("url(") else {
+                    // ASCII-lowercasing preserves byte offsets.
+                    let Some(url_start) = part.to_ascii_lowercase().find("url(") else {
                         continue;
                     };
                     let after = &part[url_start + 4..];
@@ -664,24 +713,19 @@ fn split_top_level_commas(source: &str) -> Vec<&str> {
     parts
 }
 
-/// Combines an inherited bound with a nested one.
-fn merge_bound(outer: Option<f32>, inner: Option<f32>, pick: fn(f32, f32) -> f32) -> Option<f32> {
-    match (outer, inner) {
-        (Some(a), Some(b)) => Some(pick(a, b)),
-        (bound, None) | (None, bound) => bound,
-    }
-}
-
 /// Expands the `background` shorthand at raw level, layer by layer
 /// (top-level commas). Each layer contributes its image, repeat and
 /// position; the color may appear on any layer (CSS allows it only on the
 /// last). Unsupported parts (attachment, origin/clip keywords) are
-/// ignored.
+/// ignored. An explicit `none` emits `background-image: none` so the
+/// declaration resets an earlier image in the cascade instead of
+/// vanishing.
 fn expand_background_shorthand(source: &str, output: &mut Vec<Declaration>, important: bool) {
     let mut images: Vec<String> = Vec::new();
     let mut repeats: Vec<String> = Vec::new();
     let mut positions: Vec<String> = Vec::new();
     let mut color: Option<CssValue> = None;
+    let mut explicit_none = false;
     let layers = split_top_level_commas(source);
 
     for layer in &layers {
@@ -697,11 +741,8 @@ fn expand_background_shorthand(source: &str, output: &mut Vec<Declaration>, impo
                     "left" | "right" | "top" | "bottom" | "center" if position_parts.len() < 2 => {
                         position_parts.push(keyword);
                     }
-                    "transparent" | "none" => {
-                        if keyword == "transparent" {
-                            color = Some(CssValue::Keyword("transparent".to_string()));
-                        }
-                    }
+                    "transparent" => color = Some(CssValue::Keyword(keyword)),
+                    "none" => explicit_none = true,
                     _ => {}
                 },
                 Some(CssValue::Length(..)) if position_parts.len() < 2 => {
@@ -736,6 +777,8 @@ fn expand_background_shorthand(source: &str, output: &mut Vec<Declaration>, impo
             "background-position",
             CssValue::String(positions.join(", ")),
         );
+    } else if explicit_none {
+        push("background-image", CssValue::Keyword("none".to_string()));
     }
 }
 
@@ -1382,14 +1425,64 @@ mod tests {
     }
 
     #[test]
-    fn media_strict_range_is_unsupported_and_skipped() {
-        // Strict bounds cannot be represented by the inclusive model; the
-        // block is dropped rather than approximated.
+    fn media_strict_range_maps_exclusive_bounds() {
+        // Strict bounds keep their exclusive semantics: the bound itself
+        // does not match.
         let sheet = parse_stylesheet(
-            "@media (400px < width) { p { color: red; } } h1 { color: blue; }",
+            "@media (width > 600px) { p { color: red; } }
+             @media (400px < width <= 900px) { div { color: blue; } }
+             h1 { color: green; }",
         );
-        assert_eq!(sheet.rules.len(), 1);
-        assert!(sheet.rules[0].media.is_none());
+        assert_eq!(sheet.rules.len(), 3);
+        let strict = sheet.rules[0].media.unwrap();
+        assert_eq!(strict.min_width, Some(600.0));
+        assert!(strict.min_exclusive);
+        assert!(!strict.matches(600.0));
+        assert!(strict.matches(601.0));
+        let interval = sheet.rules[1].media.unwrap();
+        assert_eq!(interval.min_width, Some(400.0));
+        assert_eq!(interval.max_width, Some(900.0));
+        assert!(interval.min_exclusive);
+        assert!(!interval.max_exclusive);
+        assert!(!interval.matches(400.0));
+        assert!(interval.matches(900.0));
+        assert!(!interval.matches(901.0));
+        // Strict max bound as well.
+        let sheet = parse_stylesheet("@media (width < 500px) { p { color: red; } }");
+        let strict_max = sheet.rules[0].media.unwrap();
+        assert_eq!(strict_max.max_width, Some(500.0));
+        assert!(strict_max.max_exclusive);
+        assert!(strict_max.matches(499.0));
+        assert!(!strict_max.matches(500.0));
+    }
+
+    #[test]
+    fn background_none_emits_background_image_none() {
+        // `background: none` must survive as background-image: none so it
+        // resets an earlier image in the cascade (it used to vanish).
+        let declarations = parse_declarations("background: none");
+        assert_eq!(declarations.len(), 1);
+        assert_eq!(declarations[0].name, "background-image");
+        assert_eq!(
+            declarations[0].value,
+            CssValue::Keyword("none".to_string())
+        );
+        // A color alongside still expands.
+        let declarations = parse_declarations("background: none red");
+        assert_eq!(declarations.len(), 2);
+        assert_eq!(declarations[0].name, "background-color");
+        assert_eq!(declarations[1].name, "background-image");
+    }
+
+    #[test]
+    fn keyframes_with_non_finite_offsets_are_dropped() {
+        // "NaN%" parses as f32::NAN; the offset must not reach the engine.
+        let sheet = parse_stylesheet(
+            "@keyframes k { NaN% { opacity: 0; } 50% { opacity: 1; } 1e999% { opacity: 0; } }",
+        );
+        let block = sheet.keyframes("k").expect("keyframes block");
+        assert_eq!(block.frames.len(), 1);
+        assert_eq!(block.frames[0].0, 0.5);
     }
 
     #[test]
@@ -1587,10 +1680,13 @@ mod tests {
              h1 { color: blue; }",
         );
         assert_eq!(sheet.rules.len(), 2);
-        assert_eq!(
-            sheet.rules[1].selectors[0].compounds[0].tag.as_deref(),
-            Some("h1")
-        );
+        assert!(sheet.rules[1].selectors[0]
+            .iter_raw_match_order()
+            .any(|component| matches!(
+                component,
+                parcel_selectors::parser::Component::LocalName(name)
+                    if name.lower_name.as_str() == "h1"
+            )));
     }
 
     #[test]

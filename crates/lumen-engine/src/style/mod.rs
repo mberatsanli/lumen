@@ -3,7 +3,9 @@
 //!
 //! Cascade origins, weakest to strongest: user-agent defaults, author
 //! stylesheet, inline `style=` attributes. Within one origin, conflicts are
-//! resolved by (specificity, source order).
+//! resolved by (specificity, source order). `!important` reverses origin
+//! order: UA important outranks every author declaration, inline important
+//! outranks stylesheet important.
 //!
 //! Inheritance happens on raw declared values, so a `line-height: 1.5`
 //! number re-resolves against each element's own font size, as in CSS.
@@ -12,10 +14,11 @@
 
 use crate::geometry::{Corners, EdgeSizes};
 use crate::ua::{default_display, user_agent_stylesheet};
-use lumen_css::{Color, CssValue, Specificity, Stylesheet};
+use lumen_css::selector::PseudoElement;
+use lumen_css::{Color, CssValue, Stylesheet};
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 mod interaction;
 mod matching;
@@ -25,13 +28,39 @@ pub use interaction::{
     HoverImpact, InteractionState, hover_impact, hover_styles_may_change,
     interaction_styles_may_change,
 };
-pub(crate) use matching::MatchContext;
 pub use model::*;
 
 /// Declared values keyed by property name. `Cow` keys let the fixed
 /// property names (inherited copies, internal inserts) avoid per-node
 /// string allocations during the cascade.
 type RawStyle = HashMap<Cow<'static, str>, CssValue>;
+
+/// One declaration's position in the cascade: (level, specificity,
+/// source order). Compared lexicographically; higher wins, ties keep the
+/// later declaration.
+type CascadeRank = (u8, u32, usize);
+
+/// Per-property cascade ranks of the winning declarations, tracked so a
+/// `var()`-carrying shorthand expanded after substitution can lose to a
+/// higher-ranked longhand instead of blindly overwriting it.
+type CascadeMeta = HashMap<Cow<'static, str>, CascadeRank>;
+
+/// Total cascade order across origins and importance (higher wins).
+/// Origin 0 is the UA sheet, 1 the author sheet, 2 inline `style=`.
+/// `!important` reverses origin order: UA important outranks every
+/// author declaration, and inline important outranks stylesheet
+/// important (CSS Cascading §6.4.4).
+fn cascade_level(origin: usize, important: bool) -> u8 {
+    match (origin, important) {
+        (0, false) => 0,
+        (1, false) => 1,
+        (2, false) => 2,
+        (1, true) => 3,
+        (2, true) => 4,
+        (0, true) => 5,
+        _ => unreachable!("only UA/author/inline origins exist"),
+    }
+}
 
 /// Computed styles for every node, keyed by [`NodeId`].
 #[derive(Debug, Clone, PartialEq)]
@@ -53,10 +82,21 @@ pub struct PseudoText {
 }
 
 /// Parses a `transform` value list into a matrix (public for the
-/// browser's keyframe interpolation).
+/// browser's keyframe interpolation). Percentage translations have no
+/// reference box here and resolve to zero.
 #[must_use]
 pub fn parse_transform_value(source: &str, font_size: f32) -> Option<Transform2D> {
-    parse_transform(source, font_size)
+    parse_transform(source, font_size, crate::geometry::Size::default())
+}
+
+/// Resolves a percent-carrying `transform` against the element's border
+/// box (paint time, when the box size is known).
+pub(crate) fn resolve_percent_transform(
+    source: &str,
+    font_size: f32,
+    border_box: crate::geometry::Size,
+) -> Option<Transform2D> {
+    parse_transform(source, font_size, border_box).filter(|matrix| !matrix.is_identity())
 }
 
 /// Computes styles for the whole document with no hover state.
@@ -109,13 +149,15 @@ pub fn compute_styles_interactive(
 }
 
 /// One stylesheet in the cascade with data precomputed once per style
-/// pass instead of per element: selector specificities, and whether any
-/// selector targets `::before`/`::after` (so pseudo passes on sheets
-/// without such rules — the common case — are skipped entirely).
+/// pass instead of per element: selector specificities, prepared
+/// `:has()` forms, and whether any selector targets `::before`/`::after`
+/// (so pseudo passes on sheets without such rules — the common case —
+/// are skipped entirely).
 struct CascadeSheet<'a> {
     sheet: &'a Stylesheet,
-    /// `specificities[rule][selector]`, aligned with `sheet.rules`.
-    specificities: Vec<Vec<Specificity>>,
+    /// `selectors[rule][selector]`, aligned with `sheet.rules`: parcel's
+    /// layered specificity plus the prepared `:has()` clauses.
+    selectors: Vec<Vec<(u32, matching::PreparedSelector)>>,
     has_before: bool,
     has_after: bool,
 }
@@ -124,26 +166,29 @@ impl<'a> CascadeSheet<'a> {
     fn new(sheet: &'a Stylesheet) -> Self {
         let mut has_before = false;
         let mut has_after = false;
-        let specificities = sheet
+        let selectors = sheet
             .rules
             .iter()
             .map(|rule| {
                 rule.selectors
                     .iter()
                     .map(|selector| {
-                        match selector.subject().pseudo_element.as_deref() {
-                            Some("before") => has_before = true,
-                            Some("after") => has_after = true,
+                        match selector.pseudo_element() {
+                            Some(PseudoElement::Before) => has_before = true,
+                            Some(PseudoElement::After) => has_after = true,
                             _ => {}
                         }
-                        selector.specificity()
+                        (
+                            selector.specificity(),
+                            matching::prepare_selector(selector),
+                        )
                     })
                     .collect()
             })
             .collect();
         Self {
             sheet,
-            specificities,
+            selectors,
             has_before,
             has_after,
         }
@@ -159,10 +204,11 @@ impl<'a> CascadeSheet<'a> {
     }
 }
 
-/// Per-style-pass shared state: the sibling/matching cache and the
-/// cascade sheets, weakest origin (UA) first.
+/// Per-style-pass shared state: the document under styling, the
+/// interaction state, and the cascade sheets, weakest origin (UA) first.
 struct StyleContext<'a> {
-    matcher: MatchContext<'a>,
+    document: &'a Document,
+    interaction: &'a InteractionState,
     sheets: [CascadeSheet<'a>; 2],
 }
 
@@ -173,7 +219,8 @@ impl<'a> StyleContext<'a> {
         interaction: &'a InteractionState,
     ) -> Self {
         Self {
-            matcher: MatchContext::new(document, interaction),
+            document,
+            interaction,
             sheets: [
                 CascadeSheet::new(user_agent_stylesheet()),
                 CascadeSheet::new(author),
@@ -277,6 +324,16 @@ fn evaluate_calc(expression: &str, font_size: f32, root_font_size: f32) -> Optio
     ) -> Option<CalcValue> {
         let token = *parser.tokens.get(parser.position)?;
         parser.position += 1;
+        // Unary minus: `-(expr)` negates the parenthesized value (a bare
+        // negative number like `-20px` arrives as a single token below).
+        if token == "-" {
+            let value = parse_term(parser, font_size, root_font_size)?;
+            return Some(match value {
+                CalcValue::Px(size) => CalcValue::Px(-size),
+                CalcValue::Percent(size) => CalcValue::Percent(-size),
+                CalcValue::Number(number) => CalcValue::Number(-number),
+            });
+        }
         if token == "(" {
             let value = parse_sum(parser, font_size, root_font_size)?;
             if parser.tokens.get(parser.position) == Some(&")") {
@@ -427,6 +484,77 @@ fn evaluate_calc(expression: &str, font_size: f32, root_font_size: f32) -> Optio
     })
 }
 
+/// var() substitution over a raw style map: each unresolved value
+/// substitutes custom properties (with fallbacks), then re-parses as a
+/// normal declaration so shorthands still expand. Expanded longhands
+/// keep the source declaration's cascade rank: a substituted shorthand
+/// must not overwrite a longhand that won with a higher rank, and a
+/// substituted longhand must still beat what a lower-ranked shorthand
+/// expansion inserted.
+fn substitute_declaration_vars(raw: &mut RawStyle, meta: &mut CascadeMeta) {
+    let pending: Vec<(String, String)> = raw
+        .iter()
+        .filter_map(|(name, value)| match value {
+            CssValue::Unresolved(text) => Some((name.clone().into_owned(), text.clone())),
+            _ => None,
+        })
+        .collect();
+    for (name, text) in pending {
+        raw.remove(name.as_str());
+        let rank = meta.remove(name.as_str());
+        let Some(substituted) = substitute_vars(&text, raw, 0) else {
+            continue; // Unknown variable without fallback: declaration dies.
+        };
+        for declaration in lumen_css::parse_declarations(&format!("{name}: {substituted}")) {
+            let replace = match (rank, meta.get(declaration.name.as_str())) {
+                (Some(rank), Some(&current)) => rank >= current,
+                // No rank recorded (e.g. an inherited value) or nothing
+                // to beat: insert.
+                _ => true,
+            };
+            if replace {
+                if let Some(rank) = rank {
+                    meta.insert(Cow::Owned(declaration.name.clone()), rank);
+                }
+                raw.insert(Cow::Owned(declaration.name), declaration.value);
+            }
+        }
+    }
+}
+
+/// calc()/min()/max()/clamp(): evaluated when all terms share a family
+/// (px-likes or %). `em` resolves against `font_size` (exact for
+/// font-size, an approximation elsewhere); mixed px/% expressions are
+/// dropped.
+fn evaluate_calculations(raw: &mut RawStyle, font_size: f32, root_font_size: f32) {
+    let calc_names: Vec<String> = raw
+        .iter()
+        .filter_map(|(name, value)| match value {
+            CssValue::Function(function, _)
+                if matches!(function.as_str(), "calc" | "min" | "max" | "clamp") =>
+            {
+                Some(name.clone().into_owned())
+            }
+            _ => None,
+        })
+        .collect();
+    for name in calc_names {
+        let CssValue::Function(function, expression) = raw[name.as_str()].clone() else {
+            continue;
+        };
+        // Bare min()/max()/clamp() evaluate through the calc grammar.
+        let expression = if function == "calc" {
+            expression
+        } else {
+            format!("{function}({expression})")
+        };
+        match evaluate_calc(&expression, font_size, root_font_size) {
+            Some(value) => raw.insert(Cow::Owned(name), value),
+            None => raw.remove(name.as_str()),
+        };
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn compute_node(
     document: &Document,
@@ -444,6 +572,7 @@ fn compute_node(
         return;
     }
     let mut raw = RawStyle::new();
+    let mut meta = CascadeMeta::new();
     for property in lumen_css::properties::inherited() {
         if let Some(value) = parent_raw.get(property) {
             raw.insert(Cow::Borrowed(property), value.clone());
@@ -475,25 +604,29 @@ fn compute_node(
     }
 
     if let Some(element) = element {
-        // Weakest origin first; each stronger origin overwrites per
-        // property — unless a weaker origin declared it `!important`
-        // (author important beats inline normal).
-        let mut important: HashSet<String> = HashSet::new();
-        for cascade_sheet in &context.sheets {
-            for (name, (is_important, _, _, value)) in
-                winning_declarations(node_id, element, cascade_sheet, &context.matcher, None)
+        // Weakest origin first; a declaration replaces the current value
+        // only when its cascade rank (level, specificity, source order)
+        // is at least the current winner's.
+        for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
+            for (name, (is_important, specificity, source_order, value)) in
+                winning_declarations(node_id, cascade_sheet, context, None)
             {
-                if is_important || !important.contains(&name) {
-                    if is_important {
-                        important.insert(name.clone());
-                    }
+                let rank = (cascade_level(origin, is_important), specificity, source_order);
+                if meta.get(name.as_str()).is_none_or(|current| rank >= *current) {
+                    meta.insert(Cow::Owned(name.clone()), rank);
                     raw.insert(Cow::Owned(name), value);
                 }
             }
         }
         if let Some(inline) = element.attributes.get("style") {
-            for declaration in lumen_css::parse_declarations(inline) {
-                if declaration.important || !important.contains(&declaration.name) {
+            for (index, declaration) in lumen_css::parse_declarations(inline).into_iter().enumerate()
+            {
+                let rank = (cascade_level(2, declaration.important), 0, index);
+                if meta
+                    .get(declaration.name.as_str())
+                    .is_none_or(|current| rank >= *current)
+                {
+                    meta.insert(Cow::Owned(declaration.name.clone()), rank);
                     raw.insert(Cow::Owned(declaration.name), declaration.value);
                 }
             }
@@ -503,22 +636,7 @@ fn compute_node(
     // var() substitution: unresolved values substitute custom properties
     // (with fallbacks), then re-parse as a normal declaration so
     // shorthands still expand.
-    let pending: Vec<(String, String)> = raw
-        .iter()
-        .filter_map(|(name, value)| match value {
-            CssValue::Unresolved(text) => Some((name.clone().into_owned(), text.clone())),
-            _ => None,
-        })
-        .collect();
-    for (name, text) in pending {
-        raw.remove(name.as_str());
-        let Some(substituted) = substitute_vars(&text, &raw, 0) else {
-            continue; // Unknown variable without fallback: declaration dies.
-        };
-        for declaration in lumen_css::parse_declarations(&format!("{name}: {substituted}")) {
-            raw.insert(Cow::Owned(declaration.name), declaration.value);
-        }
-    }
+    substitute_declaration_vars(&mut raw, &mut meta);
 
     // CSS-wide keywords: `inherit` pulls the parent's value (works for
     // non-inherited properties too), `initial`/`revert` reset to the
@@ -559,35 +677,7 @@ fn compute_node(
         .and_then(CssValue::as_px)
         .unwrap_or(DEFAULT_FONT_SIZE);
 
-    // calc(): evaluated when all terms share a family (px-likes or %).
-    // `em` resolves against the parent font size (exact for font-size,
-    // an approximation elsewhere); mixed px/% expressions are dropped.
-    let calc_names: Vec<String> = raw
-        .iter()
-        .filter_map(|(name, value)| match value {
-            CssValue::Function(function, _)
-                if matches!(function.as_str(), "calc" | "min" | "max" | "clamp") =>
-            {
-                Some(name.clone().into_owned())
-            }
-            _ => None,
-        })
-        .collect();
-    for name in calc_names {
-        let CssValue::Function(function, expression) = raw[name.as_str()].clone() else {
-            continue;
-        };
-        // Bare min()/max()/clamp() evaluate through the calc grammar.
-        let expression = if function == "calc" {
-            expression
-        } else {
-            format!("{function}({expression})")
-        };
-        match evaluate_calc(&expression, parent_font_size, root_font_size) {
-            Some(value) => raw.insert(Cow::Owned(name), value),
-            None => raw.remove(name.as_str()),
-        };
-    }
+    evaluate_calculations(&mut raw, parent_font_size, root_font_size);
     let computed = to_computed(&raw, element, parent_font_size);
     // Children inherit the *resolved* font size, so `em` chains and
     // percentages resolve against real pixels, not unresolved declarations.
@@ -598,7 +688,7 @@ fn compute_node(
 
     // `::before`/`::after`: a pseudo style inherits from the element like
     // a child and needs a string `content` to generate anything.
-    if let Some(element) = element {
+    if element.is_some() {
         for (kind, leading) in [("before", true), ("after", false)] {
             // No rule in either sheet targets this pseudo-element (the
             // common case): the pass below would produce nothing.
@@ -611,21 +701,31 @@ fn compute_node(
                     pseudo_raw.insert(Cow::Borrowed(property), value.clone());
                 }
             }
+            // Custom properties inherit too, so var() in pseudo rules
+            // resolves against the element's definitions.
+            for (name, value) in &raw {
+                if name.starts_with("--") {
+                    pseudo_raw.insert(name.clone(), value.clone());
+                }
+            }
             pseudo_raw.insert(
                 Cow::Borrowed("font-size"),
                 CssValue::Length(computed.font_size, lumen_css::Unit::Px),
             );
+            let mut meta = CascadeMeta::new();
             let mut any = false;
-            for cascade_sheet in &context.sheets {
-                for (name, (_, _, _, value)) in winning_declarations(
-                    node_id,
-                    element,
-                    cascade_sheet,
-                    &context.matcher,
-                    Some(kind),
-                ) {
-                    pseudo_raw.insert(Cow::Owned(name), value);
-                    any = true;
+            for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
+                for (name, (is_important, specificity, source_order, value)) in
+                    winning_declarations(node_id, cascade_sheet, context, Some(kind))
+                {
+                    // Same cascade ranking as the element pass: important
+                    // declarations win across origins as well.
+                    let rank = (cascade_level(origin, is_important), specificity, source_order);
+                    if meta.get(name.as_str()).is_none_or(|current| rank >= *current) {
+                        meta.insert(Cow::Owned(name.clone()), rank);
+                        pseudo_raw.insert(Cow::Owned(name), value);
+                        any = true;
+                    }
                 }
             }
             if !any {
@@ -639,11 +739,15 @@ fn compute_node(
                 continue;
             }
             let text = text.clone();
+            // The same value pipeline as the element pass: var()
+            // substitution, rem resolution, calc() evaluation.
+            substitute_declaration_vars(&mut pseudo_raw, &mut meta);
             for value in pseudo_raw.values_mut() {
                 if let CssValue::Length(size, lumen_css::Unit::Rem) = value {
                     *value = CssValue::Length(*size * root_font_size, lumen_css::Unit::Px);
                 }
             }
+            evaluate_calculations(&mut pseudo_raw, computed.font_size, root_font_size);
             let mut style = to_computed(&pseudo_raw, None, computed.font_size);
             // Generated content is not selectable (as in browsers).
             style.selectable = false;
@@ -677,42 +781,45 @@ fn compute_node(
 
 /// Per-property winner within one origin: highest (importance,
 /// specificity, source order) triple wins; later rules win ties.
-/// Specificities come precomputed from the [`CascadeSheet`]; matching
-/// reuses the shared sibling cache in the [`MatchContext`].
+/// Specificities come precomputed from the [`CascadeSheet`].
 fn winning_declarations(
     node_id: NodeId,
-    element: &ElementData,
     cascade_sheet: &CascadeSheet<'_>,
-    matcher: &MatchContext<'_>,
+    context: &StyleContext<'_>,
     pseudo: Option<&str>,
-) -> HashMap<String, (bool, Specificity, usize, CssValue)> {
-    let mut winners: HashMap<String, (bool, Specificity, usize, CssValue)> = HashMap::new();
-    for (rule, specificities) in cascade_sheet
+) -> HashMap<String, (bool, u32, usize, CssValue)> {
+    let mut winners: HashMap<String, (bool, u32, usize, CssValue)> = HashMap::new();
+    for (rule, selectors) in cascade_sheet
         .sheet
         .rules
         .iter()
-        .zip(&cascade_sheet.specificities)
+        .zip(&cascade_sheet.selectors)
     {
-        for (selector, specificity) in rule.selectors.iter().zip(specificities) {
-            if matching::selector_matches(matcher, node_id, element, selector) {
+        for (selector, (specificity, prepared)) in rule.selectors.iter().zip(selectors) {
+            if matching::selector_matches(
+                context.document,
+                context.interaction,
+                node_id,
+                selector,
+                prepared,
+            ) {
                 // `::selection` rules style the highlight, not the element:
                 // only their background-color/color apply, under internal
                 // property names.
-                let pseudo_element = selector.subject().pseudo_element.as_deref();
+                let pseudo_element = selector.pseudo_element();
                 for declaration in &rule.declarations {
                     let name = match (pseudo, pseudo_element) {
                         // Element pass: plain rules apply; `::selection`
                         // rules route under internal property names.
                         (None, None) => declaration.name.clone(),
-                        (None, Some("selection")) => match declaration.name.as_str() {
+                        (None, Some(PseudoElement::Selection)) => match declaration.name.as_str() {
                             "background-color" => "::selection-background".to_string(),
                             "color" => "::selection-color".to_string(),
                             _ => continue,
                         },
                         // Pseudo pass: only rules for that pseudo-element.
-                        (Some(wanted), Some(actual)) if wanted == actual => {
-                            declaration.name.clone()
-                        }
+                        (Some("before"), Some(PseudoElement::Before))
+                        | (Some("after"), Some(PseudoElement::After)) => declaration.name.clone(),
                         _ => continue,
                     };
                     let candidate = (
@@ -1060,12 +1167,18 @@ fn to_computed(
         .filter(|span| *span >= 1)
         .unwrap_or(1);
 
-    style.transform = raw
-        .get("transform")
-        .map(CssValue::raw_text)
-        .as_deref()
-        .and_then(|text| parse_transform(text, style.font_size))
-        .filter(|matrix| !matrix.is_identity());
+    if let Some(text) = raw.get("transform").map(CssValue::raw_text) {
+        if text.contains('%') {
+            // Percentage translations resolve against the element's own
+            // border box, which only exists after layout: keep the raw
+            // text so paint re-parses it with the real box size.
+            style.transform_percent_source = Some(text);
+        } else {
+            style.transform =
+                parse_transform(&text, style.font_size, crate::geometry::Size::default())
+                    .filter(|matrix| !matrix.is_identity());
+        }
+    }
 
     if let Some(text) = raw.get("transform-origin").map(CssValue::raw_text) {
         let component = |value: &str| -> Option<Dimension> {
@@ -1611,6 +1724,147 @@ mod tests {
     }
 
     #[test]
+    fn has_matches_child_and_descendant() {
+        let (document, styles) = styles_for(
+            "<style>\
+             div:has(> img) { color: rgb(1, 2, 3); } \
+             section:has(span) { color: rgb(4, 5, 6); } \
+             </style>\
+             <body><div><img></div><section><p><span>x</span></p></section><main>y</main></body>",
+        );
+        assert_eq!(
+            style_of(&document, &styles, "div").color,
+            Color::rgb(1, 2, 3)
+        );
+        // The inner selector matches any descendant, not just children.
+        assert_eq!(
+            style_of(&document, &styles, "section").color,
+            Color::rgb(4, 5, 6)
+        );
+        // <main> contains no img/span: untouched by both rules (the
+        // UA default #111 color inherits from body).
+        assert_eq!(
+            style_of(&document, &styles, "main").color,
+            Color::rgb(17, 17, 17)
+        );
+    }
+
+    #[test]
+    fn has_with_sibling_combinator() {
+        let (document, styles) = styles_for(
+            "<style>p:has(+ b) { color: rgb(1, 2, 3); }</style>\
+             <body><p>hit</p><b>x</b><p>miss</p></body>",
+        );
+        let ids: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "p")
+            })
+            .collect();
+        assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
+        // Untouched: the UA default color inherits.
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+    }
+
+    #[test]
+    fn nested_is_and_not_match_at_full_depth() {
+        let (document, styles) = styles_for(
+            "<style>\
+             p:not(.muted, #skip) { color: rgb(1, 2, 3); } \
+             p:is(div > .inner, .flat) { font-weight: bold; } \
+             </style>\
+             <body><p>hit</p><p class=\"muted\">skip</p>\
+             <div><p class=\"inner\">deep</p></div></body>",
+        );
+        let ids: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "p")
+            })
+            .collect();
+        assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+        // A complex selector inside :is() matches through combinators.
+        assert_eq!(styles.by_node[&ids[2]].font_weight, FontWeight(700));
+    }
+
+    #[test]
+    fn form_state_pseudo_classes_match() {
+        let (document, _styles) = styles_for(
+            "<style>\
+             input:enabled { color: rgb(3, 0, 0); } \
+             input:disabled { color: rgb(2, 0, 0); } \
+             input:checked { color: rgb(1, 0, 0); } \
+             </style>\
+             <body><input type=\"checkbox\" checked><input disabled><input></body>",
+        );
+        let ids: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+            .collect();
+        let state = InteractionState::new(&document, None, None, None)
+            .with_checked([ids[0]].into_iter().collect());
+        let author = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document));
+        let styles = compute_styles_interactive(&document, &author, &state);
+        assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 0, 0));
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(2, 0, 0));
+        assert_eq!(styles.by_node[&ids[2]].color, Color::rgb(3, 0, 0));
+    }
+
+    #[test]
+    fn attribute_selector_i_flag_is_case_insensitive() {
+        let (document, styles) = styles_for(
+            "<style>\
+             a[href=\"HTTPS://X\" i] { color: rgb(1, 2, 3); } \
+             a[href=\"HTTPS://X\"] { color: rgb(9, 9, 9); } \
+             </style>\
+             <body><a href=\"https://x\">x</a></body>",
+        );
+        // The `i` flag matches; the case-sensitive rule does not.
+        assert_eq!(
+            style_of(&document, &styles, "a").color,
+            Color::rgb(1, 2, 3)
+        );
+    }
+
+    #[test]
+    fn empty_and_root_match() {
+        let (document, styles) = styles_for(
+            "<style>\
+             div:empty { color: rgb(1, 2, 3); } \
+             :root { color: rgb(4, 5, 6); } \
+             </style>\
+             <body><div></div><div>text</div></body>",
+        );
+        let ids: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "div")
+            })
+            .collect();
+        assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
+        // Not empty: only the inherited :root color applies.
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(4, 5, 6));
+        // :root is the html element (direct child of the document node).
+        let root = document
+            .children(document.root())
+            .iter()
+            .find(|id| document.element(**id).is_some())
+            .unwrap();
+        assert_eq!(styles.by_node[root].color, Color::rgb(4, 5, 6));
+    }
+
+    #[test]
     fn overflow_auto_clips_and_scrolls() {
         // `auto` parses as CssValue::Auto, not a keyword — the overflow
         // match must still see it.
@@ -2090,6 +2344,151 @@ mod tests {
     }
 
     #[test]
+    fn background_none_resets_an_earlier_image() {
+        // Equal specificity: the later `background: none` clears the image.
+        let (document, styles) = styles_for(
+            "<style>div { background: url(a.png); } div { background: none; }</style><div>x</div>",
+        );
+        assert!(
+            style_of(&document, &styles, "div")
+                .background_layers
+                .is_empty()
+        );
+        // Higher specificity keeps the image against a later `none`.
+        let (document, styles) = styles_for(
+            "<style>#img { background: url(a.png); } div { background: none; }</style>\
+             <div id='img'>x</div>",
+        );
+        assert_eq!(
+            style_of(&document, &styles, "div").background_layers.len(),
+            1
+        );
+    }
+
+    #[test]
+    fn var_shorthand_keeps_its_cascade_rank() {
+        // The expanded longhands of `padding: var(--pad)` inherit the
+        // shorthand's specificity: a higher-specificity longhand wins,
+        // the rest come from the shorthand.
+        let (document, styles) = styles_for(
+            "<style>:root { --pad: 10px; }\
+                    div { padding: var(--pad); }\
+                    #target { padding-top: 5px; }</style>\
+             <div id='target'>x</div>",
+        );
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.padding.top, Dimension::Px(5.0));
+        assert_eq!(div.padding.right, Dimension::Px(10.0));
+        assert_eq!(div.padding.bottom, Dimension::Px(10.0));
+        // Same specificity, later shorthand: the shorthand wins.
+        let (document, styles) = styles_for(
+            "<style>:root { --pad: 10px; }\
+                    div { padding-top: 5px; }\
+                    div { padding: var(--pad); }</style>\
+             <div>x</div>",
+        );
+        assert_eq!(
+            style_of(&document, &styles, "div").padding.top,
+            Dimension::Px(10.0)
+        );
+        // An earlier higher-specificity longhand beats a later
+        // lower-specificity var shorthand.
+        let (document, styles) = styles_for(
+            "<style>:root { --pad: 10px; }\
+                    #target { padding-top: 5px; }\
+                    div { padding: var(--pad); }</style>\
+             <div id='target'>x</div>",
+        );
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.padding.top, Dimension::Px(5.0));
+        assert_eq!(div.padding.left, Dimension::Px(10.0));
+    }
+
+    #[test]
+    fn pseudo_pass_resolves_var_calc_and_important() {
+        let (_document, styles) = styles_for(
+            "<style>:root { --w: 40px; --c: #112233; }\
+                    p::before { content: \"x\"; width: calc(var(--w) / 2); \
+                                color: var(--c); }\
+                    p::after { content: \"y\"; color: #ff0000 !important; }\
+                    p::after { color: #0000ff; }</style>\
+             <p>t</p>",
+        );
+        assert_eq!(styles.pseudo_texts.len(), 2);
+        let before = &styles.pseudo_texts[0];
+        assert!(before.leading);
+        // var() inside calc() resolves in the pseudo pass.
+        assert_eq!(before.style.width, Dimension::Px(20.0));
+        assert_eq!(before.style.color, Color::rgb(0x11, 0x22, 0x33));
+        // !important wins in the pseudo pass, despite the later rule.
+        let after = &styles.pseudo_texts[1];
+        assert_eq!(after.style.color, Color::rgb(255, 0, 0));
+    }
+
+    #[test]
+    fn ua_important_outranks_author_important() {
+        // The UA sheet declares hidden inputs `display: none !important`;
+        // per CSS Cascading, author (and even author !important) loses.
+        let (document, styles) = styles_for(
+            "<style>input { display: block !important; }</style>\
+             <body><input type='hidden'></body>",
+        );
+        assert_eq!(
+            style_of(&document, &styles, "input").display,
+            Display::None
+        );
+        // A non-hidden input still takes the author declaration.
+        let (document, styles) = styles_for(
+            "<style>input { display: block !important; }</style>\
+             <body><input type='text'></body>",
+        );
+        assert_eq!(
+            style_of(&document, &styles, "input").display,
+            Display::Block
+        );
+    }
+
+    #[test]
+    fn calc_unary_minus_negates_parenthesized_values() {
+        assert_eq!(
+            evaluate_calc("-(100px - 20px)", 16.0, 16.0),
+            Some(CssValue::Length(-80.0, lumen_css::Unit::Px))
+        );
+        assert_eq!(
+            evaluate_calc("-(50% - 10%)", 16.0, 16.0),
+            Some(CssValue::Length(-40.0, lumen_css::Unit::Percent))
+        );
+        // ...and through the full pipeline into a computed margin.
+        let (document, styles) = styles_for(
+            "<style>div { margin-top: calc(-(100px - 20px)); }</style><div>x</div>",
+        );
+        assert_eq!(
+            style_of(&document, &styles, "div").margin.top,
+            Dimension::Px(-80.0)
+        );
+    }
+
+    #[test]
+    fn percent_transform_is_deferred_to_paint() {
+        // The style pass cannot resolve translate percentages (no box
+        // size yet): the raw text is kept for paint-time resolution.
+        let (document, styles) =
+            styles_for("<style>div { transform: translate(50%, 25%); }</style><div>x</div>");
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.transform, None);
+        assert_eq!(
+            div.transform_percent_source.as_deref(),
+            Some("translate(50%, 25%)")
+        );
+        // A px-only transform still resolves at style time.
+        let (document, styles) =
+            styles_for("<style>div { transform: translate(5px, 6px); }</style><div>x</div>");
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.transform, Some(Transform2D::translate(5.0, 6.0)));
+        assert_eq!(div.transform_percent_source, None);
+    }
+
+    #[test]
     fn hover_impact_classifies_stylesheets() {
         let none = lumen_css::parse_stylesheet("p { color: red; } .x { padding: 4px; }");
         assert_eq!(hover_impact(&none), HoverImpact::Nothing);
@@ -2104,6 +2503,24 @@ mod tests {
         assert_eq!(hover_impact(&hidden_hover), HoverImpact::Layout);
         let border_width = lumen_css::parse_stylesheet("a:hover { border-top-width: 3px; }");
         assert_eq!(hover_impact(&border_width), HoverImpact::Layout);
+    }
+
+    #[test]
+    fn hover_on_typography_properties_requires_layout() {
+        // These change text geometry/track sizing, so a hover rule
+        // touching any of them must trigger a relayout, not a repaint.
+        for property in [
+            "text-indent",
+            "letter-spacing",
+            "word-spacing",
+            "text-transform",
+            "word-break",
+            "overflow-wrap",
+            "aspect-ratio",
+        ] {
+            let sheet = lumen_css::parse_stylesheet(&format!("a:hover {{ {property}: 2px; }}"));
+            assert_eq!(hover_impact(&sheet), HoverImpact::Layout, "{property}");
+        }
     }
 
     #[test]

@@ -10,4 +10,5 @@ workspace = true
 [dependencies]
 cssparser = "0.37"
 lightningcss = { version = "1.0.0-alpha.72", default-features = false }
-parcel_selectors = "0.28"
+parcel_selectors = { version = "0.28", features = ["into_owned", "smallvec"] }
+static-self = "0.1.2"

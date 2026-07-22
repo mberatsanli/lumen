@@ -19,15 +19,17 @@ Chrome/Firefox/Safari columns are current stable releases.
 | Selector list `h1, h2` | ✅ | ✅ | ✅ | ✅ | |
 | Child `A > B` | ✅ | ✅ | ✅ | ✅ | |
 | Siblings `A + B`, `A ~ B` | ✅ | ✅ | ✅ | ✅ | |
-| Attribute `[href]`, `[type="x"]` | ✅ | ✅ | ✅ | ✅ | `=`, `^=`, `$=`, `*=`, `~=`, `|=`; no case flags |
+| Attribute `[href]`, `[type="x"]` | ✅ | ✅ | ✅ | ✅ | `=`, `^=`, `$=`, `*=`, `~=`, `|=`; `i` case flag honored |
 | `:hover` | ✅ | ✅ | ✅ | ✅ | live hover chain in desktop shell |
 | `:root` | ✅ | ✅ | ✅ | ✅ | |
 | `:link` / `:visited` | ⚠️ | ✅ | ✅ | ✅ | :visited from this session's history; :link = href present and unvisited |
 | `:active`, `:focus*`, `:checked` | ⚠️ | ✅ | ✅ | ✅ | :active on pointer press, :focus/:focus-within on last click (no keyboard tabbing); :checked from live toggles + checked attrs |
+| `:enabled` / `:disabled` | ⚠️ | ✅ | ✅ | ✅ | from the `disabled` attribute on form controls (no fieldset descent) |
+| `:empty` | ✅ | ✅ | ✅ | ✅ | |
 | `:first/last/only-child` | ✅ | ✅ | ✅ | ✅ | of-type variants too |
-| `:nth-child()` family | ⚠️ | ✅ | ✅ | ✅ | nth-child/nth-last-child + full of-type family with an+b/odd/even; no `of S` |
-| `:not()`, `:is()`, `:where()` | ⚠️ | ✅ | ✅ | ✅ | compound arguments only (no combinators inside); :is takes max specificity, :where zero |
-| `:has()` | ❌ | ✅ | ✅ | ✅ | |
+| `:nth-child()` family | ✅ | ✅ | ✅ | ✅ | nth-child/nth-last-child + full of-type family with an+b/odd/even, incl. `of S` |
+| `:not()`, `:is()`, `:where()` | ✅ | ✅ | ✅ | ✅ | full complex-selector arguments at any depth; :is takes max specificity, :where zero |
+| `:has()` | ⚠️ | ✅ | ✅ | ✅ | top-level in the subject compound; inner relative selector may not nest :has() or pseudo-elements |
 | `::before` / `::after` + `content` | ⚠️ | ✅ | ✅ | ✅ | string content only (no counters/attr()/url()); flows as unselectable inline text; both colon forms |
 | `::selection` | ⚠️ | ✅ | ✅ | ✅ | background-color works; color recorded but selected text keeps its color |
 | `::first-line/-letter` | ❌ | ✅ | ✅ | ✅ | |

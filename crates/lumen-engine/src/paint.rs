@@ -197,8 +197,18 @@ fn paint_box(
 
     // Paint-time transform about the element's origin: the whole subtree
     // (background through children) renders inside the transform.
+    // Percentage translations resolve against the border box here.
     let transformed = if anonymous {
         None
+    } else if let Some(source) = &layout.style.transform_percent_source {
+        crate::style::resolve_percent_transform(
+            source,
+            layout.style.font_size,
+            crate::geometry::Size {
+                width: border_box.width,
+                height: border_box.height,
+            },
+        )
     } else {
         layout.style.transform
     };
@@ -1046,6 +1056,28 @@ mod tests {
             })
             .unwrap();
         assert!(push < fill, "background paints inside the transform");
+    }
+
+    #[test]
+    fn percent_translate_resolves_against_the_border_box() {
+        // translate(50%, 25%) of a 100x40 border box is (50, 10) — the
+        // old code treated the percentages as raw pixels.
+        let list = commands(
+            "<style>div { transform: translate(50%, 25%); \
+                          width: 100px; height: 40px; background-color: #ff0000; }</style>\
+             <div>t</div>",
+        );
+        let Some(DisplayCommand::PushTransform { matrix }) = list
+            .iter()
+            .find(|command| matches!(command, DisplayCommand::PushTransform { .. }))
+        else {
+            panic!("no PushTransform in {list:?}");
+        };
+        // Pure translation about the origin: e/f carry the resolved offsets.
+        assert_eq!(matrix.a, 1.0);
+        assert_eq!(matrix.d, 1.0);
+        assert!((matrix.e - 50.0).abs() < 0.001, "{matrix:?}");
+        assert!((matrix.f - 10.0).abs() < 0.001, "{matrix:?}");
     }
 
     #[test]

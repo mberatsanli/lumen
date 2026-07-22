@@ -127,20 +127,41 @@ impl Color {
     }
 
     fn parse_hsl_body(body: &str) -> Option<Self> {
-        let parts: Vec<&str> = body.split(',').map(str::trim).collect();
-        if parts.len() != 3 && parts.len() != 4 {
-            return None;
-        }
-        let hue: f32 = parts[0].parse().ok()?;
-        let saturation: f32 = parts[1].strip_suffix('%')?.parse().ok()?;
-        let lightness: f32 = parts[2].strip_suffix('%')?.parse().ok()?;
-        let alpha = match parts.get(3) {
+        // Legacy form is comma-separated; the modern form is
+        // space-separated with the alpha after a `/`.
+        let (body, slash_alpha) = match body.split_once('/') {
+            Some((channels, alpha)) => (channels, Some(alpha.trim())),
+            None => (body, None),
+        };
+        let parts: Vec<&str> = if body.contains(',') {
+            body.split(',').map(str::trim).collect()
+        } else {
+            body.split_whitespace().collect()
+        };
+        let alpha = match (parts.len(), slash_alpha) {
+            (3, None) => None,
+            (4, None) => Some(parts[3]),
+            (3, Some(alpha)) => Some(alpha),
+            _ => return None,
+        };
+        let alpha = match alpha {
             None => 255u8,
+            // Alpha accepts a fraction (0-1) or a percentage.
             Some(alpha) => {
-                let alpha: f32 = alpha.parse().ok()?;
+                let alpha: f32 = match alpha.strip_suffix('%') {
+                    Some(percent) => percent.parse::<f32>().ok()? / 100.0,
+                    None => alpha.parse().ok()?,
+                };
                 (alpha.clamp(0.0, 1.0) * 255.0).round() as u8
             }
         };
+        let hue: f32 = parts[0]
+            .strip_suffix("deg")
+            .unwrap_or(parts[0])
+            .parse()
+            .ok()?;
+        let saturation: f32 = parts[1].strip_suffix('%')?.parse().ok()?;
+        let lightness: f32 = parts[2].strip_suffix('%')?.parse().ok()?;
         let (r, g, b) = hsl_to_rgb(
             hue.rem_euclid(360.0),
             (saturation / 100.0).clamp(0.0, 1.0),
@@ -406,6 +427,16 @@ impl CssValue {
     /// caller then skips, per the "ignore unsupported declarations" rule).
     #[must_use]
     pub fn parse_component(source: &str) -> Option<Self> {
+        // `f32` parsing accepts "NaN"/"inf" spellings and overflowing
+        // literals: reject non-finite numerics here so they can never
+        // leak into layout/paint math downstream.
+        match Self::parse_component_inner(source) {
+            Some(Self::Length(value, _) | Self::Number(value)) if !value.is_finite() => None,
+            parsed => parsed,
+        }
+    }
+
+    fn parse_component_inner(source: &str) -> Option<Self> {
         let source = source.trim();
         if source.is_empty() {
             return None;
@@ -414,11 +445,13 @@ impl CssValue {
             return Some(Self::Auto);
         }
         // url(...) and functional values (linear-gradient(...), ...).
-        if let Some(inner) = source
-            .strip_prefix("url(")
-            .and_then(|rest| rest.strip_suffix(')'))
+        if source.len() >= "url()".len()
+            && source
+                .get(..4)
+                .is_some_and(|head| head.eq_ignore_ascii_case("url("))
+            && source.ends_with(')')
         {
-            let inner = inner.trim();
+            let inner = source[4..source.len() - 1].trim();
             let inner = inner
                 .strip_prefix('"')
                 .and_then(|rest| rest.strip_suffix('"'))
@@ -778,6 +811,54 @@ mod tests {
         assert_eq!(
             Color::parse("hsla(240, 100%, 50%, 0.5)"),
             Some(Color::rgba(0, 0, 255, 128))
+        );
+    }
+
+    #[test]
+    fn parses_modern_hsl_forms() {
+        // Space-separated channels and slash alpha are valid CSS Color 4.
+        assert_eq!(
+            Color::parse("hsl(0 100% 50% / .5)"),
+            Some(Color::rgba(255, 0, 0, 128))
+        );
+        assert_eq!(
+            Color::parse("hsl(120 100% 25%)"),
+            Some(Color::rgb(0, 128, 0))
+        );
+        assert_eq!(
+            Color::parse("hsl(240 100% 50% / 50%)"),
+            Some(Color::rgba(0, 0, 255, 128))
+        );
+        // An explicit deg unit on the hue is accepted.
+        assert_eq!(
+            Color::parse("hsl(120deg 100% 25%)"),
+            Some(Color::rgb(0, 128, 0))
+        );
+    }
+
+    #[test]
+    fn url_keyword_is_case_insensitive() {
+        assert_eq!(
+            CssValue::parse_component("URL(bg.png)"),
+            Some(CssValue::Url("bg.png".to_string()))
+        );
+        assert_eq!(
+            CssValue::parse_component("Url('a b.png')"),
+            Some(CssValue::Url("a b.png".to_string()))
+        );
+    }
+
+    #[test]
+    fn non_finite_numbers_are_rejected() {
+        // f32 parsing accepts these spellings; they must not become values.
+        assert_eq!(CssValue::parse_component("NaN"), None);
+        assert_eq!(CssValue::parse_component("NaNpx"), None);
+        assert_eq!(CssValue::parse_component("inf%"), None);
+        assert_eq!(CssValue::parse_component("1e999px"), None);
+        // Finite values are untouched.
+        assert_eq!(
+            CssValue::parse_component("1e3px"),
+            Some(CssValue::Length(1000.0, Unit::Px))
         );
     }
 

@@ -190,6 +190,11 @@ pub struct ComputedStyle {
     pub grid_span: usize,
     /// Paint-time 2D transform about `transform_origin`.
     pub transform: Option<Transform2D>,
+    /// The raw `transform` text when it contains percentages: those
+    /// resolve against the border box, unknown at style time, so paint
+    /// re-parses this with the laid-out box size and uses the result
+    /// instead of `transform`.
+    pub transform_percent_source: Option<String>,
     /// Origin as (x, y); percents resolve against the border box.
     pub transform_origin: (Dimension, Dimension),
     pub transitions: Vec<TransitionSpec>,
@@ -427,7 +432,41 @@ impl Transform2D {
 
 /// Parses a transform list: translate/translateX/translateY (px/%/em),
 /// scale/scaleX/scaleY, rotate(deg) and matrix(); composed left to right.
-pub(crate) fn parse_transform(source: &str, font_size: f32) -> Option<Transform2D> {
+/// Percentages in translations resolve against `reference` (the element's
+/// border box at paint time); a zero reference zeroes them, which is what
+/// style-time and animation-interpolation callers use.
+pub(crate) fn parse_transform(
+    source: &str,
+    font_size: f32,
+    reference: crate::geometry::Size,
+) -> Option<Transform2D> {
+    /// One transform argument: translations keep their percentage so it
+    /// can resolve against the reference box per axis.
+    #[derive(Clone, Copy)]
+    enum Argument {
+        Px(f32),
+        Percent(f32),
+        /// Bare number (scale factors, matrix parts) or degrees.
+        Number(f32),
+    }
+
+    impl Argument {
+        /// Resolves against the axis size for translations.
+        fn along(self, axis: f32) -> f32 {
+            match self {
+                Self::Px(value) | Self::Number(value) => value,
+                Self::Percent(percent) => axis * percent / 100.0,
+            }
+        }
+
+        /// The raw numeric value (scale/rotate/matrix arguments).
+        fn raw(self) -> f32 {
+            match self {
+                Self::Px(value) | Self::Percent(value) | Self::Number(value) => value,
+            }
+        }
+    }
+
     let mut matrix = Transform2D::IDENTITY;
     let mut rest = source.trim();
     if rest == "none" {
@@ -438,32 +477,38 @@ pub(crate) fn parse_transform(source: &str, font_size: f32) -> Option<Transform2
         let name = rest[..open].trim().to_ascii_lowercase();
         let after = &rest[open + 1..];
         let close = find_balanced_paren(after)?;
-        let arguments: Vec<f32> = after[..close]
+        let arguments: Vec<Argument> = after[..close]
             .split(',')
             .filter_map(|argument| {
                 let argument = argument.trim();
                 if let Some(number) = argument.strip_suffix("deg") {
-                    return number.trim().parse().ok();
+                    return number.trim().parse().ok().map(Argument::Number);
                 }
                 match CssValue::parse_component(argument)? {
-                    CssValue::Length(px, lumen_css::Unit::Px) => Some(px),
-                    CssValue::Length(em, lumen_css::Unit::Em) => Some(em * font_size),
-                    CssValue::Length(percent, lumen_css::Unit::Percent) => Some(percent),
-                    CssValue::Number(number) => Some(number),
+                    CssValue::Length(px, lumen_css::Unit::Px) => Some(Argument::Px(px)),
+                    CssValue::Length(em, lumen_css::Unit::Em) => {
+                        Some(Argument::Px(em * font_size))
+                    }
+                    CssValue::Length(percent, lumen_css::Unit::Percent) => {
+                        Some(Argument::Percent(percent))
+                    }
+                    CssValue::Number(number) => Some(Argument::Number(number)),
                     _ => None,
                 }
             })
             .collect();
         let step = match name.as_str() {
             "translate" => Transform2D::translate(
-                *arguments.first()?,
-                arguments.get(1).copied().unwrap_or(0.0),
+                arguments.first()?.along(reference.width),
+                arguments.get(1).copied().unwrap_or(Argument::Px(0.0)).along(reference.height),
             ),
-            "translatex" => Transform2D::translate(*arguments.first()?, 0.0),
-            "translatey" => Transform2D::translate(0.0, *arguments.first()?),
+            "translatex" => Transform2D::translate(arguments.first()?.along(reference.width), 0.0),
+            "translatey" => {
+                Transform2D::translate(0.0, arguments.first()?.along(reference.height))
+            }
             "scale" => {
-                let sx = *arguments.first()?;
-                let sy = arguments.get(1).copied().unwrap_or(sx);
+                let sx = arguments.first()?.raw();
+                let sy = arguments.get(1).copied().map_or(sx, Argument::raw);
                 Transform2D {
                     a: sx,
                     d: sy,
@@ -471,15 +516,15 @@ pub(crate) fn parse_transform(source: &str, font_size: f32) -> Option<Transform2
                 }
             }
             "scalex" => Transform2D {
-                a: *arguments.first()?,
+                a: arguments.first()?.raw(),
                 ..Transform2D::IDENTITY
             },
             "scaley" => Transform2D {
-                d: *arguments.first()?,
+                d: arguments.first()?.raw(),
                 ..Transform2D::IDENTITY
             },
             "rotate" => {
-                let radians = arguments.first()?.to_radians();
+                let radians = arguments.first()?.raw().to_radians();
                 Transform2D {
                     a: radians.cos(),
                     b: radians.sin(),
@@ -489,12 +534,12 @@ pub(crate) fn parse_transform(source: &str, font_size: f32) -> Option<Transform2
                 }
             }
             "matrix" if arguments.len() == 6 => Transform2D {
-                a: arguments[0],
-                b: arguments[1],
-                c: arguments[2],
-                d: arguments[3],
-                e: arguments[4],
-                f: arguments[5],
+                a: arguments[0].raw(),
+                b: arguments[1].raw(),
+                c: arguments[2].raw(),
+                d: arguments[3].raw(),
+                e: arguments[4].raw(),
+                f: arguments[5].raw(),
             },
             _ => return None,
         };
@@ -812,6 +857,7 @@ impl Default for ComputedStyle {
             grid_columns: Vec::new(),
             grid_span: 1,
             transform: None,
+            transform_percent_source: None,
             transform_origin: (Dimension::Percent(50.0), Dimension::Percent(50.0)),
             transitions: Vec::new(),
             mark: None,

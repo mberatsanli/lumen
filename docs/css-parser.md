@@ -4,7 +4,7 @@
 
 ```text
 value.rs      typed values: CssValue, Color, Unit
-selector.rs   selector model, parsing and Specificity
+selector.rs   selector parsing (parcel_selectors) + Lumen's pseudo-class/-element impl
 parser.rs     stylesheet/declaration parsing, shorthand expansion
 ```
 
@@ -31,26 +31,28 @@ struct Color { r: u8, g: u8, b: u8 }
 
 ## Selectors
 
-Supported: `*`, `div`, `.card`, `#header`, compounds (`div.card#x`),
-descendant combinator (`.card p`), selector lists (`h1, h2`).
+Rules store parcel_selectors selectors directly
+(`parcel_selectors::parser::Selector<'static, Selectors>`): `*`, `div`,
+`.card`, `#header`, compounds, all combinators (`A B`, `>`, `+`, `~`),
+attribute selectors (incl. the `i` case flag), structural pseudo-classes
+(`:first-child`, the full `:nth-*` family incl. `of S`, `:empty`, `:root`),
+`:is()`/`:where()`/`:not()` at full depth, `:has()`, selector lists.
 
-Model: `Selector { compounds: Vec<CompoundSelector> }` — outermost ancestor
-first, subject last. `CompoundSelector { tag, id, classes }`; the universal
-selector is an empty compound.
+`selector.rs` defines the `SelectorImpl` glue: owned strings, the
+non-tree-structural pseudo-classes the engine can answer (`:hover`,
+`:active`, `:focus`, `:focus-within`, `:link`, `:visited`, `:enabled`,
+`:disabled`, `:checked`) and the pseudo-elements (`::before`, `::after`,
+`::selection`).
 
-Unsupported syntax (`>`, `+`, `~`, `:hover`, `[attr]`, ...) fails selector
-parsing, and per CSS error handling the **entire rule** is dropped when any
-selector in its list is invalid.
+Unsupported syntax fails selector parsing, and per CSS error handling the
+**entire rule** is dropped when any selector in its list is invalid.
 
 ## Specificity
 
-```rust
-struct Specificity { ids: u16, classes: u16, types: u16 } // lexicographic Ord
-```
-
-Structural, not a weighted sum: one id outranks any number of classes; one
-class outranks any number of type selectors. The universal selector adds
-nothing. Ties are broken by rule source order (stored on each `Rule`).
+parcel's layered `u32` (`ids << 20 | classes << 10 | types`, each layer
+clamped to 10 bits). One id outranks any number of classes; one class
+outranks any number of type selectors. The universal selector adds nothing.
+Ties are broken by rule source order (stored on each `Rule`).
 
 ## Declarations and shorthands
 
