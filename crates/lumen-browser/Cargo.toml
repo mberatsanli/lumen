@@ -11,6 +11,9 @@ lumen-html = { path = "../lumen-html" }
 lumen-platform = { path = "../lumen-platform" }
 boa_engine = "0.21"
 cookie = "0.18.1"
+dirs = "6"
+futures-concurrency = "7.6.3"
+futures-lite = "2.6.1"
 
 
 

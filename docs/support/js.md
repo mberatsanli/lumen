@@ -22,7 +22,9 @@ loader thread); the whole world drops on navigation.
 | `document.querySelector(All)` | ⚠️ | `#id`, `.class`, `tag`, `tag.class` |
 | `document.getElementsByClassName/TagName` | ✅ | |
 | `document.body` / `document.addEventListener` | ✅ | window/document listeners land on the root; `DOMContentLoaded` and `load` fire after page scripts run |
-| `localStorage` / `sessionStorage` / `navigator` / `matchMedia` / `requestAnimationFrame` / `getComputedStyle` | ⚠️ | survival stubs: storage is in-memory per page, matchMedia never matches, rAF is a 16ms timeout |
+| `localStorage` / `sessionStorage` | ✅ | localStorage persists per origin on disk (`<config>/lumen/storage/`, 5 MiB cap); sessionStorage lives with the page's script world; named-property access (`storage.x`) and unbound methods work |
+| `navigator` | ⚠️ | `userAgent`, `language`/`languages`, `platform`, `onLine` (always true) |
+| `matchMedia` / `requestAnimationFrame` / `getComputedStyle` | ⚠️ | survival stubs: matchMedia never matches, rAF is a 16ms timeout |
 | `element.textContent` / `innerText` | ✅ | live accessor properties; writes relayout the page |
 | `element.value` | ✅ | reads live form state, writes update the control |
 | `element.getAttribute` / `setAttribute` | ✅ | `setAttribute('style.color', …)` merges into the style attribute |
@@ -37,8 +39,10 @@ loader thread); the whole world drops on navigation.
 | `el.focus()` / `el.blur()` + `focus`/`blur` events | ✅ | shell applies the change; Tab/Shift+Tab cycles focusable controls |
 | `keydown` / `keyup` | ⚠️ | dispatched to the focused control (else the document) with `event.key`; preventDefault skips shell defaults |
 | `fetch` | ⚠️ | GET only; blocking under the hood, resolved between script entries; `response.text()`/`.json()`; no headers/status detail |
+| `XMLHttpRequest` | ⚠️ | `open`/`setRequestHeader`/`send`, `readyState`/`status`/`responseText`, `onreadystatechange`/`onload`/`onerror`; rides the same fetch pump (cookies + file:// gate included), only Content-Type reaches the wire |
 | `document.cookie` | ⚠️ | reads the jar for the page URL, writes store through it (Path/Domain/Max-Age honored); HttpOnly not hidden |
-| `window` / `location` | ⚠️ | `window` aliases the global object; `location.href` read/write (write navigates) and `location.reload()`; no `history` |
+| `window` / `location` | ⚠️ | `window` aliases the global object; `location.href` read/write (write navigates) and `location.reload()` |
+| `history` | ⚠️ | `pushState`/`replaceState` rewrite the URL without reloading (same-origin enforced), `back`/`forward`/`go` traverse via the shell and fire `popstate`; `state` is JSON-serializable values |
 
 `<script>` elements (inline or `src=`) run once after the page first
 renders, in document order, sharing one global scope. Only classic

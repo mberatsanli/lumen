@@ -2014,7 +2014,8 @@ impl App {
         }
     }
 
-    /// Performs a navigation a script requested (location.href/reload).
+    /// Performs a navigation a script requested (location.href/reload,
+    /// history.back/forward).
     fn follow_script_navigation(&mut self) {
         let Some(target) = self
             .page_scripts
@@ -2025,6 +2026,10 @@ impl App {
         };
         if target == "::reload" {
             self.start_nav(Nav::Refresh);
+        } else if target == "::back" {
+            self.start_nav(Nav::Back);
+        } else if target == "::forward" {
+            self.start_nav(Nav::Forward);
         } else {
             self.start_nav(Nav::Follow(target));
         }

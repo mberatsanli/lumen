@@ -15,13 +15,25 @@
 //! writing the live page.
 
 use crate::{Page, ResourceLoader, Session, resolve as resolve_url};
-use boa_engine::object::ObjectInitializer;
-use boa_engine::object::builtins::{JsPromise, JsProxyBuilder};
+use boa_engine::builtins::promise::PromiseState;
+use boa_engine::context::time::JsInstant;
+use boa_engine::job::{GenericJob, Job, JobExecutor, NativeAsyncJob, PromiseJob, TimeoutJob};
+use boa_engine::module::{ModuleLoader, Referrer};
+use boa_engine::object::builtins::{JsArray, JsPromise, JsProxyBuilder};
+use boa_engine::object::{FunctionObjectBuilder, ObjectInitializer};
 use boa_engine::property::Attribute;
-use boa_engine::{Context, JsObject, JsResult, JsValue, NativeFunction, Source, js_string};
+use boa_engine::{
+    Context, JsNativeError, JsObject, JsResult, JsString, JsValue, Module, NativeFunction, Source,
+    js_string,
+};
+use futures_concurrency::future::FutureGroup;
+use futures_lite::{StreamExt, future};
 use lumen_html::NodeId;
+use lumen_platform::Url;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::path::Path;
+use std::rc::Rc;
 
 /// The page state scripts operate on while a call is in flight.
 #[derive(Default)]
@@ -42,6 +54,8 @@ struct Bridge {
     stopped: bool,
     /// fetch() calls made during the entry, resolved between entries.
     pending_fetches: Vec<(String, JsObject, JsObject)>,
+    /// XMLHttpRequest.send() calls made during the entry.
+    pending_xhrs: Vec<XhrRequest>,
     /// The page URL (feeds location.href reads).
     url: String,
     /// The Cookie header for the page URL (document.cookie reads).
@@ -52,6 +66,40 @@ struct Bridge {
     pending_navigation: Option<String>,
     /// A focus change a script requested: focus(Some) / blur(None).
     pending_focus: Option<Option<NodeId>>,
+    /// localStorage of the page origin, hydrated at check-in and
+    /// persisted at checkout when `storage_dirty`.
+    local_storage: BTreeMap<String, String>,
+    /// Set by a localStorage write (set/remove/clear/proxy set).
+    storage_dirty: bool,
+    /// sessionStorage of this script world (memory only).
+    session_storage: BTreeMap<String, String>,
+    /// history.length / history.state feeds.
+    history_length: usize,
+    history_state: Option<String>,
+    /// A history operation a script requested.
+    pending_history: Option<HistoryOp>,
+}
+
+/// One `xhr.send()` queued for the between-entries pump. Custom
+/// headers are recorded but only Content-Type reaches the wire —
+/// [`crate::Session::fetch_resource`] has no header channel.
+struct XhrRequest {
+    method: String,
+    url: String,
+    headers: Vec<(String, String)>,
+    body: Option<String>,
+    xhr: JsObject,
+}
+
+/// A `history.*` call made during an entry, applied at checkout.
+enum HistoryOp {
+    /// pushState: new entry, no reload (url is already resolved).
+    Push { url: String, state: Option<String> },
+    /// replaceState: rewrite the current entry.
+    Replace { url: String, state: Option<String> },
+    /// back()/forward(): handed to the shell as a navigation.
+    Back,
+    Forward,
 }
 
 thread_local! {
@@ -72,12 +120,35 @@ pub struct DispatchOutcome {
     pub prevented: bool,
 }
 
-fn prevent_default(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {
+fn prevent_default(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
     with_bridge(|bridge| bridge.prevented = true);
     Ok(JsValue::undefined())
 }
 
-fn stop_propagation(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {
+fn default_prevented_get(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    Ok(JsValue::from(with_bridge(|bridge| bridge.prevented)))
+}
+
+/// One callback in a dispatch: an `addEventListener` registration or
+/// the compiled form of an inline `on*` attribute.
+enum Handler {
+    Js(JsObject),
+    Inline(String),
+}
+
+fn stop_propagation(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
     with_bridge(|bridge| bridge.stopped = true);
     Ok(JsValue::undefined())
 }
@@ -98,9 +169,17 @@ pub struct PageScripts {
     /// not scan every registration for every bubble target. Each inner
     /// Vec keeps registration order.
     listeners: HashMap<NodeId, HashMap<String, Vec<JsObject>>>,
+    /// Compiled inline `on*` attribute handlers, keyed by (node, event)
+    /// with the attribute text they were compiled from — a changed
+    /// attribute recompiles on the next dispatch.
+    inline_handlers: HashMap<(NodeId, String), (String, JsObject)>,
     timers: Vec<Timer>,
     /// fetch() calls awaiting their network round-trip.
     pending_fetches: Vec<(String, JsObject, JsObject)>,
+    /// XMLHttpRequests awaiting their network round-trip.
+    pending_xhrs: Vec<XhrRequest>,
+    /// sessionStorage of this page (lives and dies with the world).
+    session_storage: BTreeMap<String, String>,
     /// A navigation requested by a script, for the shell to perform.
     navigation: Option<String>,
     /// A focus change requested by a script, for the shell to apply.
@@ -112,34 +191,170 @@ impl PageScripts {
     /// Builds the script world for the current page and runs its
     /// `<script>` elements (inline text and `src=` fetched against the
     /// page URL) in document order. `None` when the page has no scripts.
+    ///
+    /// Classic scripts (including `async` — the pipeline is synchronous
+    /// and everything already runs after parsing, so keeping document
+    /// order is the most deterministic interpretation) run first; then
+    /// the post-parse queue: `defer` scripts and `type="module"` scripts
+    /// in document order, per spec. Modules share this context's global
+    /// with the classic scripts.
     pub fn new<L: ResourceLoader>(session: &mut Session<L>) -> Option<Self> {
-        let sources = script_sources(session);
-        if sources.is_empty() {
+        let entries = collect_scripts(session);
+        if entries.is_empty() && !has_inline_handlers(session) {
             return None;
         }
-        let mut context = Context::default();
+        let loader = Rc::new(PageModuleLoader::default());
+        let mut context = Context::builder()
+            .module_loader(loader.clone())
+            .job_executor(Rc::new(BoundedJobExecutor::new()))
+            .build()
+            .expect("fresh context");
+        // A runaway loop (while(true){}) becomes a JS error instead of
+        // hanging the shell. Boa already caps recursion (512 frames)
+        // and stack size (10 KiB) by default.
+        context
+            .runtime_limits_mut()
+            .set_loop_iteration_limit(LOOP_ITERATION_BUDGET);
         install_globals(&mut context);
         let mut scripts = Self {
             context,
             listeners: HashMap::new(),
+            inline_handlers: HashMap::new(),
             timers: Vec::new(),
             pending_fetches: Vec::new(),
+            pending_xhrs: Vec::new(),
+            session_storage: BTreeMap::new(),
             navigation: None,
             focus_request: None,
             now_ms: 0.0,
         };
-        for source in sources {
-            scripts.enter(session, |context| {
-                if let Err(error) = context.eval(Source::from_bytes(source.as_bytes())) {
-                    eprintln!("[js] script error: {error}");
+        let page_path = session
+            .current_url()
+            .map(|url| url.to_string())
+            .unwrap_or_default();
+        let mut deferred: Vec<ScriptEntry> = Vec::new();
+        for entry in entries {
+            match entry {
+                ScriptEntry::Now(source) => scripts.eval_classic(session, &source, &page_path),
+                post_parse => deferred.push(post_parse),
+            }
+        }
+        // Document parse is done: deferred scripts and modules run in
+        // document order, before DOMContentLoaded.
+        for entry in deferred {
+            match entry {
+                ScriptEntry::Deferred(source) => {
+                    scripts.eval_classic(session, &source, &page_path);
                 }
-            });
+                ScriptEntry::Module { key, source } => {
+                    scripts.run_module(session, &loader, &key, &source);
+                }
+                ScriptEntry::Now(_) => unreachable!("Now entries ran above"),
+            }
         }
         scripts.pump_fetches(session);
         // The document is ready: fire the lifecycle events on the root.
         scripts.dispatch(session, 0, "DOMContentLoaded");
         scripts.dispatch(session, 0, "load");
+        // A back()/forward() navigation re-runs the page in a fresh
+        // world; the traversal surfaces as popstate after load.
+        if session.take_traversed() {
+            scripts.dispatch(session, 0, "popstate");
+        }
         Some(scripts)
+    }
+
+    /// Runs one classic script, reporting errors without aborting the
+    /// page. The source carries the page path so a dynamic `import()`
+    /// inside it resolves relative to the page URL.
+    fn eval_classic<L: ResourceLoader>(
+        &mut self,
+        session: &mut Session<L>,
+        source: &str,
+        page_path: &str,
+    ) {
+        self.enter(session, |context| {
+            let source = Source::from_bytes(source.as_bytes()).with_path(Path::new(page_path));
+            if let Err(error) = context.eval(source) {
+                eprintln!("[js] script error: {error}");
+            }
+        });
+    }
+
+    /// Loads, links and evaluates one module. The loader only serves
+    /// sources it was given up front, so this runs a fetch-retry loop:
+    /// each round the loader reports the import URLs it missed, those
+    /// get fetched through the session (the file:// gate included), and
+    /// the next round resolves one more level of the import graph.
+    /// A failure is reported and the page moves on to the next script.
+    fn run_module<L: ResourceLoader>(
+        &mut self,
+        session: &mut Session<L>,
+        loader: &Rc<PageModuleLoader>,
+        key: &str,
+        source: &str,
+    ) {
+        loader.give_source(key, source);
+        for _ in 0..MAX_MODULE_ROUNDS {
+            let mut promise = None;
+            let mut parse_error = false;
+            self.enter(session, |context| {
+                let source = Source::from_bytes(source.as_bytes()).with_path(Path::new(key));
+                match Module::parse(source, None, context) {
+                    Ok(module) => promise = Some(module.load_link_evaluate(context)),
+                    Err(error) => {
+                        eprintln!("[js] module parse error ({key}): {error}");
+                        parse_error = true;
+                    }
+                }
+            });
+            if parse_error {
+                return;
+            }
+            let misses = loader.take_misses();
+            if !misses.is_empty() {
+                // Fetch the next graph level and retry; a failed fetch
+                // sinks this module but not the page.
+                let mut failed = false;
+                for miss in misses {
+                    let fetched = Url::parse(&miss)
+                        .map_err(|error| error.to_string())
+                        .and_then(|url| {
+                            session
+                                .fetch_resource(url, None)
+                                .map(|response| response.text())
+                                .map_err(|error| error.to_string())
+                        });
+                    match fetched {
+                        Ok(source) => loader.give_source(&miss, &source),
+                        Err(error) => {
+                            eprintln!("[js] module fetch failed ({miss}): {error}");
+                            failed = true;
+                        }
+                    }
+                }
+                if failed {
+                    return;
+                }
+                continue;
+            }
+            let Some(promise) = promise else {
+                return;
+            };
+            if let PromiseState::Rejected(reason) = promise.state() {
+                self.enter(session, |context| {
+                    let message = reason
+                        .to_string(context)
+                        .map(|text| text.to_std_string_escaped())
+                        .unwrap_or_else(|_| "?".to_string());
+                    eprintln!("[js] module error ({key}): {message}");
+                });
+            }
+            // Pending is fine: a top-level await on fetch() settles via
+            // the regular fetch pump on a later entry.
+            return;
+        }
+        eprintln!("[js] module graph too deep ({key}); giving up");
     }
 
     /// Whether any listener is registered for (node, event).
@@ -163,6 +378,11 @@ impl PageScripts {
 
     /// [`Self::dispatch`] with a `key` property on the event (keydown /
     /// keyup).
+    ///
+    /// Per bubble target the inline `on*` attribute handler (if any)
+    /// runs first — the attribute was set when the HTML was parsed,
+    /// before any `addEventListener` call — with `this` bound to that
+    /// element; registered listeners follow in registration order.
     pub fn dispatch_with_key<L: ResourceLoader>(
         &mut self,
         session: &mut Session<L>,
@@ -174,17 +394,47 @@ impl PageScripts {
         if let Some(page) = session.page() {
             targets.extend(page.document.ancestors(node));
         }
-        let handlers: Vec<(NodeId, JsObject)> = targets
-            .iter()
-            .flat_map(|target| {
-                self.listeners
-                    .get(target)
-                    .and_then(|by_event| by_event.get(event))
-                    .into_iter()
-                    .flatten()
-                    .map(|callback| (*target, callback.clone()))
+        let attribute = format!("on{event}");
+        let inline = |node: NodeId| {
+            session
+                .page()
+                .and_then(|page| page.document.element(node))
+                .and_then(|element| element.attributes.get(&attribute))
+                .map(str::to_string)
+        };
+        let mut handlers: Vec<(NodeId, Handler)> = Vec::new();
+        // window-level lifecycle events (load/DOMContentLoaded land on
+        // the document root) also honor `<body on*>` — the classic way
+        // pages hook them.
+        if node == 0
+            && let Some(body) = session.page().and_then(|page| {
+                let document = &page.document;
+                document.descendants(document.root()).find(|node| {
+                    document
+                        .element(*node)
+                        .is_some_and(|element| element.tag_name == "body")
+                })
             })
-            .collect();
+            && let Some(source) = inline(body)
+        {
+            handlers.push((body, Handler::Inline(source)));
+        }
+        for target in targets {
+            if let Some(source) = inline(target) {
+                handlers.push((target, Handler::Inline(source)));
+            }
+            if let Some(callbacks) = self
+                .listeners
+                .get(&target)
+                .and_then(|by_event| by_event.get(event))
+            {
+                handlers.extend(
+                    callbacks
+                        .iter()
+                        .map(|callback| (target, Handler::Js(callback.clone()))),
+                );
+            }
+        }
         let mut outcome = DispatchOutcome {
             handled: !handlers.is_empty(),
             prevented: false,
@@ -198,10 +448,27 @@ impl PageScripts {
         });
         let event_name = event.to_string();
         let key = key.map(str::to_string);
-        for (target, callback) in handlers {
+        for (target, handler) in handlers {
+            // `this`: the element for inline handlers (spec), undefined
+            // for addEventListener callbacks (existing behavior).
+            let resolved = match handler {
+                Handler::Js(callback) => Some((callback, None)),
+                Handler::Inline(source) => self
+                    .inline_handler(session, target, &event_name, &source)
+                    .map(|callback| (callback, Some(target))),
+            };
+            let Some((callback, this_node)) = resolved else {
+                continue;
+            };
             let key = key.clone();
             self.enter(session, |context| {
                 let target = element_object(target, context);
+                let this = match this_node {
+                    Some(node) => JsValue::from(element_object(node, context)),
+                    None => JsValue::undefined(),
+                };
+                let default_prevented = NativeFunction::from_fn_ptr(default_prevented_get)
+                    .to_js_function(context.realm());
                 let mut initializer = ObjectInitializer::new(context);
                 initializer
                     .property(
@@ -210,6 +477,12 @@ impl PageScripts {
                         Attribute::all(),
                     )
                     .property(js_string!("target"), target, Attribute::all())
+                    .accessor(
+                        js_string!("defaultPrevented"),
+                        Some(default_prevented),
+                        None,
+                        Attribute::all(),
+                    )
                     .function(
                         NativeFunction::from_fn_ptr(prevent_default),
                         js_string!("preventDefault"),
@@ -228,9 +501,7 @@ impl PageScripts {
                     );
                 }
                 let event_object = initializer.build();
-                if let Err(error) =
-                    callback.call(&JsValue::undefined(), &[event_object.into()], context)
-                {
+                if let Err(error) = callback.call(&this, &[event_object.into()], context) {
                     eprintln!("[js] script error: {error}");
                 }
             });
@@ -242,6 +513,39 @@ impl PageScripts {
         outcome.prevented = with_bridge(|bridge| bridge.prevented);
         self.pump_fetches(session);
         outcome
+    }
+
+    /// Compiles an inline `on*` attribute into `function (event) { .. }`
+    /// and caches it per (node, event); a changed attribute recompiles.
+    /// A handler that does not parse is reported once and skipped.
+    fn inline_handler<L: ResourceLoader>(
+        &mut self,
+        session: &mut Session<L>,
+        node: NodeId,
+        event: &str,
+        source: &str,
+    ) -> Option<JsObject> {
+        let key = (node, event.to_string());
+        if let Some((compiled_from, callback)) = self.inline_handlers.get(&key)
+            && compiled_from == source
+        {
+            return Some(callback.clone());
+        }
+        let wrapped = format!("(function (event) {{\n{source}\n}})");
+        let mut callback = None;
+        self.enter(session, |context| {
+            match context.eval(Source::from_bytes(wrapped.as_bytes())) {
+                Ok(value) => match value.as_object() {
+                    Some(object) => callback = Some(object),
+                    None => eprintln!("[js] inline handler is not a function ({event})"),
+                },
+                Err(error) => eprintln!("[js] inline handler error ({event}): {error}"),
+            }
+        });
+        let callback = callback?;
+        self.inline_handlers
+            .insert(key, (source.to_string(), callback.clone()));
+        Some(callback)
     }
 
     /// Runs timers due at `now_ms`. Returns whether anything ran.
@@ -285,8 +589,9 @@ impl PageScripts {
         ran
     }
 
-    /// A navigation a script requested (location.href / reload), if any.
-    /// The shell performs it; `"::reload"` means refresh.
+    /// A navigation a script requested (location.href / reload /
+    /// history traversal). The shell performs it; `"::reload"` means
+    /// refresh, `"::back"`/`"::forward"` a history traversal.
     pub fn take_navigation(&mut self) -> Option<String> {
         self.navigation.take()
     }
@@ -296,12 +601,13 @@ impl PageScripts {
         self.focus_request.take()
     }
 
-    /// Performs queued fetch() round-trips and resolves their promises,
+    /// Performs queued fetch()/XHR round-trips and resolves them,
     /// looping because continuations may fetch again.
     fn pump_fetches<L: ResourceLoader>(&mut self, session: &mut Session<L>) {
         for _ in 0..8 {
             let requests = std::mem::take(&mut self.pending_fetches);
-            if requests.is_empty() {
+            let xhrs = std::mem::take(&mut self.pending_xhrs);
+            if requests.is_empty() && xhrs.is_empty() {
                 return;
             }
             let results: Vec<(Result<String, String>, JsObject, JsObject)> = requests
@@ -323,6 +629,27 @@ impl PageScripts {
                     (response, resolve, reject)
                 })
                 .collect();
+            let xhr_results: Vec<(Result<String, String>, JsObject)> = xhrs
+                .into_iter()
+                .map(|request| {
+                    let outcome = session
+                        .current_url()
+                        .cloned()
+                        .ok_or_else(|| "no page".to_string())
+                        .and_then(|base| {
+                            resolve_url(&base, &request.url).map_err(|error| error.to_string())
+                        })
+                        .and_then(|url| {
+                            // Cookies and the file:// gate come free:
+                            // XHR rides the same fetch_resource as fetch.
+                            session
+                                .fetch_resource(url, xhr_body(&request))
+                                .map(|response| response.text())
+                                .map_err(|error| error.to_string())
+                        });
+                    (outcome, request.xhr)
+                })
+                .collect();
             self.enter(session, |context| {
                 for (result, resolve, reject) in results {
                     let call = match result {
@@ -340,10 +667,14 @@ impl PageScripts {
                         eprintln!("[js] script error: {error}");
                     }
                 }
+                for (result, xhr) in xhr_results {
+                    settle_xhr(result, &xhr, context);
+                }
             });
         }
         eprintln!("[js] fetch chain ran too deep; dropping the rest");
         self.pending_fetches.clear();
+        self.pending_xhrs.clear();
     }
 
     /// Whether timers are pending (the shell keeps frames coming).
@@ -376,6 +707,13 @@ impl PageScripts {
             .as_ref()
             .and_then(|url| session.cookies.header_for(url))
             .unwrap_or_default();
+        let storage_origin = url.as_ref().map(crate::storage::origin_key);
+        let local_storage = storage_origin
+            .as_ref()
+            .map(|origin| session.storage.load(origin))
+            .unwrap_or_default();
+        let history_length = session.history_len();
+        let history_state = session.history_state();
         with_bridge(|bridge| {
             bridge.page = session.page.take();
             bridge.form_values = std::mem::take(&mut session.form_values);
@@ -383,6 +721,11 @@ impl PageScripts {
             bridge.now_ms = now_ms;
             bridge.url = url.as_ref().map(ToString::to_string).unwrap_or_default();
             bridge.cookie_header = cookie_header;
+            bridge.local_storage = local_storage;
+            bridge.storage_dirty = false;
+            bridge.session_storage = std::mem::take(&mut self.session_storage);
+            bridge.history_length = history_length;
+            bridge.history_state = history_state;
         });
         action(&mut self.context);
         // Drain the microtask queue (promise .then/await continuations)
@@ -413,6 +756,8 @@ impl PageScripts {
                 self.timers.retain(|timer| timer.id != cleared);
             }
             self.pending_fetches.append(&mut bridge.pending_fetches);
+            self.pending_xhrs.append(&mut bridge.pending_xhrs);
+            self.session_storage = std::mem::take(&mut bridge.session_storage);
             if let Some(target) = bridge.pending_navigation.take() {
                 self.navigation = Some(target);
             }
@@ -420,13 +765,44 @@ impl PageScripts {
                 self.focus_request = Some(target);
             }
             let pending_cookies = std::mem::take(&mut bridge.pending_cookies);
-            (bridge.dirty, pending_cookies)
+            let local_storage = std::mem::take(&mut bridge.local_storage);
+            (
+                bridge.dirty,
+                pending_cookies,
+                bridge.storage_dirty,
+                local_storage,
+                bridge.pending_history.take(),
+            )
         });
-        let (dirty, pending_cookies) = dirty;
+        let (dirty, pending_cookies, storage_dirty, local_storage, history_op) = dirty;
         if let Some(url) = &url {
             for header in pending_cookies {
                 session.cookies.store(url, &header);
             }
+        }
+        if storage_dirty && let Some(origin) = &storage_origin {
+            session.storage.save(origin, &local_storage);
+        }
+        match history_op {
+            Some(HistoryOp::Push { url, state }) => {
+                if let Ok(url) = Url::parse(&url) {
+                    session.push_state(url, state);
+                }
+            }
+            Some(HistoryOp::Replace { url, state }) => {
+                if let Ok(url) = Url::parse(&url) {
+                    session.replace_state(url, state);
+                }
+            }
+            // A traversal becomes a shell navigation unless the script
+            // already asked for one in the same entry.
+            Some(HistoryOp::Back) if self.navigation.is_none() => {
+                self.navigation = Some("::back".to_string());
+            }
+            Some(HistoryOp::Forward) if self.navigation.is_none() => {
+                self.navigation = Some("::forward".to_string());
+            }
+            _ => {}
         }
         if dirty {
             session.relayout();
@@ -434,50 +810,339 @@ impl PageScripts {
     }
 }
 
-/// The page's `<script>` sources in document order.
-fn script_sources<L: ResourceLoader>(session: &mut Session<L>) -> Vec<String> {
+/// One `<script>` element, classified by how the spec schedules it.
+enum ScriptEntry {
+    /// Runs in document order as encountered: classic inline scripts,
+    /// classic `src=` scripts and `async` ones (see [`PageScripts::new`]
+    /// for why async keeps document order here).
+    Now(String),
+    /// `<script defer>`: after the document parse, in document order
+    /// together with modules. Inline `defer` (no `src`) is meaningless
+    /// per spec and stays a `Now` entry.
+    Deferred(String),
+    /// `<script type="module">`: always deferred, in document order
+    /// together with `defer` scripts. `key` is the module's canonical
+    /// URL — the resolved `src`, or a synthetic fragment on the page
+    /// URL for inline modules so their relative imports still resolve.
+    Module { key: String, source: String },
+}
+
+/// The page's `<script>` elements in document order, with `src=`
+/// bodies fetched up front (a failed fetch drops just that script).
+fn collect_scripts<L: ResourceLoader>(session: &mut Session<L>) -> Vec<ScriptEntry> {
     let Some(base) = session.current_url().cloned() else {
         return Vec::new();
     };
-    let Some(page) = session.page.as_ref() else {
-        return Vec::new();
-    };
-    let document = &page.document;
-    let scripts: Vec<(Option<String>, String)> = document
-        .descendants(document.root())
-        .filter_map(|node| {
-            let element = document.element(node)?;
-            if element.tag_name != "script" {
-                return None;
-            }
-            // Only classic JavaScript runs: JSON-LD, templates, import
-            // maps and modules (no import support) are skipped.
-            let kind = element.attributes.get("type").unwrap_or("").trim();
-            let classic = matches!(
-                kind,
-                "" | "text/javascript" | "application/javascript" | "application/ecmascript"
-            );
-            classic.then(|| {
-                (
+    enum Kind {
+        Classic { defer: bool },
+        Module,
+    }
+    // Phase 1: read the document (immutable borrow of the session).
+    let found: Vec<(Kind, Option<String>, String)> = {
+        let Some(page) = session.page.as_ref() else {
+            return Vec::new();
+        };
+        let document = &page.document;
+        document
+            .descendants(document.root())
+            .filter_map(|node| {
+                let element = document.element(node)?;
+                if element.tag_name != "script" {
+                    return None;
+                }
+                // Classic JavaScript and modules run; JSON-LD, templates
+                // and import maps are skipped.
+                let kind = element.attributes.get("type").unwrap_or("").trim();
+                let module = kind == "module";
+                let classic = matches!(
+                    kind,
+                    "" | "text/javascript" | "application/javascript" | "application/ecmascript"
+                );
+                if !module && !classic {
+                    return None;
+                }
+                let kind = if module {
+                    Kind::Module
+                } else {
+                    Kind::Classic {
+                        defer: element.attributes.contains("defer"),
+                    }
+                };
+                Some((
+                    kind,
                     element.attributes.get("src").map(str::to_string),
                     document.text_content(node),
-                )
+                ))
             })
-        })
-        .collect();
-    scripts
+            .collect()
+    };
+    // Phase 2: fetch src= bodies and classify (mutable borrow).
+    let mut inline_modules = 0u32;
+    found
         .into_iter()
-        .filter_map(|(src, inline)| match src {
-            Some(src) => {
-                let url = resolve_url(&base, &src).ok()?;
-                session
-                    .fetch_resource(url, None)
-                    .ok()
-                    .map(|response| response.text())
+        .filter_map(|(kind, src, inline)| {
+            // A src= that failed to resolve or fetch drops the script.
+            let (url, source) = match src {
+                Some(src) => {
+                    let url = resolve_url(&base, &src).ok()?;
+                    let text = session
+                        .fetch_resource(url.clone(), None)
+                        .ok()
+                        .map(|response| response.text())?;
+                    (Some(url), text)
+                }
+                None => (None, inline),
+            };
+            match kind {
+                Kind::Module => {
+                    let key = match &url {
+                        Some(url) => url.to_string(),
+                        None => {
+                            let key = format!("{base}#inline-module-{inline_modules}");
+                            inline_modules += 1;
+                            key
+                        }
+                    };
+                    Some(ScriptEntry::Module { key, source })
+                }
+                // Inline `defer` (no src) is meaningless per spec and
+                // runs right away like any other inline script.
+                Kind::Classic { defer } if defer && url.is_some() => {
+                    Some(ScriptEntry::Deferred(source))
+                }
+                Kind::Classic { .. } => Some(ScriptEntry::Now(source)),
             }
-            None => Some(inline),
         })
         .collect()
+}
+
+// ---- modules ----
+
+/// Whether any element carries an inline `on*` handler attribute — such
+/// a page needs a script world even without a single `<script>` tag.
+fn has_inline_handlers<L: ResourceLoader>(session: &Session<L>) -> bool {
+    session.page().is_some_and(|page| {
+        let document = &page.document;
+        document.descendants(document.root()).any(|node| {
+            document.element(node).is_some_and(|element| {
+                element
+                    .attributes
+                    .iter()
+                    .any(|(name, _)| name.starts_with("on"))
+            })
+        })
+    })
+}
+
+/// Import graphs deeper than this many fetch rounds give up (each
+/// round resolves one level; cycles are served from the cache).
+const MAX_MODULE_ROUNDS: u32 = 64;
+
+/// Serves `import` specifiers from pre-fetched sources — never from
+/// the filesystem. [`PageScripts::run_module`] drives it in a
+/// fetch-retry loop: the loader records the URLs it was asked for but
+/// has no source for (`misses`), the caller fetches them through the
+/// session and retries. Dynamic `import()` goes through the same
+/// loader, so it resolves anything already fetched (the static graph);
+/// a never-fetched URL rejects the promise instead of hanging.
+#[derive(Default)]
+struct PageModuleLoader {
+    /// Resolved URL -> fetched source text.
+    sources: RefCell<HashMap<String, String>>,
+    /// Resolved URL -> parsed module (one instance per URL, so cyclic
+    /// imports and duplicate tags share a single evaluation).
+    cache: RefCell<HashMap<String, Module>>,
+    /// URLs requested without a known source since the last drain.
+    misses: RefCell<Vec<String>>,
+}
+
+impl PageModuleLoader {
+    fn give_source(&self, url: &str, source: &str) {
+        self.sources
+            .borrow_mut()
+            .insert(url.to_string(), source.to_string());
+    }
+
+    fn take_misses(&self) -> Vec<String> {
+        std::mem::take(&mut *self.misses.borrow_mut())
+    }
+}
+
+impl ModuleLoader for PageModuleLoader {
+    async fn load_imported_module(
+        self: Rc<Self>,
+        referrer: Referrer,
+        specifier: JsString,
+        context: &RefCell<&mut Context>,
+    ) -> JsResult<Module> {
+        let specifier = specifier.to_std_string_escaped();
+        let base = referrer
+            .path()
+            .and_then(|path| path.to_str())
+            .ok_or_else(|| JsNativeError::typ().with_message("import without a referrer URL"))?;
+        let url = Url::parse(base)
+            .map_err(|error| {
+                JsNativeError::typ().with_message(format!("bad referrer '{base}': {error}"))
+            })
+            .and_then(|base| {
+                resolve_url(&base, &specifier).map_err(|error| {
+                    JsNativeError::typ().with_message(format!("bad import '{specifier}': {error}"))
+                })
+            })?;
+        let key = url.to_string();
+        if let Some(module) = self.cache.borrow().get(&key) {
+            return Ok(module.clone());
+        }
+        let Some(source) = self.sources.borrow().get(&key).cloned() else {
+            let mut misses = self.misses.borrow_mut();
+            if !misses.contains(&key) {
+                misses.push(key.clone());
+            }
+            return Err(JsNativeError::typ()
+                .with_message(format!("module not fetched: {key}"))
+                .into());
+        };
+        let source = Source::from_bytes(source.as_bytes()).with_path(Path::new(&key));
+        let module = Module::parse(source, None, &mut context.borrow_mut())?;
+        self.cache.borrow_mut().insert(key, module.clone());
+        Ok(module)
+    }
+}
+
+// ---- job budget ----
+
+/// A runaway loop throws after this many iterations (per loop), so
+/// `while (true) {}` becomes a catchable JS error instead of a hang.
+const LOOP_ITERATION_BUDGET: u64 = 1_000_000;
+
+/// Jobs a single [`Context::run_jobs`] call may run before yielding
+/// the rest to the next entry — a promise that re-schedules itself
+/// (`Promise.resolve().then(f)` where f enqueues f) otherwise keeps
+/// the drain loop spinning forever.
+const MAX_JOBS_PER_TICK: usize = 10_000;
+
+/// Boa's default `SimpleJobExecutor` drains the queues until empty,
+/// which self-scheduling promises keep non-empty forever. This
+/// executor mirrors boa's drain loop (boe_engine 0.21 `src/job.rs`,
+/// MIT/Apache-2.0) but caps the jobs per call: whatever is left stays
+/// queued and continues on the next script entry.
+#[derive(Default)]
+struct BoundedJobExecutor {
+    promise_jobs: RefCell<VecDeque<PromiseJob>>,
+    async_jobs: RefCell<VecDeque<NativeAsyncJob>>,
+    timeout_jobs: RefCell<BTreeMap<JsInstant, TimeoutJob>>,
+    generic_jobs: RefCell<VecDeque<GenericJob>>,
+}
+
+impl BoundedJobExecutor {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn clear(&self) {
+        self.promise_jobs.borrow_mut().clear();
+        self.async_jobs.borrow_mut().clear();
+        self.timeout_jobs.borrow_mut().clear();
+        self.generic_jobs.borrow_mut().clear();
+    }
+}
+
+impl std::fmt::Debug for BoundedJobExecutor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BoundedJobExecutor").finish_non_exhaustive()
+    }
+}
+
+impl JobExecutor for BoundedJobExecutor {
+    fn enqueue_job(self: Rc<Self>, job: Job, context: &mut Context) {
+        match job {
+            Job::PromiseJob(job) => self.promise_jobs.borrow_mut().push_back(job),
+            Job::AsyncJob(job) => self.async_jobs.borrow_mut().push_back(job),
+            Job::TimeoutJob(job) => {
+                let now = context.clock().now();
+                self.timeout_jobs
+                    .borrow_mut()
+                    .insert(now + job.timeout(), job);
+            }
+            Job::GenericJob(job) => self.generic_jobs.borrow_mut().push_back(job),
+            // Non-exhaustive: future job kinds have no queue here.
+            _ => {}
+        }
+    }
+
+    fn run_jobs(self: Rc<Self>, context: &mut Context) -> JsResult<()> {
+        future::block_on(self.run_jobs_async(&RefCell::new(context)))
+    }
+
+    async fn run_jobs_async(self: Rc<Self>, context: &RefCell<&mut Context>) -> JsResult<()> {
+        let mut group = FutureGroup::new();
+        let mut budget = MAX_JOBS_PER_TICK;
+        loop {
+            for job in std::mem::take(&mut *self.async_jobs.borrow_mut()) {
+                group.insert(job.call(context));
+            }
+
+            // There are no timeout jobs to run IIF there are no jobs to
+            // execute right now.
+            let no_timeout_jobs_to_run = {
+                let now = context.borrow().clock().now();
+                !self.timeout_jobs.borrow().iter().any(|(t, _)| &now >= t)
+            };
+
+            let idle = self.promise_jobs.borrow().is_empty()
+                && self.async_jobs.borrow().is_empty()
+                && self.generic_jobs.borrow().is_empty()
+                && no_timeout_jobs_to_run
+                && group.is_empty();
+            if idle || budget == 0 {
+                break;
+            }
+
+            if let Some(Err(error)) = future::poll_once(group.next()).await.flatten() {
+                self.clear();
+                return Err(error);
+            }
+
+            {
+                let now = context.borrow().clock().now();
+                let mut timeouts_borrow = self.timeout_jobs.borrow_mut();
+                let mut jobs_to_keep = timeouts_borrow.split_off(&now);
+                jobs_to_keep.retain(|_, job| !job.is_cancelled());
+                let jobs_to_run = std::mem::replace(&mut *timeouts_borrow, jobs_to_keep);
+                drop(timeouts_borrow);
+
+                for job in jobs_to_run.into_values() {
+                    budget = budget.saturating_sub(1);
+                    if let Err(error) = job.call(&mut context.borrow_mut()) {
+                        self.clear();
+                        return Err(error);
+                    }
+                }
+            }
+
+            let jobs = std::mem::take(&mut *self.promise_jobs.borrow_mut());
+            for job in jobs {
+                budget = budget.saturating_sub(1);
+                if let Err(error) = job.call(&mut context.borrow_mut()) {
+                    self.clear();
+                    return Err(error);
+                }
+            }
+
+            let jobs = std::mem::take(&mut *self.generic_jobs.borrow_mut());
+            for job in jobs {
+                budget = budget.saturating_sub(1);
+                if let Err(error) = job.call(&mut context.borrow_mut()) {
+                    self.clear();
+                    return Err(error);
+                }
+            }
+            context.borrow_mut().clear_kept_objects();
+            future::yield_now().await;
+        }
+
+        Ok(())
+    }
 }
 
 // ---- globals ----
@@ -575,7 +1240,11 @@ fn install_globals(context: &mut Context) {
             .expect("fresh context");
     }
     context
-        .register_global_builtin_callable(js_string!("fetch"), 1, NativeFunction::from_fn_ptr(fetch_))
+        .register_global_builtin_callable(
+            js_string!("fetch"),
+            1,
+            NativeFunction::from_fn_ptr(fetch_),
+        )
         .expect("fresh context");
 
     let href_get = NativeFunction::from_fn_ptr(location_href_get).to_js_function(context.realm());
@@ -595,6 +1264,104 @@ fn install_globals(context: &mut Context) {
         .build();
     context
         .register_global_property(js_string!("location"), location, Attribute::all())
+        .expect("fresh context");
+
+    let xhr_ctor = FunctionObjectBuilder::new(
+        context.realm(),
+        NativeFunction::from_fn_ptr(xml_http_request),
+    )
+    .name(js_string!("XMLHttpRequest"))
+    .length(0)
+    .constructor(true)
+    .build();
+    context
+        .register_global_property(js_string!("XMLHttpRequest"), xhr_ctor, Attribute::all())
+        .expect("fresh context");
+
+    let history_length_get =
+        NativeFunction::from_fn_ptr(history_length_get_).to_js_function(context.realm());
+    let history_state_get =
+        NativeFunction::from_fn_ptr(history_state_get_).to_js_function(context.realm());
+    let history = ObjectInitializer::new(context)
+        .function(
+            NativeFunction::from_fn_ptr(history_push_state),
+            js_string!("pushState"),
+            3,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(history_replace_state),
+            js_string!("replaceState"),
+            3,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(history_back_),
+            js_string!("back"),
+            0,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(history_forward_),
+            js_string!("forward"),
+            0,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(history_go_),
+            js_string!("go"),
+            1,
+        )
+        .accessor(
+            js_string!("length"),
+            Some(history_length_get),
+            None,
+            Attribute::all(),
+        )
+        .accessor(
+            js_string!("state"),
+            Some(history_state_get),
+            None,
+            Attribute::all(),
+        )
+        .build();
+    context
+        .register_global_property(js_string!("history"), history, Attribute::all())
+        .expect("fresh context");
+
+    let languages = JsArray::from_iter(
+        [
+            JsValue::from(js_string!("tr-TR")),
+            JsValue::from(js_string!("en")),
+        ],
+        context,
+    );
+    let navigator = ObjectInitializer::new(context)
+        .property(
+            js_string!("userAgent"),
+            js_string!(USER_AGENT),
+            Attribute::all(),
+        )
+        .property(js_string!("language"), js_string!("tr-TR"), Attribute::all())
+        .property(js_string!("languages"), languages, Attribute::all())
+        .property(
+            js_string!("platform"),
+            js_string!(platform()),
+            Attribute::all(),
+        )
+        .property(js_string!("onLine"), true, Attribute::all())
+        .build();
+    context
+        .register_global_property(js_string!("navigator"), navigator, Attribute::all())
+        .expect("fresh context");
+
+    let local_storage = storage_object(StorageKind::Local, context);
+    context
+        .register_global_property(js_string!("localStorage"), local_storage, Attribute::all())
+        .expect("fresh context");
+    let session_storage = storage_object(StorageKind::Session, context);
+    context
+        .register_global_property(
+            js_string!("sessionStorage"),
+            session_storage,
+            Attribute::all(),
+        )
         .expect("fresh context");
     // window is the global object itself (enough for window.location,
     // window.setTimeout and friends).
@@ -622,8 +1389,7 @@ fn cookie_set_(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
                 .split(';')
                 .map(str::trim)
                 .filter(|existing| {
-                    !existing.is_empty()
-                        && existing.split('=').next().unwrap_or("").trim() != name
+                    !existing.is_empty() && existing.split('=').next().unwrap_or("").trim() != name
                 })
                 .collect();
             pairs.push(&pair);
@@ -634,7 +1400,11 @@ fn cookie_set_(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
     Ok(JsValue::undefined())
 }
 
-fn document_body_get(_this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+fn document_body_get(
+    _this: &JsValue,
+    _args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
     // Pages without an explicit <body> fall back to the root, so
     // document.body.appendChild and friends still work.
     let body = with_bridge(|bridge| {
@@ -672,25 +1442,10 @@ fn window_add_event_listener(
 }
 
 /// Cheap stubs that keep common site boot code from crashing:
-/// localStorage/sessionStorage (in-memory via plain objects driven by
-/// JS), matchMedia, navigator and requestAnimationFrame.
+/// matchMedia, requestAnimationFrame and getComputedStyle. (Storage,
+/// navigator, history and XHR are real natives, not stubs.)
 fn install_stubs(context: &mut Context) {
     let source = r#"
-        var localStorage = {
-            __data: {},
-            getItem(key) { return Object.hasOwn(this.__data, key) ? this.__data[key] : null; },
-            setItem(key, value) { this.__data[key] = String(value); },
-            removeItem(key) { delete this.__data[key]; },
-            clear() { this.__data = {}; },
-        };
-        var sessionStorage = {
-            __data: {},
-            getItem(key) { return Object.hasOwn(this.__data, key) ? this.__data[key] : null; },
-            setItem(key, value) { this.__data[key] = String(value); },
-            removeItem(key) { delete this.__data[key]; },
-            clear() { this.__data = {}; },
-        };
-        var navigator = { userAgent: "Lumen/0.1 (educational)", language: "tr-TR", languages: ["tr-TR", "en"] };
         function matchMedia(query) {
             return { matches: false, media: query,
                      addListener() {}, removeListener() {},
@@ -724,13 +1479,17 @@ fn response_object(body: &str, context: &mut Context) -> JsObject {
     ObjectInitializer::new(context)
         .property(js_string!("ok"), true, Attribute::all())
         .property(js_string!("status"), 200, Attribute::all())
-        .property(
-            js_string!("__body"),
-            js_string!(body),
-            Attribute::empty(),
+        .property(js_string!("__body"), js_string!(body), Attribute::empty())
+        .function(
+            NativeFunction::from_fn_ptr(response_text),
+            js_string!("text"),
+            0,
         )
-        .function(NativeFunction::from_fn_ptr(response_text), js_string!("text"), 0)
-        .function(NativeFunction::from_fn_ptr(response_json), js_string!("json"), 0)
+        .function(
+            NativeFunction::from_fn_ptr(response_json),
+            js_string!("json"),
+            0,
+        )
         .build()
 }
 
@@ -748,9 +1507,7 @@ fn response_text(this: &JsValue, _args: &[JsValue], context: &mut Context) -> Js
 fn response_json(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     let body = response_body(this, context);
     // Parse through the engine's own JSON.parse.
-    let json = context
-        .global_object()
-        .get(js_string!("JSON"), context)?;
+    let json = context.global_object().get(js_string!("JSON"), context)?;
     let parse = json
         .as_object()
         .ok_or_else(|| boa_engine::JsNativeError::typ().with_message("JSON missing"))?
@@ -765,20 +1522,665 @@ fn response_json(this: &JsValue, _args: &[JsValue], context: &mut Context) -> Js
     })
 }
 
+// ---- XMLHttpRequest ----
+
+/// `new XMLHttpRequest()`: a plain object carrying readyState/status/
+/// responseText as data properties; the natives below mutate it.
+fn xml_http_request(_this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let headers = JsArray::new(context);
+    Ok(ObjectInitializer::new(context)
+        .property(js_string!("readyState"), 0, Attribute::all())
+        .property(js_string!("status"), 0, Attribute::all())
+        .property(js_string!("responseText"), js_string!(""), Attribute::all())
+        .property(js_string!("response"), js_string!(""), Attribute::all())
+        .property(
+            js_string!("__headers"),
+            JsValue::from(headers),
+            Attribute::empty(),
+        )
+        .function(
+            NativeFunction::from_fn_ptr(xhr_open),
+            js_string!("open"),
+            2,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(xhr_set_request_header),
+            js_string!("setRequestHeader"),
+            2,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(xhr_send),
+            js_string!("send"),
+            1,
+        )
+        .build()
+        .into())
+}
+
+/// Reads a string own property of the xhr object.
+fn xhr_prop(object: &JsObject, name: &str, context: &mut Context) -> String {
+    object
+        .get(js_string!(name), context)
+        .ok()
+        .and_then(|value| value.to_string(context).ok())
+        .map(|value| value.to_std_string_escaped())
+        .unwrap_or_default()
+}
+
+fn xhr_open(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(object) = this.as_object() else {
+        return Err(boa_engine::JsNativeError::typ()
+            .with_message("XMLHttpRequest.open called on a non-xhr")
+            .into());
+    };
+    let method = string_arg(args, 0, context).to_ascii_uppercase();
+    let url = string_arg(args, 1, context);
+    // The async flag (arg 2) is accepted but the pipeline is
+    // synchronous: every request completes in the next pump either way.
+    object.set(js_string!("__method"), js_string!(method.as_str()), false, context)?;
+    object.set(js_string!("__url"), js_string!(url.as_str()), false, context)?;
+    object.set(
+        js_string!("__headers"),
+        JsValue::from(JsArray::new(context)),
+        false,
+        context,
+    )?;
+    object.set(js_string!("readyState"), 1, false, context)?;
+    Ok(JsValue::undefined())
+}
+
+fn xhr_set_request_header(
+    this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let Some(object) = this.as_object() else {
+        return Ok(JsValue::undefined());
+    };
+    let headers = object.get(js_string!("__headers"), context)?;
+    let Some(headers) = headers.as_object() else {
+        return Ok(JsValue::undefined());
+    };
+    let Ok(array) = JsArray::from_object(headers) else {
+        return Ok(JsValue::undefined());
+    };
+    array.push(JsValue::from(js_string!(string_arg(args, 0, context).as_str())), context)?;
+    array.push(JsValue::from(js_string!(string_arg(args, 1, context).as_str())), context)?;
+    Ok(JsValue::undefined())
+}
+
+fn xhr_send(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(object) = this.as_object() else {
+        return Err(boa_engine::JsNativeError::typ()
+            .with_message("XMLHttpRequest.send called on a non-xhr")
+            .into());
+    };
+    let url = xhr_prop(&object, "__url", context);
+    if url.is_empty() {
+        return Err(boa_engine::JsNativeError::typ()
+            .with_message("XMLHttpRequest.send called before open")
+            .into());
+    }
+    let method = xhr_prop(&object, "__method", context);
+    let mut headers: Vec<(String, String)> = Vec::new();
+    if let Ok(value) = object.get(js_string!("__headers"), context)
+        && let Some(array) = value.as_object()
+        && let Ok(array) = JsArray::from_object(array)
+    {
+        let length = array.length(context).unwrap_or(0);
+        for index in 0..length {
+            let item = array
+                .get(index, context)
+                .ok()
+                .and_then(|value| value.to_string(context).ok())
+                .map(|value| value.to_std_string_escaped())
+                .unwrap_or_default();
+            if index % 2 == 0 {
+                headers.push((item, String::new()));
+            } else if let Some(last) = headers.last_mut() {
+                last.1 = item;
+            }
+        }
+    }
+    let body = args
+        .first()
+        .filter(|value| !value.is_null_or_undefined())
+        .map(|_| string_arg(args, 0, context));
+    with_bridge(|bridge| {
+        bridge.pending_xhrs.push(XhrRequest {
+            method,
+            url,
+            headers,
+            body,
+            xhr: object.clone(),
+        });
+    });
+    Ok(JsValue::undefined())
+}
+
+/// The request body for the wire: GET/HEAD never carry one; the
+/// Content-Type header (if set via setRequestHeader) becomes the
+/// body's content type.
+fn xhr_body(request: &XhrRequest) -> Option<(String, Vec<u8>)> {
+    if matches!(request.method.as_str(), "" | "GET" | "HEAD") {
+        return None;
+    }
+    let content_type = request
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+        .map(|(_, value)| value.clone())
+        .unwrap_or_else(|| "text/plain;charset=UTF-8".to_string());
+    Some((
+        content_type,
+        request.body.clone().unwrap_or_default().into_bytes(),
+    ))
+}
+
+/// Applies a completed XHR round-trip: fills status/responseText and
+/// fires onreadystatechange (state 4) plus onload / onerror.
+fn settle_xhr(result: Result<String, String>, xhr: &JsObject, context: &mut Context) {
+    let mut set = |name: &str, value: JsValue| {
+        let _ = xhr.set(js_string!(name), value, false, context);
+    };
+    let handler = match result {
+        Ok(text) => {
+            set("status", JsValue::from(200));
+            set("responseText", JsValue::from(js_string!(text.as_str())));
+            set("response", JsValue::from(js_string!(text.as_str())));
+            "onload"
+        }
+        Err(_) => {
+            set("status", JsValue::from(0));
+            "onerror"
+        }
+    };
+    set("readyState", JsValue::from(4));
+    xhr_fire(xhr, "onreadystatechange", "readystatechange", context);
+    xhr_fire(xhr, handler, &handler[2..], context);
+}
+
+/// Calls `xhr[handler](event)` when it is callable, with `this` = xhr.
+fn xhr_fire(xhr: &JsObject, handler: &str, event_type: &str, context: &mut Context) {
+    let Ok(callback) = xhr.get(js_string!(handler), context) else {
+        return;
+    };
+    let Some(callback) = callback.as_callable() else {
+        return;
+    };
+    let event = ObjectInitializer::new(context)
+        .property(
+            js_string!("type"),
+            js_string!(event_type),
+            Attribute::all(),
+        )
+        .property(js_string!("target"), xhr.clone(), Attribute::all())
+        .build();
+    if let Err(error) = callback.call(&xhr.clone().into(), &[event.into()], context) {
+        eprintln!("[js] script error: {error}");
+    }
+}
+
+// ---- history ----
+
+/// `history.pushState` / `history.replaceState`: resolves the optional
+/// URL against the page, enforces the same-origin rule (a JS error,
+/// like the spec's SecurityError) and queues the entry update — no
+/// reload happens, that is the whole point of the API.
+fn history_update(args: &[JsValue], replace: bool, context: &mut Context) -> JsResult<JsValue> {
+    let state = args
+        .first()
+        .filter(|value| !value.is_null_or_undefined())
+        .and_then(|value| json_stringify(value, context));
+    let target = args
+        .get(2)
+        .filter(|value| !value.is_null_or_undefined())
+        .map(|_| string_arg(args, 2, context));
+    let applied = with_bridge(|bridge| {
+        let base = Url::parse(&bridge.url).ok();
+        let resolved = match (&base, &target) {
+            (Some(base), Some(target)) => resolve_url(base, target).ok(),
+            (Some(base), None) => Some(base.clone()),
+            _ => None,
+        };
+        let Some(url) = resolved else {
+            return false;
+        };
+        if base.as_ref().is_none_or(|base| !same_origin(base, &url)) {
+            return false;
+        }
+        let url = url.to_string();
+        bridge.url = url.clone();
+        bridge.history_state = state.clone();
+        if replace {
+            bridge.pending_history = Some(HistoryOp::Replace { url, state });
+        } else {
+            bridge.history_length += 1;
+            bridge.pending_history = Some(HistoryOp::Push { url, state });
+        }
+        true
+    });
+    if applied {
+        Ok(JsValue::undefined())
+    } else {
+        Err(boa_engine::JsNativeError::typ()
+            .with_message("SecurityError: history URL must be same-origin with the page")
+            .into())
+    }
+}
+
+/// Scheme/host/port equality (url's opaque `Origin` would make every
+/// file: page cross-origin with itself).
+fn same_origin(a: &Url, b: &Url) -> bool {
+    a.scheme() == b.scheme()
+        && a.host_str() == b.host_str()
+        && a.port_or_known_default() == b.port_or_known_default()
+}
+
+fn history_push_state(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    history_update(args, false, context)
+}
+
+fn history_replace_state(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    history_update(args, true, context)
+}
+
+fn history_back_(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {
+    with_bridge(|bridge| bridge.pending_history = Some(HistoryOp::Back));
+    Ok(JsValue::undefined())
+}
+
+fn history_forward_(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    with_bridge(|bridge| bridge.pending_history = Some(HistoryOp::Forward));
+    Ok(JsValue::undefined())
+}
+
+fn history_go_(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let delta = args
+        .first()
+        .and_then(|value| value.to_number(context).ok())
+        .unwrap_or(0.0);
+    with_bridge(|bridge| {
+        bridge.pending_history = match delta.signum() as i32 {
+            -1 => Some(HistoryOp::Back),
+            1 => Some(HistoryOp::Forward),
+            _ => None,
+        };
+    });
+    Ok(JsValue::undefined())
+}
+
+fn history_length_get_(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    Ok(JsValue::from(
+        with_bridge(|bridge| bridge.history_length) as f64,
+    ))
+}
+
+fn history_state_get_(
+    _this: &JsValue,
+    _args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let state = with_bridge(|bridge| bridge.history_state.clone());
+    Ok(state
+        .and_then(|state| json_parse(&state, context))
+        .unwrap_or(JsValue::null()))
+}
+
+/// JSON.stringify through the engine's own JSON; `None` when the
+/// value does not serialize (functions, cycles).
+fn json_stringify(value: &JsValue, context: &mut Context) -> Option<String> {
+    let json = context.global_object().get(js_string!("JSON"), context).ok()?;
+    let stringify = json
+        .as_object()?
+        .get(js_string!("stringify"), context)
+        .ok()?;
+    let result = stringify
+        .as_callable()?
+        .call(&JsValue::undefined(), std::slice::from_ref(value), context)
+        .ok()?;
+    result.as_string().map(|text| text.to_std_string_escaped())
+}
+
+/// JSON.parse through the engine's own JSON; `None` on bad input.
+fn json_parse(text: &str, context: &mut Context) -> Option<JsValue> {
+    let json = context.global_object().get(js_string!("JSON"), context).ok()?;
+    let parse = json.as_object()?.get(js_string!("parse"), context).ok()?;
+    parse
+        .as_callable()?
+        .call(
+            &JsValue::undefined(),
+            &[JsValue::from(js_string!(text))],
+            context,
+        )
+        .ok()
+}
+
+// ---- navigator ----
+
+/// The UA string navigator.userAgent reports (kept in one place so a
+/// future network User-Agent header can share it).
+const USER_AGENT: &str = "Lumen/0.1 (educational)";
+
+/// navigator.platform, following the classic (frozen) web values.
+fn platform() -> &'static str {
+    match std::env::consts::OS {
+        "macos" => "MacIntel",
+        "windows" => "Win32",
+        "linux" => "Linux x86_64",
+        _ => "",
+    }
+}
+
+// ---- Web Storage ----
+
+/// Which backing map a storage object talks to — each kind gets its
+/// own fn-ptr set, so the methods work unbound
+/// (`const {getItem} = localStorage; getItem("k")`).
+#[derive(Clone, Copy)]
+enum StorageKind {
+    Local,
+    Session,
+}
+
+/// A `localStorage`/`sessionStorage` global: methods on the target,
+/// named-property access (`storage.x`) through a proxy whose get trap
+/// falls through to the backing map (like the style/dataset proxies).
+fn storage_object(kind: StorageKind, context: &mut Context) -> JsObject {
+    type Native = fn(&JsValue, &[JsValue], &mut Context) -> JsResult<JsValue>;
+    let (get_item, set_item, remove_item, clear, length, get_trap, set_trap): (
+        Native,
+        Native,
+        Native,
+        Native,
+        Native,
+        Native,
+        Native,
+    ) = match kind {
+        StorageKind::Local => (
+            storage_get_item_local,
+            storage_set_item_local,
+            storage_remove_item_local,
+            storage_clear_local,
+            storage_length_local,
+            storage_get_trap_local,
+            storage_set_trap_local,
+        ),
+        StorageKind::Session => (
+            storage_get_item_session,
+            storage_set_item_session,
+            storage_remove_item_session,
+            storage_clear_session,
+            storage_length_session,
+            storage_get_trap_session,
+            storage_set_trap_session,
+        ),
+    };
+    let length_get = NativeFunction::from_fn_ptr(length).to_js_function(context.realm());
+    let target = ObjectInitializer::new(context)
+        .function(NativeFunction::from_fn_ptr(get_item), js_string!("getItem"), 1)
+        .function(NativeFunction::from_fn_ptr(set_item), js_string!("setItem"), 2)
+        .function(
+            NativeFunction::from_fn_ptr(remove_item),
+            js_string!("removeItem"),
+            1,
+        )
+        .function(NativeFunction::from_fn_ptr(clear), js_string!("clear"), 0)
+        .accessor(js_string!("length"), Some(length_get), None, Attribute::all())
+        .build();
+    JsProxyBuilder::new(target)
+        .get(get_trap)
+        .set(set_trap)
+        .build(context)
+        .into()
+}
+
+fn storage_get_item_local(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let key = string_arg(args, 0, context);
+    Ok(with_bridge(|bridge| bridge.local_storage.get(&key).cloned()).map_or(
+        JsValue::null(),
+        |value| JsValue::from(js_string!(value.as_str())),
+    ))
+}
+
+fn storage_set_item_local(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let key = string_arg(args, 0, context);
+    let value = string_arg(args, 1, context);
+    with_bridge(|bridge| {
+        bridge.local_storage.insert(key, value);
+        bridge.storage_dirty = true;
+    });
+    Ok(JsValue::undefined())
+}
+
+fn storage_remove_item_local(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let key = string_arg(args, 0, context);
+    with_bridge(|bridge| {
+        bridge.local_storage.remove(&key);
+        bridge.storage_dirty = true;
+    });
+    Ok(JsValue::undefined())
+}
+
+fn storage_clear_local(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    with_bridge(|bridge| {
+        bridge.local_storage.clear();
+        bridge.storage_dirty = true;
+    });
+    Ok(JsValue::undefined())
+}
+
+fn storage_length_local(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    Ok(JsValue::from(
+        with_bridge(|bridge| bridge.local_storage.len()) as f64,
+    ))
+}
+
+fn storage_get_item_session(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let key = string_arg(args, 0, context);
+    Ok(with_bridge(|bridge| bridge.session_storage.get(&key).cloned()).map_or(
+        JsValue::null(),
+        |value| JsValue::from(js_string!(value.as_str())),
+    ))
+}
+
+fn storage_set_item_session(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let key = string_arg(args, 0, context);
+    let value = string_arg(args, 1, context);
+    with_bridge(|bridge| {
+        bridge.session_storage.insert(key, value);
+    });
+    Ok(JsValue::undefined())
+}
+
+fn storage_remove_item_session(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let key = string_arg(args, 0, context);
+    with_bridge(|bridge| {
+        bridge.session_storage.remove(&key);
+    });
+    Ok(JsValue::undefined())
+}
+
+fn storage_clear_session(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    with_bridge(|bridge| bridge.session_storage.clear());
+    Ok(JsValue::undefined())
+}
+
+fn storage_length_session(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    Ok(JsValue::from(
+        with_bridge(|bridge| bridge.session_storage.len()) as f64,
+    ))
+}
+
+/// Proxy get trap for one storage map: methods and `length` resolve
+/// on the target first, anything else reads the map as a named
+/// property (`localStorage.x`). Trap args: [target, key, receiver].
+fn storage_get(
+    args: &[JsValue],
+    map: fn(&mut Bridge) -> &BTreeMap<String, String>,
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let Some(target) = args.first().and_then(JsValue::as_object) else {
+        return Ok(JsValue::undefined());
+    };
+    let Some(key) = args
+        .get(1)
+        .and_then(|value| value.to_string(context).ok())
+        .map(|value| value.to_std_string_escaped())
+    else {
+        return Ok(JsValue::undefined());
+    };
+    let property = js_string!(key.as_str());
+    if target.has_property(property.clone(), context)? {
+        return target.get(property, context);
+    }
+    Ok(with_bridge(|bridge| map(bridge).get(&key).cloned()).map_or(
+        JsValue::undefined(),
+        |value| JsValue::from(js_string!(value.as_str())),
+    ))
+}
+
+/// Proxy set trap: every named write goes into the map
+/// (`localStorage.x = "1"`). Returns true per the trap contract.
+fn storage_set(
+    args: &[JsValue],
+    map: fn(&mut Bridge) -> &mut BTreeMap<String, String>,
+    dirty: bool,
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let Some(key) = args
+        .get(1)
+        .and_then(|value| value.to_string(context).ok())
+        .map(|value| value.to_std_string_escaped())
+    else {
+        return Ok(JsValue::from(true));
+    };
+    let value = args
+        .get(2)
+        .and_then(|value| value.to_string(context).ok())
+        .map(|value| value.to_std_string_escaped())
+        .unwrap_or_default();
+    with_bridge(|bridge| {
+        map(bridge).insert(key, value);
+        bridge.storage_dirty |= dirty;
+    });
+    Ok(JsValue::from(true))
+}
+
+fn storage_get_trap_local(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    storage_get(args, |bridge| &bridge.local_storage, context)
+}
+
+fn storage_set_trap_local(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    storage_set(args, |bridge| &mut bridge.local_storage, true, context)
+}
+
+fn storage_get_trap_session(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    storage_get(args, |bridge| &bridge.session_storage, context)
+}
+
+fn storage_set_trap_session(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    storage_set(args, |bridge| &mut bridge.session_storage, false, context)
+}
+
 // ---- location ----
 
-fn location_href_get(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {
+fn location_href_get(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
     let url = with_bridge(|bridge| bridge.url.clone());
     Ok(JsValue::from(js_string!(url.as_str())))
 }
 
-fn location_href_set(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+fn location_href_set(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
     let target = string_arg(args, 0, context);
     with_bridge(|bridge| bridge.pending_navigation = Some(target));
     Ok(JsValue::undefined())
 }
 
-fn location_reload(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {
+fn location_reload(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
     with_bridge(|bridge| bridge.pending_navigation = Some("::reload".to_string()));
     Ok(JsValue::undefined())
 }
@@ -806,7 +2208,11 @@ fn string_arg(args: &[JsValue], index: usize, context: &mut Context) -> String {
         .unwrap_or_default()
 }
 
-fn get_element_by_id(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+fn get_element_by_id(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
     let id = string_arg(args, 0, context);
     let found = with_bridge(|bridge| {
         let page = bridge.page.as_ref()?;
@@ -1010,7 +2416,8 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
     let class_get = NativeFunction::from_fn_ptr(class_name_get).to_js_function(context.realm());
     let html_get = NativeFunction::from_fn_ptr(inner_html_get).to_js_function(context.realm());
     let html_set = NativeFunction::from_fn_ptr(inner_html_set).to_js_function(context.realm());
-    let parent_get = NativeFunction::from_fn_ptr(parent_element_get).to_js_function(context.realm());
+    let parent_get =
+        NativeFunction::from_fn_ptr(parent_element_get).to_js_function(context.realm());
     let children_get = NativeFunction::from_fn_ptr(children_get_).to_js_function(context.realm());
     let style = node_proxy(node, style_get_trap, style_set_trap, context);
     let dataset = node_proxy(node, dataset_get_trap, dataset_set_trap, context);
@@ -1064,9 +2471,21 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
             js_string!("appendChild"),
             1,
         )
-        .function(NativeFunction::from_fn_ptr(remove_node), js_string!("remove"), 0)
-        .function(NativeFunction::from_fn_ptr(focus_element), js_string!("focus"), 0)
-        .function(NativeFunction::from_fn_ptr(blur_element), js_string!("blur"), 0)
+        .function(
+            NativeFunction::from_fn_ptr(remove_node),
+            js_string!("remove"),
+            0,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(focus_element),
+            js_string!("focus"),
+            0,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(blur_element),
+            js_string!("blur"),
+            0,
+        )
         .accessor(
             js_string!("textContent"),
             Some(text_get.clone()),
@@ -1297,7 +2716,11 @@ fn dataset_set_trap(_this: &JsValue, args: &[JsValue], context: &mut Context) ->
     Ok(JsValue::from(true))
 }
 
-fn parent_element_get(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+fn parent_element_get(
+    this: &JsValue,
+    _args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
     let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::null());
     };
@@ -1339,15 +2762,21 @@ fn children_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> Js
     Ok(boa_engine::object::builtins::JsArray::from_iter(items, context).into())
 }
 
-fn element_query_selector(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+fn element_query_selector(
+    this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
     let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::null());
     };
     let selector = string_arg(args, 0, context);
-    Ok(match query_nodes_scoped(selector.trim(), Some(node)).first() {
-        Some(found) => element_object(*found, context).into(),
-        None => JsValue::null(),
-    })
+    Ok(
+        match query_nodes_scoped(selector.trim(), Some(node)).first() {
+            Some(found) => element_object(*found, context).into(),
+            None => JsValue::null(),
+        },
+    )
 }
 
 fn element_query_selector_all(
@@ -1366,7 +2795,11 @@ fn element_query_selector_all(
     Ok(boa_engine::object::builtins::JsArray::from_iter(items, context).into())
 }
 
-fn bounding_client_rect(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+fn bounding_client_rect(
+    this: &JsValue,
+    _args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
     let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
@@ -1524,9 +2957,12 @@ fn class_contains(this: &JsValue, args: &[JsValue], context: &mut Context) -> Js
             .page
             .as_ref()
             .and_then(|page| page.document.element(node))
-            .is_some_and(|element| element.attributes.get("class").is_some_and(|classes| {
-                classes.split_whitespace().any(|c| c == class)
-            }))
+            .is_some_and(|element| {
+                element
+                    .attributes
+                    .get("class")
+                    .is_some_and(|classes| classes.split_whitespace().any(|c| c == class))
+            })
     });
     Ok(JsValue::from(found))
 }
@@ -1595,7 +3031,11 @@ fn value_set_(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResu
         if is_textarea {
             page.document.set_text_content(node, &value);
         } else {
-            let display = if value.is_empty() { " " } else { value.as_str() };
+            let display = if value.is_empty() {
+                " "
+            } else {
+                value.as_str()
+            };
             page.document.upsert_generated_text(node, true, display);
         }
         bridge.dirty = true;
@@ -1619,7 +3059,11 @@ fn id_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult
     Ok(JsValue::from(js_string!(id.as_str())))
 }
 
-fn add_event_listener(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+fn add_event_listener(
+    this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
     let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
     };
@@ -1628,7 +3072,9 @@ fn add_event_listener(this: &JsValue, args: &[JsValue], context: &mut Context) -
         return Ok(JsValue::undefined());
     };
     with_bridge(|bridge| {
-        bridge.pending_listeners.push((node, event, callback.clone()));
+        bridge
+            .pending_listeners
+            .push((node, event, callback.clone()));
     });
     Ok(JsValue::undefined())
 }
@@ -1728,10 +3174,15 @@ fn set_attribute(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsR
 mod tests {
     use super::*;
     use lumen_platform::{LoadError, ResourceRequest, ResourceResponse, Url};
+    use std::cell::RefCell;
     use std::collections::HashMap;
 
     struct FakeLoader {
         pages: HashMap<String, Vec<u8>>,
+        /// Requested URLs, in order (a reload shows up here).
+        loads: RefCell<Vec<String>>,
+        /// POST bodies per load (None for GETs).
+        bodies: RefCell<Vec<Option<String>>>,
     }
 
     impl FakeLoader {
@@ -1741,12 +3192,21 @@ mod tests {
                     .iter()
                     .map(|(url, html)| ((*url).to_string(), html.as_bytes().to_vec()))
                     .collect(),
+                loads: RefCell::new(Vec::new()),
+                bodies: RefCell::new(Vec::new()),
             }
         }
     }
 
     impl ResourceLoader for FakeLoader {
         fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
+            self.loads.borrow_mut().push(request.url.to_string());
+            self.bodies.borrow_mut().push(
+                request
+                    .body
+                    .as_ref()
+                    .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned()),
+            );
             let body = self
                 .pages
                 .get(request.url.as_str())
@@ -1761,14 +3221,18 @@ mod tests {
     }
 
     fn session_with(html: &str) -> Session<FakeLoader> {
+        session_with_files(&[("https://a.test/", html)], "https://a.test/")
+    }
+
+    fn session_with_files(files: &[(&str, &str)], url: &str) -> Session<FakeLoader> {
         let mut session = Session::new(
-            FakeLoader::new(&[("https://a.test/", html)]),
+            FakeLoader::new(files),
             lumen_engine::Size {
                 width: 800.0,
                 height: 600.0,
             },
         );
-        session.load(Url::parse("https://a.test/").unwrap()).unwrap();
+        session.load(Url::parse(url).unwrap()).unwrap();
         session
     }
 
@@ -1893,5 +3357,411 @@ mod tests {
         assert!(outcome.handled);
         // Target first (registration order), then the bubbling ancestors.
         assert_eq!(out_text(&session), "i1i2o1o2");
+    }
+
+    #[test]
+    fn module_graph_loads_links_and_runs() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script type='module' src='/a.js'></script>",
+                ),
+                (
+                    "https://a.test/a.js",
+                    "import { value } from './b.js';\
+                     document.getElementById('out').textContent = value;",
+                ),
+                ("https://a.test/b.js", "export const value = 'mod-ok';"),
+            ],
+            "https://a.test/",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "mod-ok");
+    }
+
+    #[test]
+    fn modules_share_the_global_with_classic_scripts() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p>\
+                     <script>window.answer = 42;</script>\
+                     <script type='module'>window.fromModule = 'm' + String(answer);</script>\
+                     <script defer src='/after.js'></script>",
+                ),
+                (
+                    "https://a.test/after.js",
+                    "document.getElementById('out').textContent = fromModule;",
+                ),
+            ],
+            "https://a.test/",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // The module saw the classic script's global, and the deferred
+        // classic script (running after the module) saw the module's.
+        assert_eq!(out_text(&session), "m42");
+    }
+
+    #[test]
+    fn a_broken_import_spares_the_other_modules() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p>\
+                     <script type='module' src='/bad.js'></script>\
+                     <script type='module'>document.getElementById('out').textContent = 'survived';</script>",
+                ),
+                ("https://a.test/bad.js", "import './missing.js';"),
+            ],
+            "https://a.test/",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "survived");
+    }
+
+    #[test]
+    fn a_runaway_loop_errors_and_later_scripts_run() {
+        let mut session = session_with(
+            "<p id='out'>-</p>\
+             <script>while (true) {}</script>\
+             <script>document.getElementById('out').textContent = 'after';</script>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "after");
+    }
+
+    #[test]
+    fn a_self_chaining_promise_does_not_block_the_page() {
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             function f() { Promise.resolve().then(f); }\
+             f();\
+             document.getElementById('out').textContent = 'done';\
+             </script>",
+        );
+        // run_jobs must return instead of draining the chain forever.
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "done");
+    }
+
+    #[test]
+    fn defer_and_modules_run_after_parsing_in_document_order() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p>\
+                     <script defer src='/d1.js'></script>\
+                     <script>document.getElementById('out').textContent += 'A';</script>\
+                     <script type='module'>document.getElementById('out').textContent += 'M';</script>\
+                     <script defer src='/d2.js'></script>\
+                     <script>document.getElementById('out').textContent += 'B';</script>",
+                ),
+                (
+                    "https://a.test/d1.js",
+                    "document.getElementById('out').textContent += 'D1';",
+                ),
+                (
+                    "https://a.test/d2.js",
+                    "document.getElementById('out').textContent += 'D2';",
+                ),
+            ],
+            "https://a.test/",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // Immediate classics first (A, B), then the post-parse queue in
+        // document order: D1, the module, D2.
+        assert_eq!(out_text(&session), "-ABD1MD2");
+    }
+
+    #[test]
+    fn inline_onclick_runs_with_element_this_and_event() {
+        let mut session = session_with(
+            "<button id='btn' onclick='document.getElementById(\"out\").textContent = this.id + \":\" + event.type;'>x</button>\
+             <p id='out'>-</p>",
+        );
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let button = session
+            .page()
+            .unwrap()
+            .document
+            .get_element_by_id("btn")
+            .unwrap();
+        let outcome = scripts.dispatch(&mut session, button, "click");
+        assert!(outcome.handled);
+        assert_eq!(out_text(&session), "btn:click");
+    }
+
+    #[test]
+    fn inline_handler_prevent_default_cancels_the_default_action() {
+        let mut session = session_with(
+            "<a id='lnk' href='/x' onclick='event.preventDefault(); document.getElementById(\"out\").textContent = String(event.defaultPrevented);'>go</a>\
+             <p id='out'>-</p>",
+        );
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let link = session
+            .page()
+            .unwrap()
+            .document
+            .get_element_by_id("lnk")
+            .unwrap();
+        let outcome = scripts.dispatch(&mut session, link, "click");
+        // The shell skips navigation when the click is prevented.
+        assert!(outcome.handled && outcome.prevented);
+        assert_eq!(out_text(&session), "true");
+    }
+
+    #[test]
+    fn body_onload_fires_on_the_load_event() {
+        let mut session = session_with(
+            "<body onload='document.getElementById(\"out\").textContent = \"loaded\";'>\
+             <p id='out'>-</p></body>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "loaded");
+    }
+
+    #[test]
+    fn xhr_loads_text_and_fires_handlers() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     const states = [];\
+                     const xhr = new XMLHttpRequest();\
+                     xhr.open('GET', '/data.txt');\
+                     xhr.onreadystatechange = () => { states.push(xhr.readyState); };\
+                     xhr.onload = () => {\
+                       document.getElementById('out').textContent =\
+                         states.join(',') + '|' + xhr.status + '|' + xhr.readyState + '|' + xhr.responseText;\
+                     };\
+                     xhr.send();\
+                     </script>",
+                ),
+                ("https://a.test/data.txt", "merhaba"),
+            ],
+            "https://a.test/",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "4|200|4|merhaba");
+    }
+
+    #[test]
+    fn xhr_failure_fires_onerror() {
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             const xhr = new XMLHttpRequest();\
+             xhr.open('GET', '/missing');\
+             xhr.onerror = () => {\
+               document.getElementById('out').textContent = 'error:' + xhr.status;\
+             };\
+             xhr.onload = () => {\
+               document.getElementById('out').textContent = 'unexpected';\
+             };\
+             xhr.send();\
+             </script>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "error:0");
+    }
+
+    #[test]
+    fn xhr_post_sends_the_body() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     const xhr = new XMLHttpRequest();\
+                     xhr.open('POST', '/echo');\
+                     xhr.setRequestHeader('Content-Type', 'text/plain');\
+                     xhr.onload = () => {\
+                       document.getElementById('out').textContent = xhr.responseText;\
+                     };\
+                     xhr.send('payload');\
+                     </script>",
+                ),
+                ("https://a.test/echo", "ok"),
+            ],
+            "https://a.test/",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "ok");
+        // Page load GET (None) then the XHR POST with its body.
+        assert_eq!(
+            *session.loader.bodies.borrow(),
+            vec![None, Some("payload".to_string())]
+        );
+    }
+
+    #[test]
+    fn push_state_rewrites_the_url_without_reloading() {
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             history.pushState({ derinlik: 1 }, '', '/yeni');\
+             document.getElementById('out').textContent =\
+               location.href + '|' + history.length + '|' + history.state.derinlik;\
+             </script>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "https://a.test/yeni|2|1");
+        assert_eq!(session.current_url().unwrap().as_str(), "https://a.test/yeni");
+        // No reload: the loader only ever saw the initial page fetch.
+        assert_eq!(*session.loader.loads.borrow(), vec!["https://a.test/"]);
+    }
+
+    #[test]
+    fn replace_state_keeps_the_history_length() {
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             history.replaceState(null, '', '/rep');\
+             document.getElementById('out').textContent = location.href + '|' + history.length;\
+             </script>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "https://a.test/rep|1");
+        assert_eq!(session.current_url().unwrap().as_str(), "https://a.test/rep");
+    }
+
+    #[test]
+    fn cross_origin_push_state_throws() {
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             try {\
+               history.pushState({}, '', 'https://evil.test/');\
+               document.getElementById('out').textContent = 'no-throw';\
+             } catch (error) {\
+               document.getElementById('out').textContent = 'thrown';\
+             }\
+             </script>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "thrown");
+        assert_eq!(session.current_url().unwrap().as_str(), "https://a.test/");
+    }
+
+    #[test]
+    fn history_back_traverses_and_fires_popstate() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     window.addEventListener('popstate', () => {\
+                       document.getElementById('out').textContent = 'popped';\
+                     });\
+                     </script>",
+                ),
+                (
+                    "https://a.test/iki",
+                    "<p>iki</p><script>history.back();</script>",
+                ),
+            ],
+            "https://a.test/",
+        );
+        let _first = PageScripts::new(&mut session).expect("page has scripts");
+        session.load(Url::parse("https://a.test/iki").unwrap()).unwrap();
+        let mut second = PageScripts::new(&mut session).expect("page has scripts");
+        // history.back() surfaces as a traversal request for the shell.
+        assert_eq!(second.take_navigation().as_deref(), Some("::back"));
+        session.back().unwrap();
+        assert_eq!(session.current_url().unwrap().as_str(), "https://a.test/");
+        // The fresh world of the traversed-to page gets popstate.
+        let _third = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "popped");
+    }
+
+    #[test]
+    fn navigator_reports_identity() {
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             document.getElementById('out').textContent =\
+               navigator.userAgent + '|' + navigator.language + '|' +\
+               navigator.platform + '|' + String(navigator.onLine) + '|' +\
+               navigator.languages.join(',');\
+             </script>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let text = out_text(&session);
+        assert!(text.starts_with("Lumen/"), "userAgent: {text}");
+        assert!(text.contains("|tr-TR|"), "language: {text}");
+        assert!(text.ends_with("|true|tr-TR,en"), "rest: {text}");
+    }
+
+    #[test]
+    fn local_storage_round_trip() {
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             localStorage.setItem('a', '1');\
+             const { getItem } = localStorage;\
+             localStorage.x = 'prop';\
+             let result = [getItem('a'), localStorage.x, localStorage.length].join('|');\
+             localStorage.removeItem('a');\
+             result += '|' + String(getItem('a'));\
+             localStorage.clear();\
+             result += '|' + localStorage.length + '|' + String(getItem('x'));\
+             document.getElementById('out').textContent = result;\
+             </script>",
+        );
+        session.set_storage_root(crate::storage::temp_root("roundtrip"));
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // Unbound getItem, named-property access, length all work.
+        assert_eq!(out_text(&session), "1|prop|2|null|0|null");
+    }
+
+    #[test]
+    fn local_storage_persists_between_sessions() {
+        let root = crate::storage::temp_root("persist");
+        {
+            let mut session = session_with(
+                "<script>localStorage.setItem('k', 'kalıcı');</script>",
+            );
+            session.set_storage_root(root.clone());
+            let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        }
+        // A brand-new session (fresh WebStorage) on the same origin and
+        // storage root sees the earlier session's write.
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             document.getElementById('out').textContent = localStorage.getItem('k');\
+             </script>",
+        );
+        session.set_storage_root(root.clone());
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "kalıcı");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn session_storage_lives_in_the_world_only() {
+        let root = crate::storage::temp_root("session");
+        // Set within one script, read back from a later timer entry of
+        // the SAME script world: still there.
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             sessionStorage.setItem('k', 'oturum');\
+             setTimeout(() => {\
+               document.getElementById('out').textContent = sessionStorage.getItem('k');\
+             }, 0);\
+             </script>",
+        );
+        session.set_storage_root(root.clone());
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert!(scripts.tick(&mut session, 0.0));
+        assert_eq!(out_text(&session), "oturum");
+        // But a new session's world starts empty.
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             document.getElementById('out').textContent = String(sessionStorage.getItem('k'));\
+             </script>",
+        );
+        session.set_storage_root(root.clone());
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "null");
+        let _ = std::fs::remove_dir_all(root);
     }
 }

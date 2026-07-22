@@ -1419,6 +1419,9 @@ version = "0.1.0"
 dependencies = [
  "boa_engine",
  "cookie",
+ "dirs",
+ "futures-concurrency",
+ "futures-lite",
  "image",
  "lumen-css",
  "lumen-engine",

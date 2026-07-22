@@ -21,6 +21,7 @@ mod cookies;
 mod editor;
 mod forms;
 mod scripting;
+mod storage;
 
 /// One browsing context with linear history.
 ///
@@ -31,6 +32,9 @@ pub struct Session<L: ResourceLoader> {
     viewport: Size,
     measurer: Box<dyn TextMeasurer + Send>,
     history: Vec<Url>,
+    /// `history.pushState` state (JSON) per history entry, kept
+    /// parallel to `history` — `None` for plain navigations.
+    history_states: Vec<Option<String>>,
     /// Index of the current entry in `history`, if any page is loaded.
     index: Option<usize>,
     pub(crate) page: Option<Page>,
@@ -68,6 +72,11 @@ pub struct Session<L: ResourceLoader> {
     pub(crate) editor: Option<editor::TextEdit>,
     /// Session cookies (Set-Cookie in, Cookie header out).
     pub(crate) cookies: cookies::CookieJar,
+    /// Persistent per-origin localStorage maps.
+    pub(crate) storage: storage::WebStorage,
+    /// Set by `back`/`forward` so the next script world can fire
+    /// `popstate`; consumed by [`PageScripts::new`].
+    traversed: bool,
     /// Final URL of the page currently being fetched, set while its
     /// subresources load — history is only updated once the page is
     /// rendered, so `current_url` alone cannot tell whether the page
@@ -137,6 +146,7 @@ impl<L: ResourceLoader> Session<L> {
             viewport,
             measurer: Box::new(HeuristicMeasurer),
             history: Vec::new(),
+            history_states: Vec::new(),
             index: None,
             page: None,
             source: None,
@@ -155,6 +165,8 @@ impl<L: ResourceLoader> Session<L> {
             scroll_offsets: std::collections::HashMap::new(),
             editor: None,
             cookies: cookies::CookieJar::default(),
+            storage: storage::WebStorage::for_config_dir(),
+            traversed: false,
             loading_page: None,
             web_font: None,
             hover_impact: lumen_engine::HoverImpact::Nothing,
@@ -185,10 +197,13 @@ impl<L: ResourceLoader> Session<L> {
         let final_url = self.fetch_and_render_with(url, body)?;
         if let Some(index) = self.index {
             self.history.truncate(index + 1);
+            self.history_states.truncate(index + 1);
         }
         self.visited.insert(final_url.to_string());
         self.history.push(final_url);
+        self.history_states.push(None);
         self.index = Some(self.history.len() - 1);
+        self.traversed = false;
         Ok(self.page.as_ref().expect("fetch_and_render set the page"))
     }
 
@@ -207,6 +222,7 @@ impl<L: ResourceLoader> Session<L> {
             .ok_or_else(|| LoadError::InvalidUrl("no earlier history entry".to_string()))?;
         self.fetch_and_render(self.history[index - 1].clone())?;
         self.index = Some(index - 1);
+        self.traversed = true;
         Ok(self.page.as_ref().expect("fetch_and_render set the page"))
     }
 
@@ -218,7 +234,58 @@ impl<L: ResourceLoader> Session<L> {
             .ok_or_else(|| LoadError::InvalidUrl("no later history entry".to_string()))?;
         self.fetch_and_render(self.history[index + 1].clone())?;
         self.index = Some(index + 1);
+        self.traversed = true;
         Ok(self.page.as_ref().expect("fetch_and_render set the page"))
+    }
+
+    /// Number of entries in this session's history (`history.length`).
+    #[must_use]
+    pub fn history_len(&self) -> usize {
+        self.history.len()
+    }
+
+    /// The `pushState` state (JSON) of the current entry, if any.
+    pub(crate) fn history_state(&self) -> Option<String> {
+        self.index
+            .and_then(|index| self.history_states.get(index))
+            .cloned()
+            .flatten()
+    }
+
+    /// `history.pushState`: appends a new entry pointing at `url`
+    /// (dropping forward entries) WITHOUT reloading — the SPA contract.
+    /// The same-origin check already happened script-side.
+    pub(crate) fn push_state(&mut self, url: Url, state: Option<String>) {
+        let Some(index) = self.index else {
+            return;
+        };
+        self.history.truncate(index + 1);
+        self.history_states.truncate(index + 1);
+        self.visited.insert(url.to_string());
+        self.history.push(url);
+        self.history_states.push(state);
+        self.index = Some(self.history.len() - 1);
+    }
+
+    /// `history.replaceState`: rewrites the current entry in place.
+    pub(crate) fn replace_state(&mut self, url: Url, state: Option<String>) {
+        let Some(index) = self.index else {
+            return;
+        };
+        self.visited.insert(url.to_string());
+        self.history[index] = url;
+        self.history_states[index] = state;
+    }
+
+    /// Whether the last navigation was a `back`/`forward` traversal;
+    /// consumed (cleared) by the reader.
+    pub(crate) fn take_traversed(&mut self) -> bool {
+        std::mem::take(&mut self.traversed)
+    }
+
+    /// Points localStorage persistence at `root` (tests, embedders).
+    pub fn set_storage_root(&mut self, root: std::path::PathBuf) {
+        self.storage.set_root(root);
     }
 
     /// Resolves a (possibly relative) `href` against the current page and

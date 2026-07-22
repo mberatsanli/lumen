@@ -58,11 +58,11 @@ scripting disabled, including `<noscript>` content rendering.
 
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
-| `window`, `location`, `history` | ❌ | ✅ | ✅ | ✅ | session/history exist engine-side, unbound |
+| `window`, `location`, `history` | ⚠️ | ✅ | ✅ | ✅ | pushState/replaceState without reload, back/forward with popstate |
 | `console` | ❌ | ✅ | ✅ | ✅ | |
 | `setTimeout` / `setInterval` / `requestAnimationFrame` | ❌ | ✅ | ✅ | ✅ | |
-| `fetch` / `XMLHttpRequest` | ❌ | ✅ | ✅ | ✅ | ResourceLoader exists engine-side |
-| `localStorage` / `sessionStorage` / IndexedDB | ❌ | ✅ | ✅ | ✅ | |
+| `fetch` / `XMLHttpRequest` | ⚠️ | ✅ | ✅ | ✅ | fetch is GET-only; XHR covers open/send + onload/onerror |
+| `localStorage` / `sessionStorage` / IndexedDB | ⚠️ | ✅ | ✅ | ✅ | storage works (localStorage persisted per origin); IndexedDB ❌ |
 | Cookies (`document.cookie`) | ❌ | ✅ | ✅ | ✅ | |
 | Canvas 2D / WebGL / WebGPU | ❌ | ✅ | ✅ | ⚠️ | WebGPU still rolling out in some Safari versions |
 | Clipboard, Notifications, Geolocation | ❌ | ✅ | ✅ | ✅ | |
