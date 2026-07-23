@@ -14,11 +14,12 @@ use crate::text::TextMeasurer;
 use lumen_html::{Document, NodeId, NodeKind};
 
 /// Flexbox subset: `flex-wrap: wrap` (greedy line filling), `flex-grow`,
-/// `flex-shrink` (weighted by base size), `align-items`/`align-self`,
-/// `justify-content` and `gap` (used on both axes). No `flex-basis`,
-/// `order`, `align-content` distribution or `wrap-reverse`; `width`/
-/// `height` act as the base size. Bare text children become anonymous
-/// items via inline layout.
+/// `flex-shrink` (weighted by base size), `flex-basis` (base main size),
+/// `order` (stable ascending), `align-items`/`align-self`,
+/// `align-content` (line distribution when wrapped), `justify-content`
+/// and `gap` (used on both axes). No `wrap-reverse`; `width`/`height`
+/// act as the base size when `flex-basis` is auto. Bare text children
+/// become anonymous items via inline layout.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn layout_flex_children(
     document: &Document,
@@ -64,6 +65,12 @@ pub(crate) fn layout_flex_children(
     if !run.is_empty() {
         items.push(Item::Run(run));
     }
+    // `order`: items lay out ascending, stable within one order value
+    // (anonymous runs keep order 0).
+    items.sort_by_key(|item| match item {
+        Item::Element(child) => styles.by_node.get(child).map_or(0, |style| style.order),
+        Item::Run(_) => 0,
+    });
     if items.is_empty() {
         return (Vec::new(), 0.0);
     }
@@ -89,6 +96,7 @@ pub(crate) fn layout_flex_children(
             styles,
             nodes,
             style,
+            None,
             (0.0, 0.0),
             &bounds,
             measurer,
@@ -157,7 +165,14 @@ pub(crate) fn layout_flex_children(
         }
     };
 
-    // Base layout plus flex factors per item.
+    // Base layout plus flex factors per item. `flex-basis` (when not
+    // auto) overrides the item's base main size; percent bases resolve
+    // against the container's main size.
+    let container_main_for_basis = if row {
+        Some(content_width)
+    } else {
+        explicit_height
+    };
     struct FlexItem {
         laid: LayoutBox,
         grow: f32,
@@ -168,7 +183,16 @@ pub(crate) fn layout_flex_children(
         .iter()
         .map(|item| {
             let laid = match item {
-                Item::Element(child) => lay_element(*child, None),
+                Item::Element(child) => {
+                    let basis = styles.by_node.get(child).and_then(|item_style| {
+                        match item_style.flex_basis {
+                            Dimension::Auto => None,
+                            other => container_main_for_basis
+                                .and_then(|main| other.resolve(main, viewport)),
+                        }
+                    });
+                    lay_element(*child, basis)
+                }
                 Item::Run(nodes) => lay_run(nodes, content_width),
             };
             let (grow, shrink, align_self) = match item {
@@ -273,7 +297,10 @@ pub(crate) fn layout_flex_children(
         // Fast path: with no grow demand (or no shrink capacity) no item
         // changes size, so the second layout pass is skipped entirely —
         // without materializing a weights vector.
-        let total: f32 = line.iter().map(|&index| weight_of(&flex_items[index])).sum();
+        let total: f32 = line
+            .iter()
+            .map(|&index| weight_of(&flex_items[index]))
+            .sum();
         if total <= 0.0 {
             continue;
         }
@@ -414,9 +441,35 @@ pub(crate) fn layout_flex_children(
         .iter()
         .map(|line| line_cross_size(line, &flex_items))
         .collect();
+    // `align-content` distributes leftover cross space between the lines
+    // of a wrapping container (no effect on a single line).
+    let container_cross = if row {
+        explicit_height
+    } else {
+        Some(content_width)
+    };
+    let (mut cross_cursor, cross_between) = match container_cross {
+        Some(container_cross) if !single_line => {
+            let total: f32 = line_crosses.iter().sum::<f32>()
+                + style.gap * (line_crosses.len() as f32 - 1.0).max(0.0);
+            let free = (container_cross - total).max(0.0);
+            match style.align_content {
+                crate::style::AlignContent::Start => (0.0, 0.0),
+                crate::style::AlignContent::Center => (free / 2.0, 0.0),
+                crate::style::AlignContent::End => (free, 0.0),
+                crate::style::AlignContent::SpaceBetween => {
+                    if line_crosses.len() > 1 {
+                        (0.0, free / (line_crosses.len() - 1) as f32)
+                    } else {
+                        (free / 2.0, 0.0)
+                    }
+                }
+            }
+        }
+        _ => (0.0, 0.0),
+    };
     let mut item_iter = flex_items.into_iter();
     let mut children = Vec::new();
-    let mut cross_cursor: f32 = 0.0;
     let mut main_extent: f32 = 0.0;
     for (line, line_cross) in lines.iter().zip(line_crosses) {
         let line_items: Vec<FlexItem> = item_iter.by_ref().take(line.len()).collect();
@@ -470,10 +523,10 @@ pub(crate) fn layout_flex_children(
             children.push(laid);
         }
         main_extent = main_extent.max((main_cursor - style.gap - between_extra).max(0.0));
-        cross_cursor += line_cross + style.gap;
+        cross_cursor += line_cross + style.gap + cross_between;
     }
 
-    let total_cross = (cross_cursor - style.gap).max(0.0);
+    let total_cross = (cross_cursor - style.gap - cross_between).max(0.0);
     let used_height = if row { total_cross } else { main_extent };
     (children, used_height)
 }
@@ -511,8 +564,14 @@ fn stretch_relayout_is_noop(
     let clamp_neutral = item_style.box_sizing == BoxSizing::ContentBox
         || (matches!(item_style.min_width, Dimension::Auto)
             && matches!(item_style.max_width, Dimension::Auto)
-            && matches!(item_style.min_height, Dimension::Auto | Dimension::Percent(_))
-            && matches!(item_style.max_height, Dimension::Auto | Dimension::Percent(_)));
+            && matches!(
+                item_style.min_height,
+                Dimension::Auto | Dimension::Percent(_)
+            )
+            && matches!(
+                item_style.max_height,
+                Dimension::Auto | Dimension::Percent(_)
+            ));
     if !clamp_neutral {
         return false;
     }
@@ -548,7 +607,8 @@ fn stretch_relayout_is_noop(
         // last in-flow child's bottom margin is zero.
         if laid.dimensions.border.bottom == 0.0
             && laid.dimensions.padding.bottom == 0.0
-            && item_style.overflow == Overflow::Visible
+            && item_style.overflow_x == Overflow::Visible
+            && item_style.overflow_y == Overflow::Visible
         {
             let last_in_flow_bottom = laid
                 .children
@@ -556,10 +616,7 @@ fn stretch_relayout_is_noop(
                 .rev()
                 .find(|child| {
                     child.style.float == Float::None
-                        && matches!(
-                            child.style.position,
-                            Position::Static | Position::Relative
-                        )
+                        && matches!(child.style.position, Position::Static | Position::Relative)
                 })
                 .map(|child| child.dimensions.margin.bottom);
             // A trailing anonymous (inline) block carries no margin, so

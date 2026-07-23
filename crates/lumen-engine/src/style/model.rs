@@ -114,6 +114,104 @@ pub enum AlignItems {
     End,
 }
 
+/// `align-content` subset for multi-line flex containers (single-line
+/// containers ignore it). `stretch` is approximated as `Start`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AlignContent {
+    #[default]
+    Start,
+    Center,
+    End,
+    SpaceBetween,
+}
+
+/// `object-fit` for replaced boxes (`<img>`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ObjectFit {
+    /// Stretch the image to the content box (CSS initial value).
+    #[default]
+    Fill,
+    /// Scale up/down preserving aspect ratio, letterboxed inside.
+    Contain,
+    /// Scale preserving aspect ratio, covering and clipping the box.
+    Cover,
+    /// Intrinsic size, anchored by `object-position`.
+    None,
+    /// The smaller of `none` and `contain`.
+    ScaleDown,
+}
+
+/// The `cursor` keyword set the engine understands. `Auto` (the initial
+/// value) defers to the browser chrome's heuristics (link → pointer,
+/// text → I-beam, ...); any other keyword wins over those heuristics.
+///
+/// Deviation from CSS: `cursor` is inherited per spec, but the property
+/// registry lives in `lumen-css`, so inheritance is approximated by the
+/// desktop shell walking up the hit node's ancestors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Cursor {
+    #[default]
+    Auto,
+    Default,
+    Pointer,
+    Text,
+    Move,
+    Crosshair,
+    Wait,
+    Help,
+    NotAllowed,
+    Grab,
+    Grabbing,
+    EwResize,
+    NsResize,
+    ColResize,
+    RowResize,
+    NResize,
+    SResize,
+    EResize,
+    WResize,
+}
+
+impl Cursor {
+    /// Maps a `cursor` keyword; `None` when unsupported (url() cursors,
+    /// resize diagonals, zoom, ...).
+    pub(crate) fn from_keyword(keyword: &str) -> Option<Self> {
+        Some(match keyword {
+            "auto" => Self::Auto,
+            "default" => Self::Default,
+            "pointer" => Self::Pointer,
+            "text" => Self::Text,
+            "move" => Self::Move,
+            "crosshair" => Self::Crosshair,
+            "wait" => Self::Wait,
+            "help" => Self::Help,
+            "not-allowed" => Self::NotAllowed,
+            "grab" => Self::Grab,
+            "grabbing" => Self::Grabbing,
+            "ew-resize" => Self::EwResize,
+            "ns-resize" => Self::NsResize,
+            "col-resize" => Self::ColResize,
+            "row-resize" => Self::RowResize,
+            "n-resize" => Self::NResize,
+            "s-resize" => Self::SResize,
+            "e-resize" => Self::EResize,
+            "w-resize" => Self::WResize,
+            _ => return None,
+        })
+    }
+}
+
+/// `pointer-events` subset: `auto` (the initial value) or `none`.
+/// `none` removes the box itself from hit-testing; descendants with
+/// their own (default `auto`) value remain hittable, and whatever is
+/// painted underneath receives the hit instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PointerEvents {
+    #[default]
+    Auto,
+    None,
+}
+
 /// Border line style. Deviation from CSS: the initial value behaves as
 /// `solid` (so `border-width` alone shows a border, as the project brief
 /// expects); `none`/`hidden` suppress the border. `dashed`/`dotted` parse
@@ -135,6 +233,9 @@ pub enum Position {
     Relative,
     Absolute,
     Fixed,
+    /// In-flow like `static` at layout time; sticks to its scroll
+    /// container's padding box at paint/hit-test time (see paint.rs).
+    Sticky,
 }
 
 /// `float: left | right`.
@@ -186,8 +287,12 @@ pub struct ComputedStyle {
     pub aspect_ratio: Option<f32>,
     /// Column tracks for `display: grid` (empty = one auto column).
     pub grid_columns: Vec<GridTrack>,
+    /// Row tracks for `display: grid` (empty = content-sized rows).
+    pub grid_rows: Vec<GridTrack>,
     /// `grid-column: span N` on grid items.
     pub grid_span: usize,
+    /// `grid-row: span N` on grid items.
+    pub grid_row_span: usize,
     /// Paint-time 2D transform about `transform_origin`.
     pub transform: Option<Transform2D>,
     /// The raw `transform` text when it contains percentages: those
@@ -257,7 +362,15 @@ pub struct ComputedStyle {
     pub box_sizing: BoxSizing,
     pub float: Float,
     pub clear: Clear,
+    /// Legacy combined accessor: mirrors `overflow_y` (what inner
+    /// scrolling and BFC checks historically read). New code should use
+    /// the per-axis fields.
     pub overflow: Overflow,
+    /// Per-axis overflow. Clipping applies when either axis clips (the
+    /// clip is a rectangle, so per-axis clipping is not representable);
+    /// inner scrolling follows `overflow_y`.
+    pub overflow_x: Overflow,
+    pub overflow_y: Overflow,
     pub position: Position,
     /// `top`/`right`/`bottom`/`left` offsets for positioned boxes.
     pub offsets: EdgeSizes<Dimension>,
@@ -273,6 +386,17 @@ pub struct ComputedStyle {
     pub gap: f32,
     pub flex_grow: f32,
     pub flex_shrink: f32,
+    /// `flex-basis`: the initial main size of a flex item (`Auto` = use
+    /// width/height).
+    pub flex_basis: Dimension,
+    /// `order`: flex items lay out ascending, stable per source order.
+    pub order: i32,
+    /// `align-content` for multi-line (wrapped) flex containers.
+    pub align_content: AlignContent,
+    /// `object-fit` / `object-position` on replaced boxes.
+    pub object_fit: ObjectFit,
+    /// Anchor inside the content box (default 50% 50%).
+    pub object_position: (Dimension, Dimension),
     /// Element opacity 0..=1, multiplied into every paint command of the
     /// subtree (an approximation of real group compositing).
     pub opacity: f32,
@@ -282,6 +406,41 @@ pub struct ComputedStyle {
     /// yet painted) text color.
     pub selection_background: Option<Color>,
     pub selection_color: Option<Color>,
+    /// `filter` function list, applied to the box's painted output by the
+    /// raster backend (the SVG backend ignores filters).
+    pub filters: Vec<FilterFunction>,
+    /// `background-clip`: how far the background extends (default
+    /// border-box, per CSS).
+    pub background_clip: BackgroundBox,
+    /// `background-origin`: the box background positions tile against.
+    /// Deviation from CSS: the default is border-box (the engine's
+    /// historical painting area), not padding-box; declare the property
+    /// for spec behavior.
+    pub background_origin: BackgroundBox,
+    /// `border-collapse: collapse` on tables (merges adjacent cell
+    /// borders, zeroes spacing).
+    pub border_collapse: bool,
+    /// `border-spacing` (horizontal, vertical) in px; `None` = the
+    /// legacy default (`gap`, else 2px).
+    pub border_spacing: Option<(f32, f32)>,
+    /// `outline-offset` in px (may be negative).
+    pub outline_offset: f32,
+    /// Composed `translate`/`rotate`/`scale` properties (applied before
+    /// `transform`, per spec). Percentage translations resolve to zero at
+    /// style time.
+    pub individual_transform: Option<Transform2D>,
+    /// Tab width in spaces for `white-space: pre` text. Deviation from
+    /// CSS: the default is 4 (the engine's historical tab width), not 8.
+    pub tab_size: u32,
+    /// `caret-color`; `None` = auto (the text color). Consumed by the
+    /// editing overlay, which reads it from the focused node's style.
+    pub caret_color: Option<Color>,
+    /// `accent-color` for form controls; `None` = the UA default.
+    pub accent_color: Option<Color>,
+    /// `cursor` keyword; `Auto` defers to the chrome's heuristics.
+    pub cursor: Cursor,
+    /// `pointer-events`: `None` removes the box from hit-testing.
+    pub pointer_events: PointerEvents,
 }
 
 /// `vertical-align` subset for inline-level content.
@@ -486,9 +645,7 @@ pub(crate) fn parse_transform(
                 }
                 match CssValue::parse_component(argument)? {
                     CssValue::Length(px, lumen_css::Unit::Px) => Some(Argument::Px(px)),
-                    CssValue::Length(em, lumen_css::Unit::Em) => {
-                        Some(Argument::Px(em * font_size))
-                    }
+                    CssValue::Length(em, lumen_css::Unit::Em) => Some(Argument::Px(em * font_size)),
                     CssValue::Length(percent, lumen_css::Unit::Percent) => {
                         Some(Argument::Percent(percent))
                     }
@@ -500,12 +657,14 @@ pub(crate) fn parse_transform(
         let step = match name.as_str() {
             "translate" => Transform2D::translate(
                 arguments.first()?.along(reference.width),
-                arguments.get(1).copied().unwrap_or(Argument::Px(0.0)).along(reference.height),
+                arguments
+                    .get(1)
+                    .copied()
+                    .unwrap_or(Argument::Px(0.0))
+                    .along(reference.height),
             ),
             "translatex" => Transform2D::translate(arguments.first()?.along(reference.width), 0.0),
-            "translatey" => {
-                Transform2D::translate(0.0, arguments.first()?.along(reference.height))
-            }
+            "translatey" => Transform2D::translate(0.0, arguments.first()?.along(reference.height)),
             "scale" => {
                 let sx = arguments.first()?.raw();
                 let sy = arguments.get(1).copied().map_or(sx, Argument::raw);
@@ -547,6 +706,122 @@ pub(crate) fn parse_transform(
         rest = after[close + 1..].trim_start();
     }
     Some(matrix)
+}
+
+/// Parses a `filter` function list: grayscale/sepia/invert (percent or
+/// number, 0 = no-op), brightness/contrast/saturate/opacity (1 = no-op)
+/// and blur(px). Unknown functions are skipped; parsing continues.
+pub(crate) fn parse_filter_list(source: &str) -> Vec<FilterFunction> {
+    let mut filters = Vec::new();
+    let mut rest = source.trim();
+    if rest == "none" {
+        return filters;
+    }
+    while !rest.is_empty() {
+        let Some(open) = rest.find('(') else {
+            break;
+        };
+        let name = rest[..open].trim().to_ascii_lowercase();
+        let after = &rest[open + 1..];
+        let Some(close) = find_balanced_paren(after) else {
+            break;
+        };
+        let argument = after[..close].trim();
+        let proportion = || -> Option<f32> {
+            if let Some(percent) = argument.strip_suffix('%') {
+                percent
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .map(|value| value / 100.0)
+            } else {
+                argument.parse::<f32>().ok()
+            }
+        };
+        let function = match name.as_str() {
+            "grayscale" => {
+                proportion().map(|value| FilterFunction::Grayscale(value.clamp(0.0, 1.0)))
+            }
+            "sepia" => proportion().map(|value| FilterFunction::Sepia(value.clamp(0.0, 1.0))),
+            "invert" => proportion().map(|value| FilterFunction::Invert(value.clamp(0.0, 1.0))),
+            "brightness" => proportion().map(|value| FilterFunction::Brightness(value.max(0.0))),
+            "contrast" => proportion().map(|value| FilterFunction::Contrast(value.max(0.0))),
+            "saturate" => proportion().map(|value| FilterFunction::Saturate(value.max(0.0))),
+            "opacity" => proportion().map(|value| FilterFunction::Opacity(value.clamp(0.0, 1.0))),
+            "blur" => match CssValue::parse_component(argument) {
+                Some(CssValue::Length(px, lumen_css::Unit::Px)) => {
+                    Some(FilterFunction::Blur(px.max(0.0)))
+                }
+                Some(CssValue::Number(0.0)) => Some(FilterFunction::Blur(0.0)),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(function) = function {
+            filters.push(function);
+        }
+        rest = after[close + 1..].trim_start();
+    }
+    filters
+}
+
+/// Parses the individual `translate` property: "x [y]" in px/em
+/// (percentages resolve against the border box, unknown at style time,
+/// and approximate to zero). `none` yields `None`.
+pub(crate) fn parse_translate_value(source: &str, font_size: f32) -> Option<Transform2D> {
+    let text = source.trim();
+    if text == "none" {
+        return None;
+    }
+    let components: Vec<f32> = text
+        .split_whitespace()
+        .map(|piece| match CssValue::parse_component(piece)? {
+            CssValue::Length(px, lumen_css::Unit::Px) => Some(px),
+            CssValue::Length(em, lumen_css::Unit::Em) => Some(em * font_size),
+            CssValue::Length(_, lumen_css::Unit::Percent) => Some(0.0),
+            _ => None,
+        })
+        .collect::<Option<_>>()?;
+    let x = *components.first()?;
+    let y = components.get(1).copied().unwrap_or(0.0);
+    Some(Transform2D::translate(x, y))
+}
+
+/// Parses the individual `rotate` property: only the 2D angle form
+/// (`45deg`); axis/vector forms are unsupported. `none` yields `None`.
+pub(crate) fn parse_rotate_value(source: &str) -> Option<Transform2D> {
+    let text = source.trim();
+    if text == "none" {
+        return None;
+    }
+    let degrees: f32 = text.strip_suffix("deg")?.trim().parse().ok()?;
+    let radians = degrees.to_radians();
+    Some(Transform2D {
+        a: radians.cos(),
+        b: radians.sin(),
+        c: -radians.sin(),
+        d: radians.cos(),
+        ..Transform2D::IDENTITY
+    })
+}
+
+/// Parses the individual `scale` property: "sx [sy]". `none` yields
+/// `None`.
+pub(crate) fn parse_scale_value(source: &str) -> Option<Transform2D> {
+    let text = source.trim();
+    if text == "none" {
+        return None;
+    }
+    let mut pieces = text
+        .split_whitespace()
+        .map(|piece| piece.parse::<f32>().ok());
+    let sx = pieces.next()??;
+    let sy = pieces.next().flatten().unwrap_or(sx);
+    Some(Transform2D {
+        a: sx,
+        d: sy,
+        ..Transform2D::IDENTITY
+    })
 }
 
 /// One transition: property (or "all"), duration and delay in seconds,
@@ -624,6 +899,39 @@ pub enum BackgroundSize {
     Contain,
     /// Explicit width/height (Auto keeps the aspect ratio).
     Explicit(Dimension, Dimension),
+}
+
+/// Which box `background-clip` / `background-origin` refer to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BackgroundBox {
+    #[default]
+    BorderBox,
+    PaddingBox,
+    ContentBox,
+}
+
+/// One `filter` function. Proportions are normalized: 1.0 = 100%
+/// (no-op for grayscale/sepia/invert/opacity at 1.0... except invert
+/// style filters where 0 is the no-op; see each variant).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FilterFunction {
+    /// 0.0 = no change, 1.0 = fully gray.
+    Grayscale(f32),
+    /// 0.0 = no change, 1.0 = full sepia.
+    Sepia(f32),
+    /// 0.0 = no change, 1.0 = fully inverted.
+    Invert(f32),
+    /// Multiplier; 1.0 = no change.
+    Brightness(f32),
+    /// Multiplier; 1.0 = no change.
+    Contrast(f32),
+    /// Multiplier; 1.0 = no change.
+    Saturate(f32),
+    /// Multiplier on top of the page's white background (the framebuffer
+    /// is opaque, so this blends toward white — documented approximation).
+    Opacity(f32),
+    /// Box-blur radius in px (a naive approximation of the Gaussian).
+    Blur(f32),
 }
 
 /// `linear-gradient()`: an angle (CSS convention, 0deg = to top) and
@@ -825,6 +1133,16 @@ impl Overflow {
     }
 }
 
+impl ComputedStyle {
+    /// Whether this box clips its children to the padding box: true when
+    /// either overflow axis clips (the clip is a rectangle, so per-axis
+    /// clipping is not representable).
+    #[must_use]
+    pub fn clips_overflow(&self) -> bool {
+        self.overflow_x.clips() || self.overflow_y.clips()
+    }
+}
+
 /// `white-space` subset: `pre` preserves spaces and newlines and never
 /// wraps (pre-wrap/pre-line are approximated as pre).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -855,7 +1173,9 @@ impl Default for ComputedStyle {
             outline_style: BorderStyle::None,
             aspect_ratio: None,
             grid_columns: Vec::new(),
+            grid_rows: Vec::new(),
             grid_span: 1,
+            grid_row_span: 1,
             transform: None,
             transform_percent_source: None,
             transform_origin: (Dimension::Percent(50.0), Dimension::Percent(50.0)),
@@ -898,6 +1218,8 @@ impl Default for ComputedStyle {
             float: Float::None,
             clear: Clear::None,
             overflow: Overflow::Visible,
+            overflow_x: Overflow::Visible,
+            overflow_y: Overflow::Visible,
             position: Position::Static,
             offsets: EdgeSizes::uniform(Dimension::Auto),
             z_index: None,
@@ -909,10 +1231,27 @@ impl Default for ComputedStyle {
             gap: 0.0,
             flex_grow: 0.0,
             flex_shrink: 1.0,
+            flex_basis: Dimension::Auto,
+            order: 0,
+            align_content: AlignContent::default(),
+            object_fit: ObjectFit::default(),
+            object_position: (Dimension::Percent(50.0), Dimension::Percent(50.0)),
             opacity: 1.0,
             selectable: true,
             selection_background: None,
             selection_color: None,
+            filters: Vec::new(),
+            background_clip: BackgroundBox::default(),
+            background_origin: BackgroundBox::default(),
+            border_collapse: false,
+            border_spacing: None,
+            outline_offset: 0.0,
+            individual_transform: None,
+            tab_size: 4,
+            caret_color: None,
+            accent_color: None,
+            cursor: Cursor::Auto,
+            pointer_events: PointerEvents::Auto,
         }
     }
 }

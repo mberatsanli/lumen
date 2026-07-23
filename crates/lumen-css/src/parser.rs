@@ -118,7 +118,10 @@ fn apply_media_condition(condition: &MediaCondition, query: &mut MediaQuery) -> 
     }
 }
 
-fn apply_media_feature(feature: &QueryFeature<MediaFeatureId>, query: &mut MediaQuery) -> Option<()> {
+fn apply_media_feature(
+    feature: &QueryFeature<MediaFeatureId>,
+    query: &mut MediaQuery,
+) -> Option<()> {
     match feature {
         // `(min-width: N)` arrives as a range with a legacy operator;
         // strict forms (`width > N`) keep their exclusive bound.
@@ -984,10 +987,143 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
             }
         };
 
+    // One value to both sides of an axis, two values to start/end
+    // (logical-property expansion; LTR: inline-start = left,
+    // block-start = top).
+    let expand_axis = |components: &[CssValue],
+                       start_name: &str,
+                       end_name: &str,
+                       output: &mut Vec<Declaration>| {
+        let start = match components.first() {
+            Some(value) => value.clone(),
+            None => return,
+        };
+        let end = components.get(1).unwrap_or(&start).clone();
+        for (name, value) in [(start_name, start), (end_name, end)] {
+            output.push(Declaration {
+                important: false,
+                name: name.to_string(),
+                value,
+            });
+        }
+    };
+    // Renames a single logical longhand to its physical equivalent.
+    let rename = |components: &[CssValue], physical: &str, output: &mut Vec<Declaration>| {
+        if let Some(value) = components.first() {
+            output.push(Declaration {
+                important: false,
+                name: physical.to_string(),
+                value: value.clone(),
+            });
+        }
+    };
+
     match name {
         "margin" | "padding" => {
             expand_edges(&|side| format!("{name}-{side}"), &components, output);
         }
+        // Logical box properties (LTR mapping: inline → left/right,
+        // block → top/bottom).
+        "margin-inline" => expand_axis(&components, "margin-left", "margin-right", output),
+        "margin-block" => expand_axis(&components, "margin-top", "margin-bottom", output),
+        "padding-inline" => expand_axis(&components, "padding-left", "padding-right", output),
+        "padding-block" => expand_axis(&components, "padding-top", "padding-bottom", output),
+        "margin-inline-start" => rename(&components, "margin-left", output),
+        "margin-inline-end" => rename(&components, "margin-right", output),
+        "margin-block-start" => rename(&components, "margin-top", output),
+        "margin-block-end" => rename(&components, "margin-bottom", output),
+        "padding-inline-start" => rename(&components, "padding-left", output),
+        "padding-inline-end" => rename(&components, "padding-right", output),
+        "padding-block-start" => rename(&components, "padding-top", output),
+        "padding-block-end" => rename(&components, "padding-bottom", output),
+        "inline-size" => rename(&components, "width", output),
+        "block-size" => rename(&components, "height", output),
+        // Logical border shorthands: same shape as their physical twins.
+        "border-inline" | "border-block" => {
+            let sides: [&str; 2] = if name == "border-inline" {
+                ["left", "right"]
+            } else {
+                ["top", "bottom"]
+            };
+            for side in sides {
+                expand_border_side(side, &components, output);
+            }
+        }
+        "border-inline-start" => expand_border_side("left", &components, output),
+        "border-inline-end" => expand_border_side("right", &components, output),
+        "border-block-start" => expand_border_side("top", &components, output),
+        "border-block-end" => expand_border_side("bottom", &components, output),
+        "border-inline-width" => {
+            expand_axis(
+                &components,
+                "border-left-width",
+                "border-right-width",
+                output,
+            );
+        }
+        "border-inline-style" => {
+            expand_axis(
+                &components,
+                "border-left-style",
+                "border-right-style",
+                output,
+            );
+        }
+        "border-inline-color" => {
+            expand_axis(
+                &components,
+                "border-left-color",
+                "border-right-color",
+                output,
+            );
+        }
+        "border-block-width" => {
+            expand_axis(
+                &components,
+                "border-top-width",
+                "border-bottom-width",
+                output,
+            );
+        }
+        "border-block-style" => {
+            expand_axis(
+                &components,
+                "border-top-style",
+                "border-bottom-style",
+                output,
+            );
+        }
+        "border-block-color" => {
+            expand_axis(
+                &components,
+                "border-top-color",
+                "border-bottom-color",
+                output,
+            );
+        }
+        "border-inline-start-width" => rename(&components, "border-left-width", output),
+        "border-inline-start-style" => rename(&components, "border-left-style", output),
+        "border-inline-start-color" => rename(&components, "border-left-color", output),
+        "border-inline-end-width" => rename(&components, "border-right-width", output),
+        "border-inline-end-style" => rename(&components, "border-right-style", output),
+        "border-inline-end-color" => rename(&components, "border-right-color", output),
+        "border-block-start-width" => rename(&components, "border-top-width", output),
+        "border-block-start-style" => rename(&components, "border-top-style", output),
+        "border-block-start-color" => rename(&components, "border-top-color", output),
+        "border-block-end-width" => rename(&components, "border-bottom-width", output),
+        "border-block-end-style" => rename(&components, "border-bottom-style", output),
+        "border-block-end-color" => rename(&components, "border-bottom-color", output),
+        // inset shorthand (top right bottom left, margin logic) and its
+        // logical longhands.
+        "inset" => {
+            expand_edges(&|side| side.to_string(), &components, output);
+        }
+        "inset-inline" => expand_axis(&components, "left", "right", output),
+        "inset-block" => expand_axis(&components, "top", "bottom", output),
+        "inset-inline-start" => rename(&components, "left", output),
+        "inset-inline-end" => rename(&components, "right", output),
+        "inset-block-start" => rename(&components, "top", output),
+        "inset-block-end" => rename(&components, "bottom", output),
         "border-width" => {
             expand_edges(&|side| format!("border-{side}-width"), &components, output);
         }
@@ -1049,7 +1185,11 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
                 }
             }
         }
-        "text-decoration" | "background-position" | "background-size" => {
+        "text-decoration"
+        | "background-position"
+        | "background-size"
+        | "overflow"
+        | "object-position" => {
             let text = components
                 .iter()
                 .map(ToString::to_string)
@@ -1085,18 +1225,32 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
             });
         }
         "flex" => {
-            // grow [shrink [basis]]; `none` = 0 0, `auto`/`initial` keep
-            // defaults with grow 1/0. flex-basis is unsupported and ignored.
-            let (grow, shrink) = match components.first() {
-                Some(CssValue::Keyword(keyword)) if keyword == "none" => (0.0, 0.0),
-                Some(CssValue::Keyword(keyword)) if keyword == "auto" => (1.0, 1.0),
-                Some(CssValue::Keyword(keyword)) if keyword == "initial" => (0.0, 1.0),
+            // grow [shrink] [basis]; `none` = 0 0, `auto` = 1 1,
+            // `initial` = 0 1. A non-numeric trailing component is the
+            // basis (per spec the basis may also appear without shrink).
+            let (grow, shrink, basis) = match components.first() {
+                Some(CssValue::Keyword(keyword)) if keyword == "none" => (0.0, 0.0, None),
+                Some(CssValue::Keyword(keyword)) if keyword == "auto" => (1.0, 1.0, None),
+                Some(CssValue::Keyword(keyword)) if keyword == "initial" => (0.0, 1.0, None),
                 Some(CssValue::Number(grow)) => {
-                    let shrink = match components.get(1) {
-                        Some(CssValue::Number(shrink)) => *shrink,
-                        _ => 1.0,
+                    // Bare `0` parses as a zero length, not a number;
+                    // both are valid shrink factors here.
+                    let as_factor = |value: &CssValue| match value {
+                        CssValue::Number(number) => Some(*number),
+                        CssValue::Length(0.0, _) => Some(0.0),
+                        _ => None,
                     };
-                    (*grow, shrink)
+                    let (shrink, basis_at) = match components.get(1).and_then(as_factor) {
+                        Some(shrink) => (shrink, 2),
+                        // `flex: 1 200px`: the second component is the
+                        // basis, not the shrink factor.
+                        None => (1.0, 1),
+                    };
+                    let basis = components
+                        .get(basis_at)
+                        .filter(|value| as_factor(value).is_none())
+                        .cloned();
+                    (*grow, shrink, basis)
                 }
                 _ => return,
             };
@@ -1110,6 +1264,13 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
                 name: "flex-shrink".to_string(),
                 value: CssValue::Number(shrink),
             });
+            if let Some(basis) = basis {
+                output.push(Declaration {
+                    important: false,
+                    name: "flex-basis".to_string(),
+                    value: basis,
+                });
+            }
         }
         _ => output.push(Declaration {
             name: name.to_string(),
@@ -1298,6 +1459,117 @@ mod tests {
     }
 
     #[test]
+    fn logical_properties_map_to_physical_ltr() {
+        let declarations = parse_declarations(
+            "margin-inline: 1px 2px; margin-block-start: 3px; padding-inline-start: 4px; \
+             padding-block: 5px 6px; inline-size: 7px; block-size: 8px",
+        );
+        let find = |name: &str| {
+            declarations
+                .iter()
+                .find(|declaration| declaration.name == name)
+                .map(|declaration| declaration.value.clone())
+        };
+        assert_eq!(find("margin-left"), Some(px(1.0)));
+        assert_eq!(find("margin-right"), Some(px(2.0)));
+        assert_eq!(find("margin-top"), Some(px(3.0)));
+        assert_eq!(find("padding-left"), Some(px(4.0)));
+        assert_eq!(find("padding-top"), Some(px(5.0)));
+        assert_eq!(find("padding-bottom"), Some(px(6.0)));
+        assert_eq!(find("width"), Some(px(7.0)));
+        assert_eq!(find("height"), Some(px(8.0)));
+    }
+
+    #[test]
+    fn logical_border_shorthands_expand_to_physical_sides() {
+        let declarations =
+            parse_declarations("border-inline: 2px dashed red; border-block-start-width: 5px");
+        let find = |name: &str| {
+            declarations
+                .iter()
+                .find(|declaration| declaration.name == name)
+                .map(|declaration| declaration.value.clone())
+        };
+        assert_eq!(find("border-left-width"), Some(px(2.0)));
+        assert_eq!(find("border-right-width"), Some(px(2.0)));
+        assert_eq!(
+            find("border-left-style"),
+            Some(CssValue::Keyword("dashed".to_string()))
+        );
+        assert_eq!(
+            find("border-right-color"),
+            Some(CssValue::Color(Color::rgb(255, 0, 0)))
+        );
+        assert_eq!(find("border-top-width"), Some(px(5.0)));
+    }
+
+    #[test]
+    fn inset_shorthand_and_logical_longhands_expand() {
+        let declarations = parse_declarations("inset: 1px 2px; inset-inline-end: 9px");
+        // Last expansion wins, mirroring source-order cascade.
+        let find = |name: &str| {
+            declarations
+                .iter()
+                .rev()
+                .find(|declaration| declaration.name == name)
+                .map(|declaration| declaration.value.clone())
+        };
+        assert_eq!(find("top"), Some(px(1.0)));
+        assert_eq!(find("bottom"), Some(px(1.0)));
+        assert_eq!(find("left"), Some(px(2.0)));
+        // inset-inline-end later in source order wins for `right`.
+        assert_eq!(find("right"), Some(px(9.0)));
+        let declarations = parse_declarations("inset: 1px 2px 3px 4px");
+        let find = |name: &str| {
+            declarations
+                .iter()
+                .find(|declaration| declaration.name == name)
+                .map(|declaration| declaration.value.clone())
+        };
+        assert_eq!(find("top"), Some(px(1.0)));
+        assert_eq!(find("right"), Some(px(2.0)));
+        assert_eq!(find("bottom"), Some(px(3.0)));
+        assert_eq!(find("left"), Some(px(4.0)));
+    }
+
+    #[test]
+    fn overflow_keeps_both_axis_values() {
+        let declarations = parse_declarations("overflow: hidden auto");
+        assert_eq!(declarations.len(), 1);
+        assert_eq!(
+            declarations[0].value,
+            CssValue::Keyword("hidden auto".to_string())
+        );
+    }
+
+    #[test]
+    fn flex_shorthand_emits_flex_basis() {
+        let declarations = parse_declarations("flex: 1 0 200px");
+        let find = |name: &str| {
+            declarations
+                .iter()
+                .find(|declaration| declaration.name == name)
+                .map(|declaration| declaration.value.clone())
+        };
+        assert_eq!(find("flex-grow"), Some(CssValue::Number(1.0)));
+        assert_eq!(find("flex-shrink"), Some(CssValue::Number(0.0)));
+        assert_eq!(find("flex-basis"), Some(px(200.0)));
+        // Basis without an explicit shrink: `flex: 2 50%`.
+        let declarations = parse_declarations("flex: 2 50%");
+        let find = |name: &str| {
+            declarations
+                .iter()
+                .find(|declaration| declaration.name == name)
+                .map(|declaration| declaration.value.clone())
+        };
+        assert_eq!(find("flex-shrink"), Some(CssValue::Number(1.0)));
+        assert_eq!(
+            find("flex-basis"),
+            Some(CssValue::Length(50.0, Unit::Percent))
+        );
+    }
+
+    #[test]
     fn border_side_shorthand_targets_one_side() {
         let declarations = parse_declarations("border-top: 2px dashed #112233");
         let names: Vec<&str> = declarations
@@ -1463,10 +1735,7 @@ mod tests {
         let declarations = parse_declarations("background: none");
         assert_eq!(declarations.len(), 1);
         assert_eq!(declarations[0].name, "background-image");
-        assert_eq!(
-            declarations[0].value,
-            CssValue::Keyword("none".to_string())
-        );
+        assert_eq!(declarations[0].value, CssValue::Keyword("none".to_string()));
         // A color alongside still expands.
         let declarations = parse_declarations("background: none red");
         assert_eq!(declarations.len(), 2);
@@ -1608,9 +1877,8 @@ mod tests {
         // Regression: the declaration splitter used to break on the `;`
         // inside an unquoted data URI, losing the URL and corrupting the
         // declarations that followed.
-        let declarations = parse_declarations(
-            "background: url(data:image/png;base64,iVBORw0KGgo=) ; color: red",
-        );
+        let declarations =
+            parse_declarations("background: url(data:image/png;base64,iVBORw0KGgo=) ; color: red");
         let image = declarations
             .iter()
             .find(|declaration| declaration.name == "background-image")
@@ -1633,12 +1901,12 @@ mod tests {
         let sheet = parse_stylesheet("p::before { content: \"}\"; color: red; }");
         assert_eq!(sheet.rules.len(), 1);
         let declarations = &sheet.rules[0].declarations;
-        assert_eq!(
-            declarations[0].value,
-            CssValue::String("}".to_string())
-        );
+        assert_eq!(declarations[0].value, CssValue::String("}".to_string()));
         assert_eq!(declarations[1].name, "color");
-        assert_eq!(declarations[1].value, CssValue::Color(Color::rgb(255, 0, 0)));
+        assert_eq!(
+            declarations[1].value,
+            CssValue::Color(Color::rgb(255, 0, 0))
+        );
     }
 
     #[test]
@@ -1661,10 +1929,7 @@ mod tests {
             Color::parse("rgb(255 0 0 / 50%)"),
             Some(Color::rgba(255, 0, 0, 128))
         );
-        assert_eq!(
-            Color::parse("rgb(100% 0% 0%)"),
-            Some(Color::rgb(255, 0, 0))
-        );
+        assert_eq!(Color::parse("rgb(100% 0% 0%)"), Some(Color::rgb(255, 0, 0)));
     }
 
     #[test]
@@ -1680,13 +1945,15 @@ mod tests {
              h1 { color: blue; }",
         );
         assert_eq!(sheet.rules.len(), 2);
-        assert!(sheet.rules[1].selectors[0]
-            .iter_raw_match_order()
-            .any(|component| matches!(
-                component,
-                parcel_selectors::parser::Component::LocalName(name)
-                    if name.lower_name.as_str() == "h1"
-            )));
+        assert!(
+            sheet.rules[1].selectors[0]
+                .iter_raw_match_order()
+                .any(|component| matches!(
+                    component,
+                    parcel_selectors::parser::Component::LocalName(name)
+                        if name.lower_name.as_str() == "h1"
+                ))
+        );
     }
 
     #[test]

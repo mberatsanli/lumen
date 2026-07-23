@@ -18,7 +18,8 @@ use crate::geometry::{Dimensions, EdgeSizes, Edges, Rect, Size};
 use crate::image::ImageMap;
 use crate::inline::{FragmentContent, LineBox, layout_inline_run};
 use crate::style::{
-    BoxSizing, Clear, ComputedStyle, Dimension, Display, Float, Overflow, Position, StyleMap,
+    BoxSizing, Clear, ComputedStyle, Dimension, Display, Float, Overflow, PointerEvents, Position,
+    StyleMap,
 };
 use crate::text::TextMeasurer;
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
@@ -111,9 +112,18 @@ impl LayoutBox {
         let rect = self.border_box();
         let inside =
             x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
-        let (child_x, child_y) = match scroll_offsets.get(&self.node_id) {
-            Some(offset) if self.style.overflow.clips() => (x, y + offset),
-            _ => (x, y),
+        let scroll_offset = match scroll_offsets.get(&self.node_id) {
+            Some(offset) if self.style.clips_overflow() => *offset,
+            _ => 0.0,
+        };
+        let (child_x, child_y) = (x, y + scroll_offset);
+        // Sticky children sit at their stuck (visual) position: convert
+        // the point into their flow coordinates per child.
+        let child_point = |child: &LayoutBox| {
+            (
+                child_x,
+                child_y - self.sticky_child_shift(child, scroll_offset),
+            )
         };
         // Fast path: with no z-index anywhere, paint order is DOM order,
         // so neither the collecting Vec nor the sort is needed.
@@ -122,26 +132,66 @@ impl LayoutBox {
             .iter()
             .all(|child| child.style.z_index.unwrap_or(0) == 0)
         {
-            self.children
-                .iter()
-                .rev()
-                .find_map(|child| child.scrollable_under(child_x, child_y, scroll_offsets))
+            self.children.iter().rev().find_map(|child| {
+                let (px, py) = child_point(child);
+                child.scrollable_under(px, py, scroll_offsets)
+            })
         } else {
             self.children_in_paint_order()
                 .into_iter()
                 .rev()
-                .find_map(|child| child.scrollable_under(child_x, child_y, scroll_offsets))
+                .find_map(|child| {
+                    let (px, py) = child_point(child);
+                    child.scrollable_under(px, py, scroll_offsets)
+                })
         };
         if found.is_some() {
             return found;
         }
-        if inside && self.style.overflow == crate::style::Overflow::Scroll {
+        // A `pointer-events: none` box never scrolls under the pointer;
+        // its children were still tested above and may scroll themselves.
+        if inside
+            && self.style.pointer_events != PointerEvents::None
+            && self.style.overflow_y == crate::style::Overflow::Scroll
+        {
             let max = self.max_inner_scroll();
             if max > 0.0 {
                 return Some((self.node_id, max));
             }
         }
         None
+    }
+
+    /// The vertical paint-time shift of a `position: sticky` child when
+    /// this box is its scroll container, scrolled by `offset`. Zero for
+    /// non-sticky children, a zero offset, or sticky without a `top`/
+    /// `bottom` constraint. The child sticks to the container's padding
+    /// box inset and never leaves the padding box. (Horizontal sticking
+    /// is unsupported: inner scrolling is vertical-only.)
+    #[must_use]
+    pub fn sticky_child_shift(&self, child: &LayoutBox, offset: f32) -> f32 {
+        if child.style.position != Position::Sticky || offset == 0.0 {
+            return 0.0;
+        }
+        let containing = self.dimensions.padding_box();
+        let flow_top = child.border_box().y;
+        let height = child.border_box().height;
+        let viewport = Size::default();
+        let resolve = |dimension: Dimension| dimension.resolve(containing.height, viewport);
+        let offsets = &child.style.offsets;
+        // Where the child visually sits after plain scrolling.
+        let visual = flow_top - offset;
+        if let Some(top) = resolve(offsets.top) {
+            let min_y = containing.y + top;
+            let max_y = (containing.y + containing.height - height).max(min_y);
+            visual.clamp(min_y, max_y) - visual
+        } else if let Some(bottom) = resolve(offsets.bottom) {
+            let max_y = containing.y + containing.height - bottom - height;
+            let min_y = containing.y.min(max_y);
+            visual.clamp(min_y, max_y) - visual
+        } else {
+            0.0
+        }
     }
 
     /// How far this box's content can scroll: the extent of its children
@@ -204,9 +254,18 @@ impl LayoutBox {
         y: f32,
         scroll_offsets: &std::collections::HashMap<NodeId, f32>,
     ) -> Option<NodeId> {
-        let (child_x, child_y) = match scroll_offsets.get(&self.node_id) {
-            Some(offset) if self.style.overflow.clips() => (x, y + offset),
-            _ => (x, y),
+        let scroll_offset = match scroll_offsets.get(&self.node_id) {
+            Some(offset) if self.style.clips_overflow() => *offset,
+            _ => 0.0,
+        };
+        let (child_x, child_y) = (x, y + scroll_offset);
+        // Sticky children sit at their stuck (visual) position: convert
+        // the point into their flow coordinates per child.
+        let child_point = |child: &LayoutBox| {
+            (
+                child_x,
+                child_y - self.sticky_child_shift(child, scroll_offset),
+            )
         };
         // Fast path: with no z-index anywhere, paint order is DOM order,
         // so neither the collecting Vec nor the sort is needed.
@@ -215,15 +274,18 @@ impl LayoutBox {
             .iter()
             .all(|child| child.style.z_index.unwrap_or(0) == 0)
         {
-            self.children
-                .iter()
-                .rev()
-                .find_map(|child| child.hit_test_scrolled(child_x, child_y, scroll_offsets))
+            self.children.iter().rev().find_map(|child| {
+                let (px, py) = child_point(child);
+                child.hit_test_scrolled(px, py, scroll_offsets)
+            })
         } else {
             self.children_in_paint_order()
                 .into_iter()
                 .rev()
-                .find_map(|child| child.hit_test_scrolled(child_x, child_y, scroll_offsets))
+                .find_map(|child| {
+                    let (px, py) = child_point(child);
+                    child.hit_test_scrolled(px, py, scroll_offsets)
+                })
         };
         if let Some(hit) = hit {
             return Some(hit);
@@ -231,7 +293,10 @@ impl LayoutBox {
         let rect = self.border_box();
         let inside =
             x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
-        if !inside {
+        // `pointer-events: none`: the box itself (and its inline text
+        // fragments) is never the hit target; children were still tested
+        // above, and the hit falls through to whatever paints underneath.
+        if !inside || self.style.pointer_events == PointerEvents::None {
             return None;
         }
         // Inside inline content, individual fragments are the hit targets,
@@ -268,7 +333,9 @@ impl LayoutBox {
 /// depth (the depth guard can truncate deep subtrees, so the depth is
 /// part of the key), so results are cached per `layout_document` call.
 #[derive(Debug, Default)]
-pub(crate) struct ProbeCache(std::cell::RefCell<std::collections::HashMap<(NodeId, u32, usize), f32>>);
+pub(crate) struct ProbeCache(
+    std::cell::RefCell<std::collections::HashMap<(NodeId, u32, usize), f32>>,
+);
 
 impl ProbeCache {
     fn get(&self, node_id: NodeId, available: f32, depth: usize) -> Option<f32> {
@@ -541,8 +608,21 @@ pub(crate) fn natural_content_width(
     };
     let style = styles.by_node.get(&node_id).cloned().unwrap_or_default();
     let probe = layout_element(
-        document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, None, viewport,
-        measurer, images, probe_cache, depth,
+        document,
+        styles,
+        node_id,
+        element,
+        style,
+        0.0,
+        &mut 0.0,
+        available,
+        None,
+        None,
+        viewport,
+        measurer,
+        images,
+        probe_cache,
+        depth,
     );
     // Measure the probe's children (the target's own padding/border sit
     // outside its content width and must not be double-counted).
@@ -578,8 +658,21 @@ pub(crate) fn layout_isolated_with_style(
         unreachable!("isolated boxes are always elements");
     };
     layout_element(
-        document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, None, viewport,
-        measurer, images, probe_cache, depth,
+        document,
+        styles,
+        node_id,
+        element,
+        style,
+        0.0,
+        &mut 0.0,
+        available,
+        None,
+        None,
+        viewport,
+        measurer,
+        images,
+        probe_cache,
+        depth,
     )
 }
 
@@ -603,14 +696,35 @@ pub(crate) fn layout_atomic_box(
     let mut style = styles.by_node.get(&node_id).cloned().unwrap_or_default();
     if matches!(style.width, Dimension::Auto) && element.tag_name != "img" {
         let natural = natural_content_width(
-            document, styles, node_id, available, viewport, measurer, images, probe_cache, depth,
+            document,
+            styles,
+            node_id,
+            available,
+            viewport,
+            measurer,
+            images,
+            probe_cache,
+            depth,
         );
         style.width = Dimension::Px(natural);
         style.box_sizing = BoxSizing::ContentBox;
     }
     layout_element(
-        document, styles, node_id, element, style, 0.0, &mut 0.0, available, None, None, viewport,
-        measurer, images, probe_cache, depth,
+        document,
+        styles,
+        node_id,
+        element,
+        style,
+        0.0,
+        &mut 0.0,
+        available,
+        None,
+        None,
+        viewport,
+        measurer,
+        images,
+        probe_cache,
+        depth,
     )
 }
 
@@ -874,6 +988,7 @@ fn layout_element(
             content_x,
             content_y,
             content_width,
+            explicit_content_height,
             viewport,
             measurer,
             images,
@@ -987,7 +1102,14 @@ fn layout_element(
         let bounds = |line_top: f32| floats.bounds_at(content_x, content_width, run_top + line_top);
         let mut layout_atomic = |node_id: NodeId, available: f32| {
             layout_atomic_box(
-                document, styles, node_id, available, viewport, measurer, images, probe_cache,
+                document,
+                styles,
+                node_id,
+                available,
+                viewport,
+                measurer,
+                images,
+                probe_cache,
                 depth,
             )
         };
@@ -996,6 +1118,7 @@ fn layout_element(
             styles,
             run,
             style,
+            Some(owner),
             (content_x, run_top),
             &bounds,
             measurer,
@@ -1258,7 +1381,8 @@ fn layout_element(
         && matches!(style.height, Dimension::Auto)
         && border.bottom == 0.0
         && padding.bottom == 0.0
-        && style.overflow == Overflow::Visible
+        && style.overflow_x == Overflow::Visible
+        && style.overflow_y == Overflow::Visible
         && let Some(last_bottom) = previous_bottom_margin
     {
         child_cursor_y -= last_bottom;
@@ -2353,6 +2477,78 @@ mod tests {
     }
 
     #[test]
+    fn pointer_events_none_falls_through_to_what_is_underneath() {
+        let document = parse_document(
+            "<style>
+                .overlay, .under { position: absolute; top: 0; left: 0; margin: 0;
+                                   width: 100px; height: 100px; }
+                .overlay { pointer-events: none; z-index: 2; }
+                .under { z-index: 1; }
+             </style><div><div class='under'>under</div><div class='overlay'>cover</div></div>",
+        );
+        let author = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document));
+        let styles = compute_styles(&document, &author);
+        let layout = layout_document(
+            &document,
+            &styles,
+            VIEWPORT,
+            &crate::text::HeuristicMeasurer,
+            &crate::image::ImageMap::new(),
+        );
+        // The overlay paints on top (z-index 2) but is pointer-transparent:
+        // the hit lands on .under's text.
+        let hit = layout.hit_test(5.0, 5.0).expect("hit through the overlay");
+        let tag = |id: NodeId| {
+            document
+                .element(id)
+                .map(|element| element.tag_name.as_str())
+        };
+        let hit_in_under = std::iter::once(hit)
+            .chain(document.ancestors(hit))
+            .any(|id| {
+                document
+                    .element(id)
+                    .is_some_and(|element| element.has_class("under"))
+            });
+        assert!(hit_in_under, "hit node {hit:?} (tag {:?})", tag(hit));
+        let hit_in_overlay = std::iter::once(hit)
+            .chain(document.ancestors(hit))
+            .any(|id| {
+                document
+                    .element(id)
+                    .is_some_and(|element| element.has_class("overlay"))
+            });
+        assert!(!hit_in_overlay);
+        // Without the declaration the overlay wins the same point.
+        let document = parse_document(
+            "<style>
+                .overlay, .under { position: absolute; top: 0; left: 0; margin: 0;
+                                   width: 100px; height: 100px; }
+                .overlay { z-index: 2; }
+                .under { z-index: 1; }
+             </style><div><div class='under'>under</div><div class='overlay'>cover</div></div>",
+        );
+        let author = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document));
+        let styles = compute_styles(&document, &author);
+        let layout = layout_document(
+            &document,
+            &styles,
+            VIEWPORT,
+            &crate::text::HeuristicMeasurer,
+            &crate::image::ImageMap::new(),
+        );
+        let covered = layout.hit_test(5.0, 5.0).expect("hit on the overlay");
+        let covered_in_overlay = std::iter::once(covered)
+            .chain(document.ancestors(covered))
+            .any(|id| {
+                document
+                    .element(id)
+                    .is_some_and(|element| element.has_class("overlay"))
+            });
+        assert!(covered_in_overlay);
+    }
+
+    #[test]
     fn text_transform_and_indent_shape_the_lines() {
         let layout = layout_of(
             "<style>p { text-transform: uppercase; text-indent: 40px; }</style>\
@@ -2627,6 +2823,134 @@ mod tests {
         assert!((single.x - 2.0 * 800.0 / 3.0).abs() < 1.0);
         // The third item wraps (no room after span 2 + 1).
         assert_eq!(grid.children[2].border_box().y, 10.0);
+    }
+
+    #[test]
+    fn grid_template_rows_size_rows() {
+        let layout = layout_of(
+            "<style>.g { display: grid; grid-template-columns: 100px 100px; \
+                            grid-template-rows: 30px 50px; gap: 10px; }\
+                    .g div { width: 10px; }</style>\
+             <div class='g'><div></div><div></div><div></div></div>",
+        );
+        let grid = &layout.children[0];
+        let cell = |index: usize| grid.children[index].border_box();
+        // Auto-height items stretch to their fixed row track.
+        assert_eq!(cell(0).height, 30.0);
+        assert_eq!(cell(1).height, 30.0);
+        // Third item sits in row 2 at track offset 30 + 10 gap.
+        assert_eq!(cell(2).y, 40.0);
+        assert_eq!(cell(2).height, 50.0);
+        assert_eq!(grid.content_box().height, 90.0);
+    }
+
+    #[test]
+    fn grid_row_span_covers_multiple_rows() {
+        let layout = layout_of(
+            "<style>.g { display: grid; grid-template-columns: 100px 100px; \
+                            grid-template-rows: 20px 20px; gap: 10px; }\
+                    .tall { grid-row: span 2; }\
+                    .g div { width: 10px; }</style>\
+             <div class='g'><div class='tall'></div><div></div><div></div></div>",
+        );
+        let grid = &layout.children[0];
+        let tall = grid.children[0].border_box();
+        // 20 + 10 gap + 20.
+        assert_eq!(tall.height, 50.0);
+        // The third item flows into row 2, column 2 (column 1 is covered
+        // by the spanning item).
+        let third = grid.children[2].border_box();
+        assert_eq!(third.x, 110.0);
+        assert_eq!(third.y, 30.0);
+    }
+
+    #[test]
+    fn flex_basis_sets_the_base_main_size() {
+        let layout = layout_of(
+            "<style>.row { display: flex; }\
+                    .a { flex-basis: 200px; height: 10px; }\
+                    .b { flex: 1 100px; height: 10px; }</style>\
+             <div class='row'><div class='a'></div><div class='b'></div></div>",
+        );
+        let row = &layout.children[0];
+        assert_eq!(row.children[0].border_box().width, 200.0);
+        // b: basis 100 + the whole free space (800 - 300).
+        assert_eq!(row.children[1].border_box().width, 600.0);
+        assert_eq!(row.children[1].border_box().x, 200.0);
+    }
+
+    #[test]
+    fn order_reorders_flex_items_visually() {
+        let layout = layout_of(
+            "<style>.row { display: flex; }\
+                    .a { width: 100px; height: 10px; order: 2; }\
+                    .b { width: 100px; height: 10px; order: 1; }</style>\
+             <div class='row'><div class='a'></div><div class='b'></div></div>",
+        );
+        let row = &layout.children[0];
+        // DOM order is a, b; layout order follows `order` (b first).
+        assert_eq!(row.children[0].style.order, 1);
+        assert_eq!(row.children[0].border_box().x, 0.0);
+        assert_eq!(row.children[1].style.order, 2);
+        assert_eq!(row.children[1].border_box().x, 100.0);
+    }
+
+    #[test]
+    fn align_content_distributes_wrapped_lines() {
+        let layout = layout_of(
+            "<style>.row { display: flex; flex-wrap: wrap; height: 100px; \
+                            align-content: space-between; }\
+                    .item { width: 800px; height: 20px; }</style>\
+             <div class='row'><div class='item'></div><div class='item'></div></div>",
+        );
+        let row = &layout.children[0];
+        assert_eq!(row.children[0].border_box().y, 0.0);
+        // Free cross space 100 - 40 = 60 goes between the two lines.
+        assert_eq!(row.children[1].border_box().y, 80.0);
+    }
+
+    #[test]
+    fn logical_properties_drive_layout() {
+        let layout = layout_of(
+            "<style>div { margin-inline-start: 30px; margin-block-start: 10px; \
+                          padding-inline: 5px 7px; border-inline-start-width: 2px; \
+                          inline-size: 100px; block-size: 20px; }</style>\
+             <div></div>",
+        );
+        let div = &layout.children[0];
+        // border box x = margin-left 30; content width 100.
+        assert_eq!(div.border_box().x, 30.0);
+        assert_eq!(div.border_box().y, 10.0);
+        assert_eq!(div.content_box().x, 30.0 + 2.0 + 5.0);
+        assert_eq!(div.content_box().width, 100.0);
+        assert_eq!(div.content_box().height, 20.0);
+        assert_eq!(div.dimensions.padding.right, 7.0);
+    }
+
+    #[test]
+    fn inset_shorthand_offsets_relative_box() {
+        let layout = layout_of(
+            "<style>div { position: relative; inset: 5px 0 0 10px; height: 20px; }</style>\
+             <div></div>",
+        );
+        let div = &layout.children[0];
+        assert_eq!(div.border_box().x, 10.0);
+        assert_eq!(div.border_box().y, 5.0);
+    }
+
+    #[test]
+    fn min_max_clamp_drive_layout() {
+        let layout = layout_of(
+            "<style>.a { width: min(200px, 300px); height: 10px; }\
+                    .b { width: max(100px, 50px); height: 10px; }\
+                    .c { width: clamp(150px, 500px, 250px); height: 10px; }</style>\
+             <div class='a'></div><div class='b'></div><div class='c'></div>",
+        );
+        let body = &layout;
+        assert_eq!(body.children[0].content_box().width, 200.0);
+        assert_eq!(body.children[1].content_box().width, 100.0);
+        // clamp picks the preferred value bounded to [min, max] → 250.
+        assert_eq!(body.children[2].content_box().width, 250.0);
     }
 
     #[test]

@@ -177,6 +177,10 @@ pub enum PseudoElement {
     /// Rules with `::selection` style the selection overlay of the
     /// matched element, not the element itself.
     Selection,
+    /// `::first-letter`: styles the first letter of the matched block.
+    FirstLetter,
+    /// `::first-line`: styles the first formatted line of the block.
+    FirstLine,
 }
 
 impl<'any> static_self::IntoOwned<'any> for PseudoElement {
@@ -196,6 +200,8 @@ impl ToCss for PseudoElement {
             Self::Before => "::before",
             Self::After => "::after",
             Self::Selection => "::selection",
+            Self::FirstLetter => "::first-letter",
+            Self::FirstLine => "::first-line",
         })
     }
 }
@@ -262,6 +268,8 @@ impl<'i> parcel_selectors::parser::Parser<'i> for LumenSelectorParser {
             () if name.eq_ignore_ascii_case("before") => PseudoElement::Before,
             () if name.eq_ignore_ascii_case("after") => PseudoElement::After,
             () if name.eq_ignore_ascii_case("selection") => PseudoElement::Selection,
+            () if name.eq_ignore_ascii_case("first-letter") => PseudoElement::FirstLetter,
+            () if name.eq_ignore_ascii_case("first-line") => PseudoElement::FirstLine,
             () => {
                 return Err(location.new_custom_error(
                     SelectorParseErrorKind::UnsupportedPseudoElement(name),
@@ -400,6 +408,10 @@ mod tests {
             ("p:after", PseudoElement::After),
             ("p::selection", PseudoElement::Selection),
             ("::selection", PseudoElement::Selection),
+            ("p::first-letter", PseudoElement::FirstLetter),
+            ("p:first-letter", PseudoElement::FirstLetter),
+            ("p::first-line", PseudoElement::FirstLine),
+            ("p:first-line", PseudoElement::FirstLine),
         ] {
             let selector = parse_selector(source).unwrap();
             assert_eq!(selector.pseudo_element(), Some(&expected), "{source}");

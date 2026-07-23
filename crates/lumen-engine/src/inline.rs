@@ -120,15 +120,14 @@ fn collect_items(
 ) {
     match &document.node(node_id).kind {
         NodeKind::Text(text) => {
-            let pre = styles
-                .by_node
-                .get(&node_id)
-                .is_some_and(|style| style.white_space == WhiteSpace::Pre);
+            let style = styles.by_node.get(&node_id);
+            let pre = style.is_some_and(|style| style.white_space == WhiteSpace::Pre);
             if pre {
                 // Preserved whitespace: each newline forces a line break and
                 // spaces survive verbatim. The newlines hugging the element
                 // tags are dropped (as HTML does for `<pre>`), tabs become
-                // four spaces.
+                // `tab-size` spaces (naive: a fixed count, not tab stops).
+                let tab = " ".repeat(style.map_or(4, |style| style.tab_size) as usize);
                 let text = text.strip_prefix('\n').unwrap_or(text);
                 let text = text.strip_suffix('\n').unwrap_or(text);
                 for (index, segment) in text.split('\n').enumerate() {
@@ -138,7 +137,7 @@ fn collect_items(
                     if !segment.is_empty() {
                         items.push(InlineItem::Word {
                             node_id,
-                            text: segment.replace('\t', "    "),
+                            text: segment.replace('\t', &tab),
                             space_before: false,
                         });
                     }
@@ -206,13 +205,16 @@ fn collect_items(
 /// `origin` is the absolute position of the run's content box (atomic
 /// boxes are translated to absolute coordinates at flush time), and
 /// `bounds(line_top)` yields each line's `(indent, width)` inside the
-/// containing content box. Returns the lines and their total height.
+/// containing content box. `owner` is the run's block container, whose
+/// `::first-line`/`::first-letter` styles apply to the first formatted
+/// line. Returns the lines and their total height.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn layout_inline_run(
     document: &Document,
     styles: &StyleMap,
     run: &[NodeId],
     container: &ComputedStyle,
+    owner: Option<NodeId>,
     origin: (f32, f32),
     bounds: &LineBounds<'_>,
     measurer: &dyn TextMeasurer,
@@ -258,7 +260,102 @@ pub(crate) fn layout_inline_run(
     }
     builder.flush_line(false, false);
     let total = builder.cursor_y;
-    (builder.lines, total)
+    let mut lines = builder.lines;
+    if let Some(owner) = owner {
+        apply_pseudo_line_styles(&mut lines, styles, owner, measurer);
+    }
+    (lines, total)
+}
+
+/// `::first-line` / `::first-letter` post-processing: the first-line
+/// pseudo style overrides the text fields of every fragment on the
+/// first formatted line, and the first letter of the first text
+/// fragment splits into its own fragment carrying the first-letter
+/// style on top. Cascade detail is simplified: pseudo declarations
+/// simply override (their undeclared values equal the inherited ones).
+fn apply_pseudo_line_styles(
+    lines: &mut [LineBox],
+    styles: &StyleMap,
+    owner: NodeId,
+    measurer: &dyn TextMeasurer,
+) {
+    let first_line = styles.first_line.get(&owner);
+    let first_letter = styles.first_letter.get(&owner);
+    if first_line.is_none() && first_letter.is_none() {
+        return;
+    }
+    let Some(line) = lines.first_mut() else {
+        return;
+    };
+    if let Some(pseudo) = first_line {
+        for fragment in &mut line.fragments {
+            if let FragmentContent::Text { style, .. } = &mut fragment.content {
+                let style = style.as_mut();
+                style.color = pseudo.color;
+                style.background_color = pseudo.background_color;
+                style.font_size = pseudo.font_size;
+                style.font_weight = pseudo.font_weight;
+                style.italic = pseudo.italic;
+            }
+        }
+    }
+    let Some(pseudo) = first_letter else {
+        return;
+    };
+    for index in 0..line.fragments.len() {
+        let FragmentContent::Text { text, style } = &line.fragments[index].content else {
+            continue; // Atomic boxes are not letters; keep looking.
+        };
+        let Some(first) = text.chars().next() else {
+            continue;
+        };
+        let first_end = first.len_utf8();
+        let mut letter_style = style.as_ref().clone();
+        letter_style.color = pseudo.color;
+        letter_style.font_size = pseudo.font_size;
+        letter_style.font_weight = pseudo.font_weight;
+        letter_style.italic = pseudo.italic;
+        let text_style = |style: &ComputedStyle| TextStyle {
+            font_size: style.font_size,
+            font_weight: style.font_weight,
+            monospace: style.monospace,
+            letter_spacing: style.letter_spacing,
+        };
+        let letter_text = text[..first_end].to_string();
+        let letter_width = measurer
+            .measure(&letter_text, &text_style(&letter_style))
+            .width;
+        let fragment = &line.fragments[index];
+        let letter = Fragment {
+            node_id: fragment.node_id,
+            x: fragment.x,
+            width: letter_width,
+            dy: fragment.dy,
+            content: FragmentContent::Text {
+                text: letter_text,
+                style: Box::new(letter_style),
+            },
+        };
+        let rest_text = text[first_end..].to_string();
+        if rest_text.is_empty() {
+            line.fragments[index] = letter;
+        } else {
+            let rest_width = measurer.measure(&rest_text, &text_style(style)).width;
+            let rest = Fragment {
+                node_id: fragment.node_id,
+                x: fragment.x + letter_width,
+                width: rest_width,
+                dy: fragment.dy,
+                content: FragmentContent::Text {
+                    text: rest_text,
+                    style: style.clone(),
+                },
+            };
+            line.fragments[index] = letter;
+            line.fragments.insert(index + 1, rest);
+        }
+        break;
+    }
 }
 
 struct LineBuilder<'a> {
@@ -608,5 +705,95 @@ impl LineBuilder<'_> {
         self.cursor_y += height;
         self.pen_x = 0.0;
         self.started = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::geometry::Size;
+    use crate::layout::LayoutKind;
+    use lumen_css::Color;
+
+    /// All line boxes of the first inline container in the page.
+    fn lines_of(html: &str, width: f32) -> Vec<crate::LineBox> {
+        let page = crate::build_page(
+            html,
+            Size {
+                width,
+                height: 600.0,
+            },
+        );
+        fn find(layout: &crate::LayoutBox) -> Option<Vec<crate::LineBox>> {
+            if let LayoutKind::Inline { lines } = &layout.kind
+                && !lines.is_empty()
+            {
+                return Some(lines.clone());
+            }
+            layout.children.iter().find_map(find)
+        }
+        find(&page.layout).expect("an inline line box")
+    }
+
+    #[test]
+    fn first_letter_splits_and_styles_the_first_character() {
+        let lines = lines_of(
+            "<style>p::first-letter { color: rgb(1, 2, 3); font-size: 30px; font-weight: 700; }\
+             </style><body><p>hello</p></body>",
+            400.0,
+        );
+        let fragments = &lines[0].fragments;
+        assert_eq!(fragments.len(), 2);
+        assert_eq!(fragments[0].text(), Some("h"));
+        let style = fragments[0].style().unwrap();
+        assert_eq!(style.color, Color::rgb(1, 2, 3));
+        assert_eq!(style.font_size, 30.0);
+        assert_eq!(style.font_weight, crate::FontWeight(700));
+        assert_eq!(fragments[1].text(), Some("ello"));
+        assert_eq!(fragments[1].style().unwrap().color, Color::rgb(17, 17, 17));
+        // The split accounts for the letter's own advance.
+        assert!(fragments[1].x > fragments[0].x);
+    }
+
+    #[test]
+    fn without_first_letter_rule_the_run_stays_whole() {
+        let lines = lines_of("<body><p>hello</p></body>", 400.0);
+        assert_eq!(lines[0].fragments.len(), 1);
+        assert_eq!(lines[0].fragments[0].text(), Some("hello"));
+    }
+
+    #[test]
+    fn first_line_styles_only_the_first_line() {
+        let lines = lines_of(
+            "<style>p::first-line { color: rgb(4, 5, 6); background-color: rgb(7, 8, 9); }\
+             </style><body><p>one two three four five six seven eight nine ten</p></body>",
+            120.0,
+        );
+        assert!(
+            lines.len() > 1,
+            "expected wrapping: {} line(s)",
+            lines.len()
+        );
+        for fragment in &lines[0].fragments {
+            let style = fragment.style().unwrap();
+            assert_eq!(style.color, Color::rgb(4, 5, 6));
+            assert_eq!(style.background_color, Some(Color::rgb(7, 8, 9)));
+        }
+        for fragment in &lines[1].fragments {
+            let style = fragment.style().unwrap();
+            assert_eq!(style.color, Color::rgb(17, 17, 17));
+            assert_eq!(style.background_color, None);
+        }
+    }
+
+    #[test]
+    fn tab_size_controls_tab_expansion_in_pre() {
+        let lines = lines_of(
+            "<style>pre { tab-size: 2; }</style><body><pre>a\tb</pre></body>",
+            400.0,
+        );
+        assert_eq!(lines[0].fragments[0].text(), Some("a  b"));
+        // The engine's historical default stays four spaces.
+        let lines = lines_of("<body><pre>a\tb</pre></body>", 400.0);
+        assert_eq!(lines[0].fragments[0].text(), Some("a    b"));
     }
 }

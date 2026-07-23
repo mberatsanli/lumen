@@ -23,7 +23,7 @@ mod text_input;
 
 use lumen_browser::{EditOp, Motion, Session};
 use lumen_engine::{
-    Caret, DisplayCommand, HeuristicMeasurer, Rect, Selection, Size, SystemFont, TextRun,
+    Caret, Cursor, DisplayCommand, HeuristicMeasurer, Rect, Selection, Size, SystemFont, TextRun,
     caret_at_point, collect_text_runs, highlight_rects, rasterize_over, rasterize_region,
     rasterize_with, selected_text,
 };
@@ -301,6 +301,30 @@ fn session_offsets(state: &SessionState) -> &std::collections::HashMap<usize, f3
     match state {
         SessionState::Ready(session) => session.scroll_offsets(),
         SessionState::Loading { .. } => EMPTY.get_or_init(std::collections::HashMap::new),
+    }
+}
+
+/// Maps a CSS `cursor` keyword to the platform cursor.
+fn cursor_icon(cursor: Cursor) -> CursorIcon {
+    match cursor {
+        Cursor::Auto | Cursor::Default => CursorIcon::Default,
+        Cursor::Pointer => CursorIcon::Pointer,
+        Cursor::Text => CursorIcon::Text,
+        Cursor::Move => CursorIcon::Move,
+        Cursor::Crosshair => CursorIcon::Crosshair,
+        Cursor::Wait => CursorIcon::Wait,
+        Cursor::Help => CursorIcon::Help,
+        Cursor::NotAllowed => CursorIcon::NotAllowed,
+        Cursor::Grab => CursorIcon::Grab,
+        Cursor::Grabbing => CursorIcon::Grabbing,
+        Cursor::EwResize => CursorIcon::EwResize,
+        Cursor::NsResize => CursorIcon::NsResize,
+        Cursor::ColResize => CursorIcon::ColResize,
+        Cursor::RowResize => CursorIcon::RowResize,
+        Cursor::NResize => CursorIcon::NResize,
+        Cursor::SResize => CursorIcon::SResize,
+        Cursor::EResize => CursorIcon::EResize,
+        Cursor::WResize => CursorIcon::WResize,
     }
 }
 
@@ -1586,8 +1610,22 @@ impl App {
                     _ => CursorIcon::Default,
                 })
             });
+        // A declared CSS `cursor` beats every heuristic below (link
+        // pointer, control cursors, the I-beam). `cursor` inherits per
+        // CSS; the inheritance registry lives in lumen-css, so walk the
+        // hit node's ancestors for the nearest declared keyword instead.
+        let css_cursor = hit.and_then(|node| {
+            let page = self.session().and_then(Session::page)?;
+            std::iter::once(node)
+                .chain(page.document.ancestors(node))
+                .filter_map(|candidate| page.styles.by_node.get(&candidate))
+                .map(|style| style.cursor)
+                .find(|cursor| *cursor != Cursor::Auto)
+        });
         if let Some(window) = &self.window {
-            window.set_cursor(if over_link {
+            window.set_cursor(if let Some(cursor) = css_cursor {
+                cursor_icon(cursor)
+            } else if over_link {
                 CursorIcon::Pointer
             } else if let Some(cursor) = over_control {
                 cursor

@@ -9,7 +9,7 @@
 use crate::font::SystemFont;
 use crate::geometry::{Corners, Rect};
 use crate::paint::{DisplayCommand, GradientKind};
-use crate::style::{Mark, Transform2D};
+use crate::style::{FilterFunction, Mark, Transform2D};
 use font8x8::UnicodeFonts;
 use lumen_css::Color;
 
@@ -240,6 +240,11 @@ fn rasterize_clipped(
     let mut clips: Vec<(u32, u32, u32, u32)> = region.into_iter().collect();
     framebuffer.clip = clips.last().copied();
 
+    // Filter stack: page-space rects of the boxes whose painted output is
+    // post-processed at PopFilter (the matching transform is still
+    // active then, so `shift` maps them like any other primitive).
+    let mut filter_stack: Vec<(Rect, Vec<FilterFunction>)> = Vec::new();
+
     for command in commands {
         let current = transforms.last().copied();
         let shift = |rect: &Rect| device(map_rect(rect, current));
@@ -257,6 +262,16 @@ fn rasterize_clipped(
             }
             DisplayCommand::PopTransform => {
                 transforms.pop();
+                continue;
+            }
+            DisplayCommand::PushFilter { rect, filters } => {
+                filter_stack.push((*rect, filters.clone()));
+                continue;
+            }
+            DisplayCommand::PopFilter => {
+                if let Some((rect, filters)) = filter_stack.pop() {
+                    apply_filters(framebuffer, &shift(&rect), &filters, scale);
+                }
                 continue;
             }
             DisplayCommand::PushClip { rect } => {
@@ -1253,18 +1268,14 @@ fn draw_mark(framebuffer: &mut Framebuffer, rect: &Rect, color: Color, mark: Mar
             );
         }
         Mark::Fraction(fraction) => {
-            // Filled bar to the fraction; sliders add a thumb disc.
+            // Filled bar to the fraction, in the mark color (the accent
+            // color, UA blue by default); sliders add a thumb disc.
             let fill = Rect {
                 width: rect.width * fraction.fraction,
                 ..*rect
             };
             let radius = Corners::uniform(rect.height / 2.0);
-            fill_rounded(
-                framebuffer,
-                &fill,
-                &radius,
-                Color::rgba(0x22, 0x66, 0xaa, color.a),
-            );
+            fill_rounded(framebuffer, &fill, &radius, color);
             if fraction.thumb {
                 let diameter = rect.height + 4.0;
                 let disc = Rect {
@@ -1513,6 +1524,142 @@ fn blend(background: u32, foreground: u32, alpha: u8) -> u32 {
         ((front * alpha + back * inverse) / 255) << shift
     };
     channel(16) | channel(8) | channel(0)
+}
+
+/// Applies a CSS `filter` list to a device-space pixel region, in place.
+/// Point filters run per pixel; `blur()` is a naive separable box blur
+/// (radius ≈ σ/2) over a snapshot of the region, so it reads the
+/// pre-filter pixels of its surroundings.
+fn apply_filters(
+    framebuffer: &mut Framebuffer,
+    rect: &Rect,
+    filters: &[FilterFunction],
+    scale: f32,
+) {
+    if filters.is_empty() {
+        return;
+    }
+    let (x0, y0, x1, y1) = framebuffer.clamp_to_clip(
+        rect.x.max(0.0) as u32,
+        rect.y.max(0.0) as u32,
+        (rect.x + rect.width).max(0.0).ceil() as u32,
+        (rect.y + rect.height).max(0.0).ceil() as u32,
+    );
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+    let stride = framebuffer.width as usize;
+    let region_width = (x1 - x0) as usize;
+    let region_height = (y1 - y0) as usize;
+    // Snapshot the region: blur reads neighbors, and a copied region
+    // keeps every filter's input stable.
+    let mut region: Vec<u32> = Vec::with_capacity(region_width * region_height);
+    for y in y0..y1 {
+        let start = y as usize * stride + x0 as usize;
+        region.extend_from_slice(&framebuffer.pixels[start..start + region_width]);
+    }
+    for filter in filters {
+        match *filter {
+            FilterFunction::Blur(px) => {
+                let radius = (px * scale / 2.0).round() as usize;
+                if radius > 0 {
+                    box_blur(&mut region, region_width, region_height, radius);
+                }
+            }
+            point => {
+                for pixel in &mut region {
+                    *pixel = apply_point_filter(*pixel, point);
+                }
+            }
+        }
+    }
+    for (row, pixels) in region.chunks(region_width).enumerate() {
+        let start = (y0 as usize + row) * stride + x0 as usize;
+        framebuffer.pixels[start..start + region_width].copy_from_slice(pixels);
+    }
+}
+
+/// One point filter (everything but blur) on a 0RGB pixel.
+fn apply_point_filter(pixel: u32, filter: FilterFunction) -> u32 {
+    let r = ((pixel >> 16) & 0xff) as f32;
+    let g = ((pixel >> 8) & 0xff) as f32;
+    let b = (pixel & 0xff) as f32;
+    let lerp = |from: f32, to: f32, t: f32| from + (to - from) * t;
+    let luminance = || 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    let (r, g, b) = match filter {
+        FilterFunction::Grayscale(t) => {
+            let lum = luminance();
+            (lerp(r, lum, t), lerp(g, lum, t), lerp(b, lum, t))
+        }
+        FilterFunction::Sepia(t) => (
+            lerp(r, 0.393 * r + 0.769 * g + 0.189 * b, t),
+            lerp(g, 0.349 * r + 0.686 * g + 0.168 * b, t),
+            lerp(b, 0.272 * r + 0.534 * g + 0.131 * b, t),
+        ),
+        FilterFunction::Invert(t) => (
+            lerp(r, 255.0 - r, t),
+            lerp(g, 255.0 - g, t),
+            lerp(b, 255.0 - b, t),
+        ),
+        FilterFunction::Brightness(factor) => (r * factor, g * factor, b * factor),
+        FilterFunction::Contrast(factor) => (
+            (r - 128.0) * factor + 128.0,
+            (g - 128.0) * factor + 128.0,
+            (b - 128.0) * factor + 128.0,
+        ),
+        FilterFunction::Saturate(factor) => {
+            let lum = luminance();
+            (
+                lerp(lum, r, factor),
+                lerp(lum, g, factor),
+                lerp(lum, b, factor),
+            )
+        }
+        FilterFunction::Opacity(factor) => {
+            // The framebuffer is opaque: alpha reduction approximates as
+            // blending toward the white page background.
+            (
+                lerp(255.0, r, factor),
+                lerp(255.0, g, factor),
+                lerp(255.0, b, factor),
+            )
+        }
+        FilterFunction::Blur(_) => (r, g, b), // Handled region-wide.
+    };
+    let channel = |value: f32| value.clamp(0.0, 255.0).round() as u32;
+    (channel(r) << 16) | (channel(g) << 8) | channel(b)
+}
+
+/// Separable box blur (one horizontal + one vertical pass) over a
+/// row-major 0RGB region. Naive but deterministic.
+fn box_blur(region: &mut [u32], width: usize, height: usize, radius: usize) {
+    let blur_pass = |source: &[u32], target: &mut [u32], horizontal: bool| {
+        for y in 0..height {
+            for x in 0..width {
+                let (start, end) = if horizontal {
+                    (x.saturating_sub(radius), (x + radius).min(width - 1))
+                } else {
+                    (y.saturating_sub(radius), (y + radius).min(height - 1))
+                };
+                let (mut r, mut g, mut b) = (0u32, 0u32, 0u32);
+                for position in start..=end {
+                    let pixel = if horizontal {
+                        source[y * width + position]
+                    } else {
+                        source[position * width + x]
+                    };
+                    r += (pixel >> 16) & 0xff;
+                    g += (pixel >> 8) & 0xff;
+                    b += pixel & 0xff;
+                }
+                let count = (end - start + 1) as u32;
+                target[y * width + x] = ((r / count) << 16) | ((g / count) << 8) | (b / count);
+            }
+        }
+    };
+    let mut temp = region.to_vec();
+    blur_pass(region, &mut temp, true);
+    blur_pass(&temp, region, false);
 }
 
 #[cfg(test)]
@@ -1898,5 +2045,105 @@ mod tests {
         }];
         let framebuffer = rasterize(&commands, 4, 4, 0.0);
         assert!(framebuffer.pixels.iter().all(|pixel| *pixel == 0x00ff_0000));
+    }
+
+    fn filtered(commands: Vec<DisplayCommand>) -> Framebuffer {
+        rasterize(&commands, 10, 10, 0.0)
+    }
+
+    #[test]
+    fn grayscale_filter_grays_only_the_region() {
+        let commands = vec![
+            DisplayCommand::PushFilter {
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 5.0,
+                    height: 10.0,
+                },
+                filters: vec![FilterFunction::Grayscale(1.0)],
+            },
+            DisplayCommand::FillRect {
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 10.0,
+                    height: 10.0,
+                },
+                color: RED,
+                radius: Corners::uniform(0.0),
+            },
+            DisplayCommand::PopFilter,
+        ];
+        let framebuffer = filtered(commands);
+        let pixel = framebuffer.pixel(2, 2);
+        let channels = [(pixel >> 16) & 0xff, (pixel >> 8) & 0xff, pixel & 0xff];
+        assert_eq!(channels[0], channels[1]);
+        assert_eq!(channels[1], channels[2]);
+        // Rec. 709 luma of pure red.
+        assert!((channels[0] as f32 - 54.0).abs() <= 1.0, "{pixel:#x}");
+        // Outside the filter region the red is untouched.
+        assert_eq!(framebuffer.pixel(7, 2), 0x00ff_0000);
+    }
+
+    #[test]
+    fn invert_filter_inverts_channels() {
+        let commands = vec![
+            DisplayCommand::PushFilter {
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 10.0,
+                    height: 10.0,
+                },
+                filters: vec![FilterFunction::Invert(1.0)],
+            },
+            DisplayCommand::FillRect {
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 10.0,
+                    height: 10.0,
+                },
+                color: RED,
+                radius: Corners::uniform(0.0),
+            },
+            DisplayCommand::PopFilter,
+        ];
+        assert_eq!(filtered(commands).pixel(2, 2), 0x0000_ffff);
+    }
+
+    #[test]
+    fn blur_filter_softens_hard_edges() {
+        let commands = vec![
+            DisplayCommand::PushFilter {
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 10.0,
+                    height: 10.0,
+                },
+                filters: vec![FilterFunction::Blur(4.0)],
+            },
+            DisplayCommand::FillRect {
+                rect: Rect {
+                    x: 4.0,
+                    y: 0.0,
+                    width: 2.0,
+                    height: 10.0,
+                },
+                color: RED,
+                radius: Corners::uniform(0.0),
+            },
+            DisplayCommand::PopFilter,
+        ];
+        let framebuffer = filtered(commands);
+        // The red bled sideways into previously white pixels.
+        let bled = framebuffer.pixel(2, 5);
+        assert_ne!(bled, 0x00ff_ffff);
+        assert_eq!(bled & 0xff, (bled >> 8) & 0xff, "still gray+red mix");
+        // The bar's center is reddest (least green).
+        let center = framebuffer.pixel(5, 5);
+        assert!((center >> 8) & 0xff < (bled >> 8) & 0xff);
     }
 }

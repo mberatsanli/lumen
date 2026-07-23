@@ -7,6 +7,7 @@
 //! cargo run -p lumen-cli -- render examples/card.html crates/lumen-engine/tests/golden/card.svg
 //! cargo run -p lumen-cli -- render examples/nested.html crates/lumen-engine/tests/golden/nested.svg
 //! cargo run -p lumen-cli -- render examples/kitchen-sink.html crates/lumen-engine/tests/golden/kitchen-sink.svg
+//! cargo run -p lumen-cli -- render examples/css-test.html crates/lumen-engine/tests/golden/css-test.svg
 //! ```
 //! and review the diff before committing.
 
@@ -71,6 +72,29 @@ fn kitchen_sink_renders_to_golden_svg() {
 #[test]
 fn rendering_is_deterministic() {
     let html = include_str!("../../../examples/card.html");
+    let first = render_svg(&build_page(html, VIEWPORT));
+    let second = render_svg(&build_page(html, VIEWPORT));
+    assert_eq!(first, second);
+}
+
+/// The CSS feature board: every supported property family in labelled
+/// sections (colors, backgrounds, box model, text, layout, flex, grid,
+/// table, transforms, filters, forms, cursors, pointer-events, selectors,
+/// logical props, media queries, pseudo-elements). The board is also the
+/// determinism check for the full pipeline on a large page.
+#[test]
+fn css_test_renders_to_golden_svg() {
+    assert_golden(
+        "css-test",
+        include_str!("../../../examples/css-test.html"),
+        include_str!("golden/css-test.svg"),
+    );
+}
+
+/// The feature board renders byte-identically on repeat runs.
+#[test]
+fn css_test_rendering_is_deterministic() {
+    let html = include_str!("../../../examples/css-test.html");
     let first = render_svg(&build_page(html, VIEWPORT));
     let second = render_svg(&build_page(html, VIEWPORT));
     assert_eq!(first, second);

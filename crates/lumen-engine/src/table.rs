@@ -6,9 +6,12 @@
 //! preference (explicit CSS width, else a shrink-to-fit probe); preferred
 //! widths scale down proportionally when they overflow the table, and
 //! stretch proportionally when the table has an explicit width. Cells are
-//! separate-border boxes spaced by `border-spacing` (border-collapse is
-//! not implemented); rowspan reserves grid slots but does not stretch the
-//! spanning cell.
+//! separate-border boxes spaced by `border-spacing` (horizontal between
+//! columns, vertical between rows; the legacy default is `gap`, else
+//! 2px). Under `border-collapse: collapse` the spacing is zero and
+//! interior borders collapse to a single line (naive: each cell drops
+//! its top/left border except along the table's top/left edge); rowspan
+//! reserves grid slots but does not stretch the spanning cell.
 
 use crate::geometry::Size;
 use crate::image::ImageMap;
@@ -132,8 +135,17 @@ pub(crate) fn layout_table_children(
     if column_count == 0 {
         return (Vec::new(), 0.0);
     }
-    let spacing = table_style.gap.max(2.0); // border-spacing via gap, 2px default
-    let total_spacing = spacing * (column_count as f32 + 1.0);
+    // Separated model: `border-spacing` (legacy default: `gap`, else
+    // 2px). Collapsed model: zero spacing, single interior lines.
+    let collapse = table_style.border_collapse;
+    let (space_x, space_y) = if collapse {
+        (0.0, 0.0)
+    } else {
+        table_style
+            .border_spacing
+            .unwrap_or_else(|| (table_style.gap.max(2.0), table_style.gap.max(2.0)))
+    };
+    let total_spacing = space_x * (column_count as f32 + 1.0);
     let available = (content_width - total_spacing).max(0.0);
 
     // Column preferences: the widest cell preference per column
@@ -153,7 +165,7 @@ pub(crate) fn layout_table_children(
                 })
                 .min(available);
             let per_column =
-                (cell_preference - spacing * (cell.colspan as f32 - 1.0)) / cell.colspan as f32;
+                (cell_preference - space_x * (cell.colspan as f32 - 1.0)) / cell.colspan as f32;
             let end = (cell.column + cell.colspan).min(column_count);
             for width in &mut preferred[cell.column..end] {
                 *width = width.max(per_column);
@@ -181,26 +193,37 @@ pub(crate) fn layout_table_children(
 
     // Column x offsets.
     let mut offsets = Vec::with_capacity(column_count);
-    let mut x = spacing;
+    let mut x = space_x;
     for width in &preferred {
         offsets.push(x);
-        x += width + spacing;
+        x += width + space_x;
     }
 
     // Lay rows: each cell as an isolated block at its column width; the
     // row height is the tallest cell.
     let mut children: Vec<LayoutBox> = Vec::new();
-    let mut cursor_y = content_y + spacing;
-    for row in &rows {
+    let mut cursor_y = content_y + space_y;
+    for (row_index, row) in rows.iter().enumerate() {
         let mut row_height = 0.0f32;
         let mut laid_row: Vec<LayoutBox> = Vec::new();
         for cell in row {
             let mut style = styles.by_node.get(&cell.node).cloned().unwrap_or_default();
             let end = (cell.column + cell.colspan).min(column_count);
             let span_width: f32 = preferred[cell.column..end].iter().sum::<f32>()
-                + spacing * (end - cell.column - 1) as f32;
+                + space_x * (end - cell.column - 1) as f32;
             style.width = Dimension::Px(span_width);
             style.box_sizing = BoxSizing::BorderBox;
+            if collapse {
+                // Collapsed model, naive: interior borders merge by
+                // dropping each cell's top/left border except along the
+                // table's own top/left edge.
+                if row_index > 0 {
+                    style.border_width.top = 0.0;
+                }
+                if cell.column > 0 {
+                    style.border_width.left = 0.0;
+                }
+            }
             let mut laid = layout_isolated_with_style(
                 document, styles, cell.node, style, span_width, viewport, measurer, images,
                 probe_cache, depth,
@@ -222,7 +245,7 @@ pub(crate) fn layout_table_children(
                 .fold(0.0, f32::max);
         }
         children.extend(laid_row);
-        cursor_y += row_height + spacing;
+        cursor_y += row_height + space_y;
     }
 
     // Non-row children (e.g. <caption>) are ignored unless they are rows
@@ -259,5 +282,69 @@ mod tests {
         // Row 3's first cell starts at column 1 (column 0 reserved by the
         // rowspan above).
         assert_eq!(rows[2][0].column, 1);
+    }
+
+    /// Laid-out cell boxes (tag `td`/`th`) in paint order.
+    fn cells_of(html: &str) -> Vec<crate::LayoutBox> {
+        let page = crate::build_page(
+            html,
+            crate::geometry::Size {
+                width: 400.0,
+                height: 200.0,
+            },
+        );
+        fn collect(layout: &crate::LayoutBox, cells: &mut Vec<crate::LayoutBox>) {
+            if matches!(&layout.kind, crate::LayoutKind::Element(tag) if tag == "td" || tag == "th")
+            {
+                cells.push(layout.clone());
+            }
+            for child in &layout.children {
+                collect(child, cells);
+            }
+        }
+        let mut cells = Vec::new();
+        collect(&page.layout, &mut cells);
+        cells
+    }
+
+    #[test]
+    fn border_spacing_separates_cells() {
+        let cells = cells_of(
+            "<style>table { border-spacing: 10px 4px; }</style>\
+             <table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>",
+        );
+        assert_eq!(cells.len(), 4);
+        // Horizontal spacing: the first cell starts 10px in, the second
+        // follows another 10px gap.
+        assert_eq!(cells[0].border_box().x, 10.0);
+        let gap = cells[1].border_box().x - (cells[0].border_box().x + cells[0].border_box().width);
+        assert_eq!(gap, 10.0);
+        // Vertical spacing between rows.
+        let row_gap =
+            cells[2].border_box().y - (cells[0].border_box().y + cells[0].border_box().height);
+        assert!((row_gap - 4.0).abs() < 0.01, "row_gap={row_gap}");
+    }
+
+    #[test]
+    fn border_collapse_zeroes_spacing_and_merges_borders() {
+        let cells = cells_of(
+            "<style>table { border-collapse: collapse; } td { border: 2px solid #111111; }</style>\
+             <table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>",
+        );
+        assert_eq!(cells.len(), 4);
+        // No spacing: the first cell starts at the table's content edge
+        // and the next cell touches (or overlaps) it — no double line.
+        assert_eq!(cells[0].border_box().x, 0.0);
+        let gap = cells[1].border_box().x - (cells[0].border_box().x + cells[0].border_box().width);
+        assert!(gap <= 0.0, "gap={gap}");
+        // Interior borders collapse to a single line: top/left drop
+        // except along the table's own top/left edge.
+        assert_eq!(cells[0].style.border_width.left, 2.0);
+        assert_eq!(cells[0].style.border_width.top, 2.0);
+        assert_eq!(cells[1].style.border_width.left, 0.0);
+        assert_eq!(cells[1].style.border_width.top, 2.0);
+        assert_eq!(cells[2].style.border_width.top, 0.0);
+        assert_eq!(cells[3].style.border_width.left, 0.0);
+        assert_eq!(cells[3].style.border_width.top, 0.0);
     }
 }

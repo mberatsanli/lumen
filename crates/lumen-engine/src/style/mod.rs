@@ -69,6 +69,12 @@ pub struct StyleMap {
     /// `::before`/`::after` generated content, ready to materialize as
     /// text nodes (see `apply_generated_content`).
     pub pseudo_texts: Vec<PseudoText>,
+    /// `::first-letter` styles per block container (applied in inline
+    /// layout to the first letter of the first formatted line).
+    pub first_letter: HashMap<NodeId, ComputedStyle>,
+    /// `::first-line` styles per block container (applied in inline
+    /// layout to the fragments of the first formatted line).
+    pub first_line: HashMap<NodeId, ComputedStyle>,
 }
 
 /// One piece of CSS-generated content.
@@ -130,6 +136,8 @@ pub fn compute_styles_interactive(
 ) -> StyleMap {
     let mut by_node = HashMap::new();
     let mut pseudo_texts = Vec::new();
+    let mut first_letter = HashMap::new();
+    let mut first_line = HashMap::new();
     let inherited = HashMap::new();
     let context = StyleContext::new(document, author, interaction);
     compute_node(
@@ -140,11 +148,15 @@ pub fn compute_styles_interactive(
         DEFAULT_FONT_SIZE,
         &mut by_node,
         &mut pseudo_texts,
+        &mut first_letter,
+        &mut first_line,
         0,
     );
     StyleMap {
         by_node,
         pseudo_texts,
+        first_letter,
+        first_line,
     }
 }
 
@@ -160,12 +172,16 @@ struct CascadeSheet<'a> {
     selectors: Vec<Vec<(u32, matching::PreparedSelector)>>,
     has_before: bool,
     has_after: bool,
+    has_first_letter: bool,
+    has_first_line: bool,
 }
 
 impl<'a> CascadeSheet<'a> {
     fn new(sheet: &'a Stylesheet) -> Self {
         let mut has_before = false;
         let mut has_after = false;
+        let mut has_first_letter = false;
+        let mut has_first_line = false;
         let selectors = sheet
             .rules
             .iter()
@@ -176,12 +192,11 @@ impl<'a> CascadeSheet<'a> {
                         match selector.pseudo_element() {
                             Some(PseudoElement::Before) => has_before = true,
                             Some(PseudoElement::After) => has_after = true,
+                            Some(PseudoElement::FirstLetter) => has_first_letter = true,
+                            Some(PseudoElement::FirstLine) => has_first_line = true,
                             _ => {}
                         }
-                        (
-                            selector.specificity(),
-                            matching::prepare_selector(selector),
-                        )
+                        (selector.specificity(), matching::prepare_selector(selector))
                     })
                     .collect()
             })
@@ -191,6 +206,8 @@ impl<'a> CascadeSheet<'a> {
             selectors,
             has_before,
             has_after,
+            has_first_letter,
+            has_first_line,
         }
     }
 
@@ -199,6 +216,8 @@ impl<'a> CascadeSheet<'a> {
         match kind {
             "before" => self.has_before,
             "after" => self.has_after,
+            "first-letter" => self.has_first_letter,
+            "first-line" => self.has_first_line,
             _ => false,
         }
     }
@@ -564,6 +583,8 @@ fn compute_node(
     root_font_size: f32,
     output: &mut HashMap<NodeId, ComputedStyle>,
     pseudo_texts: &mut Vec<PseudoText>,
+    first_letter: &mut HashMap<NodeId, ComputedStyle>,
+    first_line: &mut HashMap<NodeId, ComputedStyle>,
     depth: usize,
 ) {
     // Depth guard: absurdly nested documents stop here; the skipped
@@ -611,15 +632,24 @@ fn compute_node(
             for (name, (is_important, specificity, source_order, value)) in
                 winning_declarations(node_id, cascade_sheet, context, None)
             {
-                let rank = (cascade_level(origin, is_important), specificity, source_order);
-                if meta.get(name.as_str()).is_none_or(|current| rank >= *current) {
+                let rank = (
+                    cascade_level(origin, is_important),
+                    specificity,
+                    source_order,
+                );
+                if meta
+                    .get(name.as_str())
+                    .is_none_or(|current| rank >= *current)
+                {
                     meta.insert(Cow::Owned(name.clone()), rank);
                     raw.insert(Cow::Owned(name), value);
                 }
             }
         }
         if let Some(inline) = element.attributes.get("style") {
-            for (index, declaration) in lumen_css::parse_declarations(inline).into_iter().enumerate()
+            for (index, declaration) in lumen_css::parse_declarations(inline)
+                .into_iter()
+                .enumerate()
             {
                 let rank = (cascade_level(2, declaration.important), 0, index);
                 if meta
@@ -690,47 +720,11 @@ fn compute_node(
     // a child and needs a string `content` to generate anything.
     if element.is_some() {
         for (kind, leading) in [("before", true), ("after", false)] {
-            // No rule in either sheet targets this pseudo-element (the
-            // common case): the pass below would produce nothing.
-            if !context.sheets.iter().any(|sheet| sheet.has_pseudo(kind)) {
+            let Some((mut pseudo_raw, mut meta)) =
+                pseudo_raw_style(node_id, context, &raw, &computed, kind)
+            else {
                 continue;
-            }
-            let mut pseudo_raw = RawStyle::new();
-            for property in lumen_css::properties::inherited() {
-                if let Some(value) = raw.get(property) {
-                    pseudo_raw.insert(Cow::Borrowed(property), value.clone());
-                }
-            }
-            // Custom properties inherit too, so var() in pseudo rules
-            // resolves against the element's definitions.
-            for (name, value) in &raw {
-                if name.starts_with("--") {
-                    pseudo_raw.insert(name.clone(), value.clone());
-                }
-            }
-            pseudo_raw.insert(
-                Cow::Borrowed("font-size"),
-                CssValue::Length(computed.font_size, lumen_css::Unit::Px),
-            );
-            let mut meta = CascadeMeta::new();
-            let mut any = false;
-            for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
-                for (name, (is_important, specificity, source_order, value)) in
-                    winning_declarations(node_id, cascade_sheet, context, Some(kind))
-                {
-                    // Same cascade ranking as the element pass: important
-                    // declarations win across origins as well.
-                    let rank = (cascade_level(origin, is_important), specificity, source_order);
-                    if meta.get(name.as_str()).is_none_or(|current| rank >= *current) {
-                        meta.insert(Cow::Owned(name.clone()), rank);
-                        pseudo_raw.insert(Cow::Owned(name), value);
-                        any = true;
-                    }
-                }
-            }
-            if !any {
-                continue;
-            }
+            };
             let Some(CssValue::String(text)) = pseudo_raw.get("content") else {
                 continue;
             };
@@ -741,13 +735,12 @@ fn compute_node(
             let text = text.clone();
             // The same value pipeline as the element pass: var()
             // substitution, rem resolution, calc() evaluation.
-            substitute_declaration_vars(&mut pseudo_raw, &mut meta);
-            for value in pseudo_raw.values_mut() {
-                if let CssValue::Length(size, lumen_css::Unit::Rem) = value {
-                    *value = CssValue::Length(*size * root_font_size, lumen_css::Unit::Px);
-                }
-            }
-            evaluate_calculations(&mut pseudo_raw, computed.font_size, root_font_size);
+            finish_pseudo_raw(
+                &mut pseudo_raw,
+                &mut meta,
+                computed.font_size,
+                root_font_size,
+            );
             let mut style = to_computed(&pseudo_raw, None, computed.font_size);
             // Generated content is not selectable (as in browsers).
             style.selectable = false;
@@ -757,6 +750,29 @@ fn compute_node(
                 text,
                 style,
             });
+        }
+
+        // `::first-letter` / `::first-line`: a style override for the
+        // block container's first formatted line (applied in inline
+        // layout, see inline.rs); only block containers qualify.
+        if matches!(computed.display, Display::Block | Display::InlineBlock) {
+            for (kind, target) in [
+                ("first-letter", &mut *first_letter),
+                ("first-line", &mut *first_line),
+            ] {
+                let Some((mut pseudo_raw, mut meta)) =
+                    pseudo_raw_style(node_id, context, &raw, &computed, kind)
+                else {
+                    continue;
+                };
+                finish_pseudo_raw(
+                    &mut pseudo_raw,
+                    &mut meta,
+                    computed.font_size,
+                    root_font_size,
+                );
+                target.insert(node_id, to_computed(&pseudo_raw, None, computed.font_size));
+            }
         }
     }
     // The html element's resolved font size anchors `rem` for the tree.
@@ -774,9 +790,86 @@ fn compute_node(
             root_font_size,
             output,
             pseudo_texts,
+            first_letter,
+            first_line,
             depth + 1,
         );
     }
+}
+
+/// Builds the raw style for one pseudo-element pass: inherits from the
+/// element's raw style like a child (including custom properties and the
+/// resolved font size), then applies the winning declarations of rules
+/// targeting `kind`. Returns `None` when no rule in either sheet targets
+/// the pseudo-element (the common case) or nothing matched.
+fn pseudo_raw_style(
+    node_id: NodeId,
+    context: &StyleContext<'_>,
+    raw: &RawStyle,
+    computed: &ComputedStyle,
+    kind: &str,
+) -> Option<(RawStyle, CascadeMeta)> {
+    if !context.sheets.iter().any(|sheet| sheet.has_pseudo(kind)) {
+        return None;
+    }
+    let mut pseudo_raw = RawStyle::new();
+    for property in lumen_css::properties::inherited() {
+        if let Some(value) = raw.get(property) {
+            pseudo_raw.insert(Cow::Borrowed(property), value.clone());
+        }
+    }
+    // Custom properties inherit too, so var() in pseudo rules resolves
+    // against the element's definitions.
+    for (name, value) in raw {
+        if name.starts_with("--") {
+            pseudo_raw.insert(name.clone(), value.clone());
+        }
+    }
+    pseudo_raw.insert(
+        Cow::Borrowed("font-size"),
+        CssValue::Length(computed.font_size, lumen_css::Unit::Px),
+    );
+    let mut meta = CascadeMeta::new();
+    let mut any = false;
+    for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
+        for (name, (is_important, specificity, source_order, value)) in
+            winning_declarations(node_id, cascade_sheet, context, Some(kind))
+        {
+            // Same cascade ranking as the element pass: important
+            // declarations win across origins as well.
+            let rank = (
+                cascade_level(origin, is_important),
+                specificity,
+                source_order,
+            );
+            if meta
+                .get(name.as_str())
+                .is_none_or(|current| rank >= *current)
+            {
+                meta.insert(Cow::Owned(name.clone()), rank);
+                pseudo_raw.insert(Cow::Owned(name), value);
+                any = true;
+            }
+        }
+    }
+    any.then_some((pseudo_raw, meta))
+}
+
+/// The shared tail of a pseudo-element pass: var() substitution, rem
+/// resolution, calc() evaluation — the same pipeline as the element pass.
+fn finish_pseudo_raw(
+    pseudo_raw: &mut RawStyle,
+    meta: &mut CascadeMeta,
+    font_size: f32,
+    root_font_size: f32,
+) {
+    substitute_declaration_vars(pseudo_raw, meta);
+    for value in pseudo_raw.values_mut() {
+        if let CssValue::Length(size, lumen_css::Unit::Rem) = value {
+            *value = CssValue::Length(*size * root_font_size, lumen_css::Unit::Px);
+        }
+    }
+    evaluate_calculations(pseudo_raw, font_size, root_font_size);
 }
 
 /// Per-property winner within one origin: highest (importance,
@@ -819,7 +912,11 @@ fn winning_declarations(
                         },
                         // Pseudo pass: only rules for that pseudo-element.
                         (Some("before"), Some(PseudoElement::Before))
-                        | (Some("after"), Some(PseudoElement::After)) => declaration.name.clone(),
+                        | (Some("after"), Some(PseudoElement::After))
+                        | (Some("first-letter"), Some(PseudoElement::FirstLetter))
+                        | (Some("first-line"), Some(PseudoElement::FirstLine)) => {
+                            declaration.name.clone()
+                        }
                         _ => continue,
                     };
                     let candidate = (
@@ -1155,17 +1252,27 @@ fn to_computed(
         .map(|value| parse_grid_tracks(&value.raw_text(), style.font_size))
         .unwrap_or_default();
 
-    style.grid_span = raw
-        .get("grid-column")
-        .map(CssValue::raw_text)
-        .as_deref()
-        .and_then(|text| {
-            let text = text.trim();
-            text.strip_prefix("span")
-                .and_then(|rest| rest.trim().parse::<usize>().ok())
-        })
-        .filter(|span| *span >= 1)
-        .unwrap_or(1);
+    // grid-template-rows: same track grammar; rows without a track (or
+    // with `auto`) size to their content.
+    style.grid_rows = raw
+        .get("grid-template-rows")
+        .map(|value| parse_grid_tracks(&value.raw_text(), style.font_size))
+        .unwrap_or_default();
+
+    let span_of = |name: &str| {
+        raw.get(name)
+            .map(CssValue::raw_text)
+            .as_deref()
+            .and_then(|text| {
+                let text = text.trim();
+                text.strip_prefix("span")
+                    .and_then(|rest| rest.trim().parse::<usize>().ok())
+            })
+            .filter(|span| *span >= 1)
+            .unwrap_or(1)
+    };
+    style.grid_span = span_of("grid-column");
+    style.grid_row_span = span_of("grid-row");
 
     if let Some(text) = raw.get("transform").map(CssValue::raw_text) {
         if text.contains('%') {
@@ -1444,12 +1551,40 @@ fn to_computed(
         Some("monospace")
     );
 
-    // `auto` parses as CssValue::Auto (not a keyword), so match raw text.
-    style.overflow = match raw.get("overflow").map(CssValue::raw_text).as_deref() {
+    // overflow / overflow-x / overflow-y. `auto` parses as CssValue::Auto
+    // (not a keyword), so match raw text. Per CSS, when one axis is
+    // `visible` and the other is not, the visible one computes to `auto`.
+    let overflow_axis = |text: Option<&str>| match text {
         Some("hidden" | "clip") => Overflow::Hidden,
         Some("scroll" | "auto") => Overflow::Scroll,
         _ => Overflow::Visible,
     };
+    let shorthand = raw.get("overflow").map(CssValue::raw_text);
+    let mut pieces = shorthand.as_deref().unwrap_or("").split_whitespace();
+    let first = pieces.next();
+    let second = pieces.next().or(first);
+    let mut overflow_x = overflow_axis(
+        raw.get("overflow-x")
+            .map(CssValue::raw_text)
+            .as_deref()
+            .or(first),
+    );
+    let mut overflow_y = overflow_axis(
+        raw.get("overflow-y")
+            .map(CssValue::raw_text)
+            .as_deref()
+            .or(second),
+    );
+    if (overflow_x == Overflow::Visible) != (overflow_y == Overflow::Visible) {
+        if overflow_x == Overflow::Visible {
+            overflow_x = Overflow::Scroll;
+        } else {
+            overflow_y = Overflow::Scroll;
+        }
+    }
+    style.overflow_x = overflow_x;
+    style.overflow_y = overflow_y;
+    style.overflow = overflow_y;
 
     style.white_space = match raw.get("white-space").and_then(CssValue::as_keyword) {
         Some("pre" | "pre-wrap" | "pre-line") => WhiteSpace::Pre,
@@ -1540,6 +1675,7 @@ fn to_computed(
         Some("relative") => Position::Relative,
         Some("absolute") => Position::Absolute,
         Some("fixed") => Position::Fixed,
+        Some("sticky") => Position::Sticky,
         _ => Position::Static,
     };
     let offset = |name: &str| {
@@ -1602,6 +1738,52 @@ fn to_computed(
         _ => None,
     };
 
+    style.align_content = match raw.get("align-content").and_then(CssValue::as_keyword) {
+        Some("center") => AlignContent::Center,
+        Some("flex-end" | "end") => AlignContent::End,
+        Some("space-between") => AlignContent::SpaceBetween,
+        // `stretch` and everything else approximates as start.
+        _ => AlignContent::Start,
+    };
+
+    // flex-basis: a dimension overriding the item's base main size.
+    style.flex_basis = match raw.get("flex-basis") {
+        Some(value) => Dimension::from_value(value, style.font_size).unwrap_or(Dimension::Auto),
+        None => Dimension::Auto,
+    };
+
+    style.order = match raw.get("order") {
+        Some(CssValue::Number(value)) => *value as i32,
+        _ => 0,
+    };
+
+    style.object_fit = match raw.get("object-fit").and_then(CssValue::as_keyword) {
+        Some("contain") => ObjectFit::Contain,
+        Some("cover") => ObjectFit::Cover,
+        Some("none") => ObjectFit::None,
+        Some("scale-down") => ObjectFit::ScaleDown,
+        _ => ObjectFit::Fill,
+    };
+
+    if let Some(text) = raw.get("object-position").map(CssValue::raw_text) {
+        let component = |value: &str| -> Option<Dimension> {
+            match value {
+                "left" | "top" => Some(Dimension::Percent(0.0)),
+                "center" => Some(Dimension::Percent(50.0)),
+                "right" | "bottom" => Some(Dimension::Percent(100.0)),
+                other => Dimension::from_value(&CssValue::parse_component(other)?, style.font_size),
+            }
+        };
+        let mut pieces = text.split_whitespace();
+        if let Some(x) = pieces.next().and_then(component) {
+            let y = pieces
+                .next()
+                .and_then(component)
+                .unwrap_or(Dimension::Percent(50.0));
+            style.object_position = (x, y);
+        }
+    }
+
     style.text_align = raw
         .get("text-align")
         .and_then(CssValue::as_keyword)
@@ -1613,6 +1795,106 @@ fn to_computed(
             _ => None,
         })
         .unwrap_or_default();
+
+    // filter: grayscale/sepia/invert/brightness/contrast/saturate/
+    // opacity/blur function list (raster backend only).
+    style.filters = raw
+        .get("filter")
+        .map(|value| parse_filter_list(&value.raw_text()))
+        .unwrap_or_default();
+
+    let background_box =
+        |name: &str, default: BackgroundBox| match raw.get(name).and_then(CssValue::as_keyword) {
+            Some("border-box") => BackgroundBox::BorderBox,
+            Some("padding-box") => BackgroundBox::PaddingBox,
+            Some("content-box") => BackgroundBox::ContentBox,
+            _ => default,
+        };
+    style.background_clip = background_box("background-clip", BackgroundBox::BorderBox);
+    style.background_origin = background_box("background-origin", BackgroundBox::BorderBox);
+
+    style.border_collapse = matches!(
+        raw.get("border-collapse").and_then(CssValue::as_keyword),
+        Some("collapse")
+    );
+
+    // border-spacing: one or two lengths (horizontal [vertical]).
+    style.border_spacing = raw.get("border-spacing").map(|value| {
+        let text = value.raw_text();
+        let mut pieces =
+            text.split_whitespace()
+                .filter_map(|piece| match CssValue::parse_component(piece) {
+                    Some(CssValue::Length(px, lumen_css::Unit::Px)) => Some(px.max(0.0)),
+                    Some(CssValue::Length(em, lumen_css::Unit::Em)) => {
+                        Some((em * style.font_size).max(0.0))
+                    }
+                    _ => None,
+                });
+        let horizontal = pieces.next().unwrap_or(0.0);
+        let vertical = pieces.next().unwrap_or(horizontal);
+        (horizontal, vertical)
+    });
+
+    style.outline_offset = match raw.get("outline-offset") {
+        Some(CssValue::Length(factor, lumen_css::Unit::Em)) => factor * style.font_size,
+        Some(value) => value.as_px().unwrap_or(0.0),
+        None => 0.0,
+    };
+
+    // Individual transform properties compose translate → rotate →
+    // scale and apply before `transform` (combined in paint).
+    style.individual_transform = [
+        raw.get("translate")
+            .and_then(|value| parse_translate_value(&value.raw_text(), style.font_size)),
+        raw.get("rotate")
+            .and_then(|value| parse_rotate_value(&value.raw_text())),
+        raw.get("scale")
+            .and_then(|value| parse_scale_value(&value.raw_text())),
+    ]
+    .into_iter()
+    .flatten()
+    .reduce(Transform2D::multiply)
+    .filter(|matrix| !matrix.is_identity());
+
+    // tab-size: a number of spaces (lengths are unsupported). The
+    // default stays the engine's historical 4, not CSS's 8.
+    if let Some(CssValue::Number(value)) = raw.get("tab-size") {
+        style.tab_size = (*value as u32).min(64);
+    }
+
+    // caret-color: `auto`/`currentcolor` both resolve to None = the
+    // text color (what the editing overlay falls back to).
+    style.caret_color = match raw.get("caret-color") {
+        Some(CssValue::Color(color)) => Some(*color),
+        _ => None,
+    };
+
+    style.accent_color = match raw.get("accent-color") {
+        Some(CssValue::Color(color)) => Some(*color),
+        _ => None,
+    };
+    // A declared accent color replaces the UA control accent: checked
+    // checkboxes/radios take it as their fill and border (value bars
+    // pick it up at mark paint time, see paint.rs).
+    if let Some(accent) = style.accent_color
+        && matches!(style.mark, Some(Mark::Check | Mark::Dot))
+    {
+        style.background_color = Some(accent);
+        style.border_color = EdgeSizes::uniform(accent);
+    }
+
+    // cursor: unknown keywords fall back to `auto` (the chrome's
+    // heuristics decide).
+    style.cursor = raw
+        .get("cursor")
+        .and_then(|value| value.as_keyword().and_then(Cursor::from_keyword))
+        .unwrap_or_default();
+
+    // pointer-events: only `none` diverges from the initial `auto`.
+    style.pointer_events = match raw.get("pointer-events").and_then(CssValue::as_keyword) {
+        Some("none") => PointerEvents::None,
+        _ => PointerEvents::Auto,
+    };
 
     style
 }
@@ -1829,10 +2111,115 @@ mod tests {
              <body><a href=\"https://x\">x</a></body>",
         );
         // The `i` flag matches; the case-sensitive rule does not.
-        assert_eq!(
-            style_of(&document, &styles, "a").color,
-            Color::rgb(1, 2, 3)
+        assert_eq!(style_of(&document, &styles, "a").color, Color::rgb(1, 2, 3));
+    }
+
+    #[test]
+    fn position_sticky_parses() {
+        let (document, styles) = styles_for(
+            "<style>div { position: sticky; top: 5px; }</style><body><div></div></body>",
         );
+        let div = style_of(&document, &styles, "div");
+        assert_eq!(div.position, Position::Sticky);
+        assert_eq!(div.offsets.top, Dimension::Px(5.0));
+    }
+
+    #[test]
+    fn overflow_axes_compute_independently() {
+        let (document, styles) = styles_for(
+            "<style>\
+             .a { overflow: hidden auto; } \
+             .b { overflow-x: clip; } \
+             .c { overflow-y: scroll; } \
+             .d { overflow: hidden; } \
+             </style>\
+             <body><div class='a'></div><div class='b'></div><div class='c'></div>\
+             <div class='d'></div></body>",
+        );
+        let of_class = |class: &str| {
+            let id = document
+                .descendants(document.root())
+                .find(|id| {
+                    document.element(*id).is_some_and(|element| {
+                        element.classes().any(|candidate| candidate == class)
+                    })
+                })
+                .unwrap();
+            &styles.by_node[&id]
+        };
+        // Two-value shorthand: x hidden, y auto → scroll.
+        assert_eq!(of_class("a").overflow_x, Overflow::Hidden);
+        assert_eq!(of_class("a").overflow_y, Overflow::Scroll);
+        // One non-visible axis forces the visible other to auto.
+        assert_eq!(of_class("b").overflow_x, Overflow::Hidden);
+        assert_eq!(of_class("b").overflow_y, Overflow::Scroll);
+        assert_eq!(of_class("c").overflow_x, Overflow::Scroll);
+        assert_eq!(of_class("c").overflow_y, Overflow::Scroll);
+        // Single value applies to both axes; legacy field mirrors y.
+        assert_eq!(of_class("d").overflow_x, Overflow::Hidden);
+        assert_eq!(of_class("d").overflow_y, Overflow::Hidden);
+        assert_eq!(of_class("d").overflow, Overflow::Hidden);
+    }
+
+    #[test]
+    fn grid_rows_and_grid_row_parse() {
+        let (document, styles) = styles_for(
+            "<style>.g { display: grid; grid-template-rows: 10px 1fr; } \
+                    .t { grid-row: span 2; }</style>\
+             <body><div class='g'><div class='t'></div></div></body>",
+        );
+        let grid = style_of(&document, &styles, "div");
+        assert_eq!(
+            grid.grid_rows,
+            vec![GridTrack::Px(10.0), GridTrack::Fr(1.0)]
+        );
+        let ids: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "div")
+            })
+            .collect();
+        assert_eq!(styles.by_node[&ids[1]].grid_row_span, 2);
+    }
+
+    #[test]
+    fn object_fit_and_position_parse() {
+        let (document, styles) = styles_for(
+            "<style>img { object-fit: cover; object-position: left top; }</style>\
+             <body><img src='a'></body>",
+        );
+        let img = style_of(&document, &styles, "img");
+        assert_eq!(img.object_fit, ObjectFit::Cover);
+        assert_eq!(
+            img.object_position,
+            (Dimension::Percent(0.0), Dimension::Percent(0.0))
+        );
+    }
+
+    #[test]
+    fn flex_basis_and_order_and_align_content_parse() {
+        let (document, styles) = styles_for(
+            "<style>.c { display: flex; align-content: space-between; } \
+                    .i { flex: 2 0 150px; order: 3; }</style>\
+             <body><div class='c'><div class='i'></div></div></body>",
+        );
+        let container = style_of(&document, &styles, "div");
+        assert_eq!(container.align_content, AlignContent::SpaceBetween);
+        let ids: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "div")
+            })
+            .collect();
+        let item = &styles.by_node[&ids[1]];
+        assert_eq!(item.flex_grow, 2.0);
+        assert_eq!(item.flex_shrink, 0.0);
+        assert_eq!(item.flex_basis, Dimension::Px(150.0));
+        assert_eq!(item.order, 3);
     }
 
     #[test]
@@ -2433,10 +2820,7 @@ mod tests {
             "<style>input { display: block !important; }</style>\
              <body><input type='hidden'></body>",
         );
-        assert_eq!(
-            style_of(&document, &styles, "input").display,
-            Display::None
-        );
+        assert_eq!(style_of(&document, &styles, "input").display, Display::None);
         // A non-hidden input still takes the author declaration.
         let (document, styles) = styles_for(
             "<style>input { display: block !important; }</style>\
@@ -2459,9 +2843,8 @@ mod tests {
             Some(CssValue::Length(-40.0, lumen_css::Unit::Percent))
         );
         // ...and through the full pipeline into a computed margin.
-        let (document, styles) = styles_for(
-            "<style>div { margin-top: calc(-(100px - 20px)); }</style><div>x</div>",
-        );
+        let (document, styles) =
+            styles_for("<style>div { margin-top: calc(-(100px - 20px)); }</style><div>x</div>");
         assert_eq!(
             style_of(&document, &styles, "div").margin.top,
             Dimension::Px(-80.0)
@@ -2974,5 +3357,195 @@ mod tests {
         assert_eq!(styles.by_node[&items[3]].letter_spacing, 2.0);
         assert_eq!(styles.by_node[&items[0]].margin.top, Dimension::Px(0.0));
         assert_eq!(styles.by_node[&items[1]].margin.top, Dimension::Px(3.0));
+    }
+
+    #[test]
+    fn filter_function_list_parses() {
+        let (document, styles) = styles_for(
+            "<style>div { filter: grayscale(50%) blur(2px) brightness(120%); }\
+             span { filter: invert(1) opacity(0.5); }</style>\
+             <body><div></div><span></span></body>",
+        );
+        assert_eq!(
+            style_of(&document, &styles, "div").filters,
+            vec![
+                FilterFunction::Grayscale(0.5),
+                FilterFunction::Blur(2.0),
+                FilterFunction::Brightness(1.2),
+            ]
+        );
+        assert_eq!(
+            style_of(&document, &styles, "span").filters,
+            vec![FilterFunction::Invert(1.0), FilterFunction::Opacity(0.5)]
+        );
+    }
+
+    #[test]
+    fn background_clip_and_origin_parse() {
+        let (document, styles) = styles_for(
+            "<style>div { background-clip: content-box; background-origin: padding-box; }</style>\
+             <body><div></div></body>",
+        );
+        let style = style_of(&document, &styles, "div");
+        assert_eq!(style.background_clip, BackgroundBox::ContentBox);
+        assert_eq!(style.background_origin, BackgroundBox::PaddingBox);
+        // Defaults keep the historical border-box painting.
+        let (document, styles) = styles_for("<body><div></div></body>");
+        let style = style_of(&document, &styles, "div");
+        assert_eq!(style.background_clip, BackgroundBox::BorderBox);
+        assert_eq!(style.background_origin, BackgroundBox::BorderBox);
+    }
+
+    #[test]
+    fn border_spacing_and_collapse_parse() {
+        let (document, styles) = styles_for(
+            "<style>table { border-collapse: collapse; border-spacing: 4px 6px; }</style>\
+             <body><table><tr><td>x</td></tr></table></body>",
+        );
+        let style = style_of(&document, &styles, "table");
+        assert!(style.border_collapse);
+        assert_eq!(style.border_spacing, Some((4.0, 6.0)));
+        // One value expands to both axes; separate is the default.
+        let (document, styles) = styles_for(
+            "<style>table { border-spacing: 3px; }</style>\
+             <body><table><tr><td>x</td></tr></table></body>",
+        );
+        let style = style_of(&document, &styles, "table");
+        assert!(!style.border_collapse);
+        assert_eq!(style.border_spacing, Some((3.0, 3.0)));
+    }
+
+    #[test]
+    fn outline_offset_parses() {
+        let (document, styles) = styles_for(
+            "<style>div { outline: 2px solid red; outline-offset: 3px; }</style>\
+             <body><div></div></body>",
+        );
+        assert_eq!(style_of(&document, &styles, "div").outline_offset, 3.0);
+    }
+
+    #[test]
+    fn individual_transform_properties_compose_translate_rotate_scale() {
+        let (document, styles) = styles_for(
+            "<style>div { translate: 10px 20px; rotate: 90deg; scale: 2; }</style>\
+             <body><div></div></body>",
+        );
+        let matrix = style_of(&document, &styles, "div")
+            .individual_transform
+            .expect("a composed individual transform");
+        // translate → rotate → scale: a point maps through R*S first,
+        // then shifts by (10, 20).
+        let (x, y) = matrix.apply(1.0, 0.0);
+        assert!((x - 10.0).abs() < 1e-4, "x={x}");
+        assert!((y - 22.0).abs() < 1e-4, "y={y}");
+    }
+
+    #[test]
+    fn tab_size_parses_and_defaults_to_four() {
+        let (document, styles) =
+            styles_for("<style>pre { tab-size: 2; }</style><body><pre>x</pre></body>");
+        assert_eq!(style_of(&document, &styles, "pre").tab_size, 2);
+        let (document, styles) = styles_for("<body><pre>x</pre></body>");
+        assert_eq!(style_of(&document, &styles, "pre").tab_size, 4);
+    }
+
+    #[test]
+    fn caret_color_and_accent_color_parse() {
+        let (document, styles) = styles_for(
+            "<style>input { caret-color: rgb(1, 2, 3); accent-color: rgb(4, 5, 6); }</style>\
+             <body><input></body>",
+        );
+        let style = style_of(&document, &styles, "input");
+        assert_eq!(style.caret_color, Some(Color::rgb(1, 2, 3)));
+        assert_eq!(style.accent_color, Some(Color::rgb(4, 5, 6)));
+        // `auto` leaves both unset.
+        let (document, styles) = styles_for(
+            "<style>input { caret-color: auto; accent-color: auto; }</style><body><input></body>",
+        );
+        let style = style_of(&document, &styles, "input");
+        assert_eq!(style.caret_color, None);
+        assert_eq!(style.accent_color, None);
+    }
+
+    #[test]
+    fn cursor_parses_supported_keywords() {
+        let (document, styles) = styles_for(
+            "<style>a { cursor: pointer; } b { cursor: ew-resize; } \
+             c { cursor: not-allowed; } d { cursor: nope; }</style>\
+             <body><a>x</a><b>x</b><c>x</c><d>x</d></body>",
+        );
+        assert_eq!(style_of(&document, &styles, "a").cursor, Cursor::Pointer);
+        assert_eq!(style_of(&document, &styles, "b").cursor, Cursor::EwResize);
+        assert_eq!(
+            style_of(&document, &styles, "c").cursor,
+            Cursor::NotAllowed
+        );
+        // Unknown keywords fall back to `auto`, as does no declaration.
+        assert_eq!(style_of(&document, &styles, "d").cursor, Cursor::Auto);
+        assert_eq!(style_of(&document, &styles, "body").cursor, Cursor::Auto);
+    }
+
+    #[test]
+    fn pointer_events_none_parses() {
+        let (document, styles) = styles_for(
+            "<style>a { pointer-events: none; }</style><body><a>x</a><b>x</b></body>",
+        );
+        assert_eq!(
+            style_of(&document, &styles, "a").pointer_events,
+            PointerEvents::None
+        );
+        assert_eq!(
+            style_of(&document, &styles, "b").pointer_events,
+            PointerEvents::Auto
+        );
+    }
+
+    #[test]
+    fn accent_color_overrides_checked_control_fill() {
+        // build_page marks `checked` inputs as :checked.
+        let page = crate::build_page(
+            "<style>input { accent-color: rgb(9, 8, 7); }</style>\
+             <body><input type='checkbox' checked></body>",
+            crate::geometry::Size {
+                width: 200.0,
+                height: 100.0,
+            },
+        );
+        let id = page
+            .document
+            .descendants(page.document.root())
+            .find(|id| {
+                page.document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "input")
+            })
+            .unwrap();
+        let style = &page.styles.by_node[&id];
+        assert_eq!(style.mark, Some(Mark::Check));
+        assert_eq!(style.background_color, Some(Color::rgb(9, 8, 7)));
+        assert_eq!(style.border_color.top, Color::rgb(9, 8, 7));
+    }
+
+    #[test]
+    fn first_letter_and_first_line_styles_compute() {
+        let (document, styles) = styles_for(
+            "<style>p::first-letter { color: rgb(1, 2, 3); font-size: 30px; }\
+             p::first-line { color: rgb(4, 5, 6); background-color: rgb(7, 8, 9); }</style>\
+             <body><p>hello world</p></body>",
+        );
+        let id = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "p")
+            })
+            .unwrap();
+        let letter = &styles.first_letter[&id];
+        assert_eq!(letter.color, Color::rgb(1, 2, 3));
+        assert_eq!(letter.font_size, 30.0);
+        let line = &styles.first_line[&id];
+        assert_eq!(line.color, Color::rgb(4, 5, 6));
+        assert_eq!(line.background_color, Some(Color::rgb(7, 8, 9)));
     }
 }

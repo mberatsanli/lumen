@@ -7,7 +7,8 @@ use crate::geometry::{Corners, EdgeSizes, Rect};
 use crate::image::{ImageMap, RasterImage};
 use crate::layout::{BoxType, LayoutBox, LayoutKind};
 use crate::style::{
-    BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, Mark, Transform2D,
+    BackgroundBox, BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, FilterFunction,
+    Mark, Transform2D,
 };
 use lumen_css::Color;
 use std::sync::Arc;
@@ -99,6 +100,15 @@ pub enum DisplayCommand {
         color: Color,
         inset: bool,
     },
+    /// Applies the element's `filter` list to everything painted until
+    /// the matching [`Self::PopFilter`]. `rect` is the border box
+    /// (blur-expanded); the raster backend rewrites that pixel region,
+    /// the SVG backend ignores filters (documented gap).
+    PushFilter {
+        rect: Rect,
+        filters: Vec<FilterFunction>,
+    },
+    PopFilter,
 }
 
 /// How a gradient sweeps its box.
@@ -197,20 +207,29 @@ fn paint_box(
 
     // Paint-time transform about the element's origin: the whole subtree
     // (background through children) renders inside the transform.
-    // Percentage translations resolve against the border box here.
+    // Percentage translations resolve against the border box here. The
+    // individual translate/rotate/scale properties apply before
+    // `transform`, per spec.
     let transformed = if anonymous {
         None
-    } else if let Some(source) = &layout.style.transform_percent_source {
-        crate::style::resolve_percent_transform(
-            source,
-            layout.style.font_size,
-            crate::geometry::Size {
-                width: border_box.width,
-                height: border_box.height,
-            },
-        )
     } else {
-        layout.style.transform
+        let base = if let Some(source) = &layout.style.transform_percent_source {
+            crate::style::resolve_percent_transform(
+                source,
+                layout.style.font_size,
+                crate::geometry::Size {
+                    width: border_box.width,
+                    height: border_box.height,
+                },
+            )
+        } else {
+            layout.style.transform
+        };
+        match (layout.style.individual_transform, base) {
+            (Some(individual), Some(base)) => Some(individual.multiply(base)),
+            (Some(individual), None) => Some(individual),
+            (None, base) => base,
+        }
     };
     if let Some(matrix) = transformed {
         let viewport = crate::geometry::Size::default();
@@ -238,6 +257,42 @@ fn paint_box(
     // `visibility: hidden` skips this box's own painting; children still
     // paint (they can set visibility: visible).
     let visible = layout.style.visible;
+
+    // `filter`: the subtree's painted output (background through
+    // children) is post-processed by the raster backend over the
+    // blur-expanded border box; the SVG backend ignores it.
+    let filtered = !anonymous && visible && !layout.style.filters.is_empty();
+    if filtered {
+        let blur: f32 = layout
+            .style
+            .filters
+            .iter()
+            .map(|function| match function {
+                FilterFunction::Blur(px) => *px,
+                _ => 0.0,
+            })
+            .sum();
+        commands.push(DisplayCommand::PushFilter {
+            rect: Rect {
+                x: border_box.x - blur,
+                y: border_box.y - blur,
+                width: border_box.width + 2.0 * blur,
+                height: border_box.height + 2.0 * blur,
+            },
+            filters: layout.style.filters.clone(),
+        });
+    }
+
+    // Background clip/origin boxes (both default to the border box, so
+    // undeclared pages paint exactly as before). Corner radii are not
+    // shrunk for inner boxes — a documented approximation.
+    let background_box_for = |which: BackgroundBox| match which {
+        BackgroundBox::BorderBox => border_box,
+        BackgroundBox::PaddingBox => place(layout.dimensions.padding_box()),
+        BackgroundBox::ContentBox => place(layout.content_box()),
+    };
+    let background_clip_box = background_box_for(layout.style.background_clip);
+    let background_origin_box = background_box_for(layout.style.background_origin);
 
     let radius = layout
         .style
@@ -271,7 +326,7 @@ fn paint_box(
         && let Some(background) = layout.style.background_color
     {
         commands.push(DisplayCommand::FillRect {
-            rect: border_box,
+            rect: background_clip_box,
             color: fade(background),
             radius,
         });
@@ -300,15 +355,16 @@ fn paint_box(
     }
 
     // Background layers paint over the color, last layer first (the
-    // first of the list sits on top). Gradients render directly; url()
-    // images follow their layer's position/size/repeat (all url layers
+    // first of the list sits on top). Gradients render directly over the
+    // origin box; url() images follow their layer's position/size/repeat
+    // against the origin box, clipped to the clip box (all url layers
     // share the one fetched image per element).
     if !anonymous && visible {
         for layer in layout.style.background_layers.iter().rev() {
             match &layer.image {
                 BackgroundImage::LinearGradient(gradient) => {
                     commands.push(DisplayCommand::FillGradient {
-                        rect: border_box,
+                        rect: background_origin_box,
                         radius,
                         angle_degrees: gradient.angle_degrees,
                         stops: gradient
@@ -321,7 +377,7 @@ fn paint_box(
                 }
                 BackgroundImage::RadialGradient(stops) => {
                     commands.push(DisplayCommand::FillGradient {
-                        rect: border_box,
+                        rect: background_origin_box,
                         radius,
                         angle_degrees: 0.0,
                         stops: stops
@@ -333,7 +389,7 @@ fn paint_box(
                 }
                 BackgroundImage::ConicGradient(stops) => {
                     commands.push(DisplayCommand::FillGradient {
-                        rect: border_box,
+                        rect: background_origin_box,
                         radius,
                         angle_degrees: 0.0,
                         stops: stops
@@ -347,7 +403,8 @@ fn paint_box(
                     if let Some(image) = images.get(&layout.node_id) {
                         paint_background_image(
                             layer,
-                            border_box,
+                            background_origin_box,
+                            background_clip_box,
                             image,
                             (opacity * 255.0) as u8,
                             commands,
@@ -379,32 +436,41 @@ fn paint_box(
         });
     }
 
-    // Control marks (checked checkbox tick / radio dot) draw over the
-    // filled box in white.
+    // Control marks draw over the filled box: check/dot in white, value
+    // bars in the accent color (UA blue by default).
     if !anonymous
         && visible
         && let Some(mark) = layout.style.mark
     {
+        let mark_color = match mark {
+            Mark::Fraction(_) => layout
+                .style
+                .accent_color
+                .unwrap_or(Color::rgb(0x22, 0x66, 0xaa)),
+            _ => Color::rgb(0xff, 0xff, 0xff),
+        };
         commands.push(DisplayCommand::DrawMark {
             rect: border_box,
-            color: fade(Color::rgb(0xff, 0xff, 0xff)),
+            color: fade(mark_color),
             mark,
         });
     }
 
-    // Outline: a frame just outside the border box, no layout impact.
+    // Outline: a frame just outside the border box (plus
+    // `outline-offset`), no layout impact.
     if !anonymous
         && visible
         && layout.style.outline_width > 0.0
         && layout.style.outline_style != BorderStyle::None
     {
         let width = layout.style.outline_width;
+        let outset = width + layout.style.outline_offset;
         commands.push(DisplayCommand::StrokeRect {
             rect: Rect {
-                x: border_box.x - width,
-                y: border_box.y - width,
-                width: border_box.width + 2.0 * width,
-                height: border_box.height + 2.0 * width,
+                x: border_box.x - outset,
+                y: border_box.y - outset,
+                width: border_box.width + 2.0 * outset,
+                height: border_box.height + 2.0 * outset,
             },
             widths: EdgeSizes::uniform(width),
             colors: EdgeSizes::uniform(fade(
@@ -417,11 +483,71 @@ fn paint_box(
 
     if layout.box_type == BoxType::Replaced && visible {
         match images.get(&layout.node_id) {
-            Some(image) => commands.push(DisplayCommand::DrawImage {
-                rect: place(layout.content_box()),
-                image: image.clone(),
-                alpha: (opacity * 255.0) as u8,
-            }),
+            Some(image) => {
+                // object-fit: fit the intrinsic image into the content
+                // box; object-position anchors it (percent = share of the
+                // leftover space, as for background-position). Fits that
+                // can overflow the box (cover, none, scale-down) clip to
+                // the content box.
+                let content = place(layout.content_box());
+                let (intrinsic_w, intrinsic_height) = (image.width as f32, image.height as f32);
+                let fit = layout.style.object_fit;
+                let contains = |w: f32, h: f32| {
+                    let scale = (content.width / w).min(content.height / h);
+                    (w * scale, h * scale)
+                };
+                let (draw_width, draw_height) = match fit {
+                    crate::style::ObjectFit::Fill => (content.width, content.height),
+                    crate::style::ObjectFit::Contain => contains(intrinsic_w, intrinsic_height),
+                    crate::style::ObjectFit::Cover => {
+                        let scale =
+                            (content.width / intrinsic_w).max(content.height / intrinsic_height);
+                        (intrinsic_w * scale, intrinsic_height * scale)
+                    }
+                    crate::style::ObjectFit::None => (intrinsic_w, intrinsic_height),
+                    crate::style::ObjectFit::ScaleDown => {
+                        let contained = contains(intrinsic_w, intrinsic_height);
+                        if contained.0 < intrinsic_w {
+                            contained
+                        } else {
+                            (intrinsic_w, intrinsic_height)
+                        }
+                    }
+                };
+                if draw_width > 0.0 && draw_height > 0.0 {
+                    let viewport = crate::geometry::Size::default();
+                    let anchor = |dimension: crate::style::Dimension,
+                                  box_extent: f32,
+                                  draw_extent: f32| match dimension
+                    {
+                        crate::style::Dimension::Percent(percent) => {
+                            (box_extent - draw_extent) * percent / 100.0
+                        }
+                        other => other.resolve(box_extent, viewport).unwrap_or(0.0),
+                    };
+                    let rect = Rect {
+                        x: content.x
+                            + anchor(layout.style.object_position.0, content.width, draw_width),
+                        y: content.y
+                            + anchor(layout.style.object_position.1, content.height, draw_height),
+                        width: draw_width,
+                        height: draw_height,
+                    };
+                    let overflows =
+                        draw_width > content.width + 0.5 || draw_height > content.height + 0.5;
+                    if overflows {
+                        commands.push(DisplayCommand::PushClip { rect: content });
+                    }
+                    commands.push(DisplayCommand::DrawImage {
+                        rect,
+                        image: image.clone(),
+                        alpha: (opacity * 255.0) as u8,
+                    });
+                    if overflows {
+                        commands.push(DisplayCommand::PopClip);
+                    }
+                }
+            }
             // Broken image: a thin gray placeholder frame.
             None => commands.push(DisplayCommand::StrokeRect {
                 rect: border_box,
@@ -433,9 +559,10 @@ fn paint_box(
         }
     }
 
-    // `overflow: hidden/scroll/auto/clip`: children (including inline
-    // content) clip to the padding box; background and border stay intact.
-    let clips = !anonymous && layout.style.overflow.clips();
+    // `overflow: hidden/scroll/auto/clip` on either axis: children
+    // (including inline content) clip to the padding box; background and
+    // border stay intact.
+    let clips = !anonymous && layout.style.clips_overflow();
     if clips {
         commands.push(DisplayCommand::PushClip {
             rect: place(layout.dimensions.padding_box()),
@@ -444,11 +571,14 @@ fn paint_box(
 
     // Inner scrolling: content of a scrollable box shifts up by its
     // offset (the clip is already in place). Inline lines and block
-    // children both scroll.
-    let child_shift = match scroll_offsets.get(&layout.node_id) {
-        Some(offset) if clips => (shift.0, shift.1 - offset),
-        _ => shift,
+    // children both scroll. `position: sticky` children counter-shift to
+    // stay glued to the container's padding box (see
+    // LayoutBox::sticky_child_shift).
+    let scroll_offset = match scroll_offsets.get(&layout.node_id) {
+        Some(offset) if clips => *offset,
+        _ => 0.0,
     };
+    let child_shift = (shift.0, shift.1 - scroll_offset);
 
     if let LayoutKind::Inline { lines } = &layout.kind {
         let content = {
@@ -463,6 +593,20 @@ fn paint_box(
             for fragment in &line.fragments {
                 match &fragment.content {
                     crate::inline::FragmentContent::Text { text, style } if style.visible => {
+                        // A fragment background (e.g. from `::first-line`)
+                        // paints behind the text over the line height.
+                        if let Some(background) = style.background_color {
+                            commands.push(DisplayCommand::FillRect {
+                                rect: Rect {
+                                    x: content.x + fragment.x,
+                                    y: content.y + line.y,
+                                    width: fragment.width,
+                                    height: line.height,
+                                },
+                                color: fade(background),
+                                radius: Corners::uniform(0.0),
+                            });
+                        }
                         // Text shadows: offset copies in the shadow color,
                         // blur approximated by thinning the alpha.
                         for shadow in style.text_shadows.iter().rev() {
@@ -531,11 +675,12 @@ fn paint_box(
         .all(|child| child.style.z_index.is_none())
     {
         for child in &layout.children {
+            let sticky = layout.sticky_child_shift(child, scroll_offset);
             paint_box(
                 child,
                 images,
                 opacity,
-                child_shift,
+                (child_shift.0, child_shift.1 + sticky),
                 scroll_offsets,
                 commands,
                 depth + 1,
@@ -543,11 +688,12 @@ fn paint_box(
         }
     } else {
         for child in layout.children_in_paint_order() {
+            let sticky = layout.sticky_child_shift(child, scroll_offset);
             paint_box(
                 child,
                 images,
                 opacity,
-                child_shift,
+                (child_shift.0, child_shift.1 + sticky),
                 scroll_offsets,
                 commands,
                 depth + 1,
@@ -558,18 +704,23 @@ fn paint_box(
     if clips {
         commands.push(DisplayCommand::PopClip);
     }
+    if filtered {
+        commands.push(DisplayCommand::PopFilter);
+    }
     if transformed.is_some() {
         commands.push(DisplayCommand::PopTransform);
     }
 }
 
 /// Emits a background image with position/size/repeat semantics: the
-/// tile rect comes from `background-size`, its anchor from
-/// `background-position` (percents place the image per CSS), and
-/// `background-repeat` tiles it across the clipped border box.
+/// tile rect comes from `background-size` (resolved against the origin
+/// box), its anchor from `background-position` (percents place the image
+/// per CSS), and `background-repeat` tiles it across the origin box,
+/// clipped to the clip box (`background-clip`).
 fn paint_background_image(
     layer: &BackgroundLayer,
-    border_box: Rect,
+    origin_box: Rect,
+    clip_box: Rect,
     image: &Arc<RasterImage>,
     alpha: u8,
     commands: &mut Vec<DisplayCommand>,
@@ -582,16 +733,16 @@ fn paint_background_image(
     let (tile_width, tile_height) = match layer.size {
         BackgroundSize::Auto => intrinsic,
         BackgroundSize::Cover => {
-            let scale = (border_box.width / intrinsic.0).max(border_box.height / intrinsic.1);
+            let scale = (origin_box.width / intrinsic.0).max(origin_box.height / intrinsic.1);
             (intrinsic.0 * scale, intrinsic.1 * scale)
         }
         BackgroundSize::Contain => {
-            let scale = (border_box.width / intrinsic.0).min(border_box.height / intrinsic.1);
+            let scale = (origin_box.width / intrinsic.0).min(origin_box.height / intrinsic.1);
             (intrinsic.0 * scale, intrinsic.1 * scale)
         }
         BackgroundSize::Explicit(width, height) => {
-            let width = width.resolve(border_box.width, viewport);
-            let height = height.resolve(border_box.height, viewport);
+            let width = width.resolve(origin_box.width, viewport);
+            let height = height.resolve(origin_box.height, viewport);
             match (width, height) {
                 (Some(width), Some(height)) => (width, height),
                 (Some(width), None) => (width, width * intrinsic.1 / intrinsic.0),
@@ -611,19 +762,19 @@ fn paint_background_image(
             }
             other => other.resolve(box_extent, viewport).unwrap_or(0.0),
         };
-    let anchor_x = border_box.x + offset(layer.position.0, border_box.width, tile_width);
-    let anchor_y = border_box.y + offset(layer.position.1, border_box.height, tile_height);
+    let anchor_x = origin_box.x + offset(layer.position.0, origin_box.width, tile_width);
+    let anchor_y = origin_box.y + offset(layer.position.1, origin_box.height, tile_height);
     let (repeat_x, repeat_y) = layer.repeat;
 
     // Tile from the first tile at/before each edge to past the far edge.
     let mut tiles: Vec<(f32, f32)> = Vec::new();
     let first_x = if repeat_x {
-        anchor_x - ((anchor_x - border_box.x) / tile_width).ceil() * tile_width
+        anchor_x - ((anchor_x - origin_box.x) / tile_width).ceil() * tile_width
     } else {
         anchor_x
     };
     let first_y = if repeat_y {
-        anchor_y - ((anchor_y - border_box.y) / tile_height).ceil() * tile_height
+        anchor_y - ((anchor_y - origin_box.y) / tile_height).ceil() * tile_height
     } else {
         anchor_y
     };
@@ -636,7 +787,7 @@ fn paint_background_image(
                 break;
             }
             x += tile_width;
-            if x >= border_box.x + border_box.width {
+            if x >= origin_box.x + origin_box.width {
                 break;
             }
         }
@@ -644,12 +795,12 @@ fn paint_background_image(
             break;
         }
         y += tile_height;
-        if y >= border_box.y + border_box.height {
+        if y >= origin_box.y + origin_box.height {
             break;
         }
     }
 
-    commands.push(DisplayCommand::PushClip { rect: border_box });
+    commands.push(DisplayCommand::PushClip { rect: clip_box });
     for (x, y) in tiles {
         commands.push(DisplayCommand::DrawImage {
             rect: Rect {
@@ -782,6 +933,20 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
                     rect.x, rect.y, rect.width, rect.height
                 );
             }
+            DisplayCommand::PushFilter { rect, filters } => {
+                let _ = writeln!(
+                    output,
+                    "PushFilter x={} y={} w={} h={} filters={}",
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    filters.len()
+                );
+            }
+            DisplayCommand::PopFilter => {
+                let _ = writeln!(output, "PopFilter");
+            }
             DisplayCommand::FillGradient {
                 rect,
                 angle_degrees,
@@ -870,6 +1035,8 @@ mod tests {
                 DisplayCommand::DrawMark { .. } => "mark",
                 DisplayCommand::PushTransform { .. } => "push-transform",
                 DisplayCommand::PopTransform => "pop-transform",
+                DisplayCommand::PushFilter { .. } => "push-filter",
+                DisplayCommand::PopFilter => "pop-filter",
             })
             .collect();
         assert_eq!(kinds, vec!["fill", "stroke", "text"]);
@@ -955,18 +1122,13 @@ mod tests {
             mime: "image/png",
         });
         let mut commands = Vec::new();
-        paint_background_image(
-            &layer,
-            Rect {
-                x: 100.0,
-                y: 50.0,
-                width: 40.0,
-                height: 20.0,
-            },
-            &image,
-            255,
-            &mut commands,
-        );
+        let tile_box = Rect {
+            x: 100.0,
+            y: 50.0,
+            width: 40.0,
+            height: 20.0,
+        };
+        paint_background_image(&layer, tile_box, tile_box, &image, 255, &mut commands);
         let kinds: Vec<&str> = commands
             .iter()
             .map(|command| match command {
@@ -1005,24 +1167,252 @@ mod tests {
             mime: "image/png",
         });
         let mut commands = Vec::new();
-        paint_background_image(
-            &layer,
-            Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 35.0,
-                height: 15.0,
-            },
-            &image,
-            255,
-            &mut commands,
-        );
+        let tile_box = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 35.0,
+            height: 15.0,
+        };
+        paint_background_image(&layer, tile_box, tile_box, &image, 255, &mut commands);
         let images = commands
             .iter()
             .filter(|command| matches!(command, DisplayCommand::DrawImage { .. }))
             .count();
         // 4 columns x 2 rows.
         assert_eq!(images, 8);
+    }
+
+    #[test]
+    fn sticky_child_sticks_to_scrolled_container() {
+        let page = build_page(
+            "<style>.scroll { overflow-y: scroll; height: 100px; }\
+                    .head { position: sticky; top: 0; height: 20px; z-index: 1; \
+                            background-color: #112233; }\
+                    .tall { height: 500px; }</style>\
+             <div class='scroll'><div class='head'></div><div class='tall'></div></div>",
+            Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        let scroller = &page.layout.children[0];
+        let head = &scroller.children[0];
+        let container_top = scroller.dimensions.padding_box().y;
+        let offsets = std::collections::HashMap::from([(scroller.node_id, 60.0)]);
+        let list = build_display_list_scrolled(&page.layout, &page.images, &offsets);
+        // The header background paints at the container top, not at its
+        // scrolled-off flow position (container_top - 60).
+        let head_y = list
+            .iter()
+            .find_map(|command| match command {
+                DisplayCommand::FillRect { rect, color, .. }
+                    if *color == Color::rgb(0x11, 0x22, 0x33) =>
+                {
+                    Some(rect.y)
+                }
+                _ => None,
+            })
+            .expect("header fill");
+        assert_eq!(head_y, container_top);
+        // The hit test agrees: the stuck header answers at its visual
+        // position even though its flow position scrolled away.
+        let hit = page
+            .layout
+            .hit_test_scrolled(5.0, container_top + 5.0, &offsets);
+        assert_eq!(hit, Some(head.node_id));
+        // Without scroll the header sits at its flow position.
+        let list = build_display_list(&page.layout, &page.images);
+        let head_y = list
+            .iter()
+            .find_map(|command| match command {
+                DisplayCommand::FillRect { rect, color, .. }
+                    if *color == Color::rgb(0x11, 0x22, 0x33) =>
+                {
+                    Some(rect.y)
+                }
+                _ => None,
+            })
+            .expect("header fill");
+        assert_eq!(head_y, container_top);
+    }
+
+    #[test]
+    fn sticky_bottom_sticks_to_the_container_bottom() {
+        let page = build_page(
+            "<style>.scroll { overflow: scroll; height: 100px; }\
+                    .foot { position: sticky; bottom: 10px; height: 20px; \
+                            background-color: #445566; }\
+                    .tall { height: 500px; }</style>\
+             <div class='scroll'><div class='tall'></div><div class='foot'></div></div>",
+            Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        let scroller = &page.layout.children[0];
+        let container = scroller.dimensions.padding_box();
+        let offsets = std::collections::HashMap::from([(scroller.node_id, 30.0)]);
+        let list = build_display_list_scrolled(&page.layout, &page.images, &offsets);
+        let foot_y = list
+            .iter()
+            .find_map(|command| match command {
+                DisplayCommand::FillRect { rect, color, .. }
+                    if *color == Color::rgb(0x44, 0x55, 0x66) =>
+                {
+                    Some(rect.y)
+                }
+                _ => None,
+            })
+            .expect("footer fill");
+        // Flow position 500 - 30 scroll = 470 is way past the container
+        // bottom; the footer sticks to bottom - 10 inset.
+        assert_eq!(foot_y, container.y + container.height - 10.0 - 20.0);
+    }
+
+    #[test]
+    fn overflow_x_alone_clips_and_forces_y_to_auto() {
+        // overflow-x: hidden + (initial) overflow-y: visible computes y
+        // to auto per CSS, so the box clips and becomes scrollable.
+        let page = build_page(
+            "<style>.clip { overflow-x: hidden; width: 50px; height: 40px; }\
+                    .big { width: 500px; height: 500px; }</style>\
+             <div class='clip'><div class='big'></div></div>",
+            Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        let clip = &page.layout.children[0];
+        assert_eq!(clip.style.overflow_x, crate::style::Overflow::Hidden);
+        assert_eq!(clip.style.overflow_y, crate::style::Overflow::Scroll);
+        assert!(
+            page.display_list
+                .iter()
+                .any(|command| matches!(command, DisplayCommand::PushClip { .. }))
+        );
+    }
+
+    #[test]
+    fn overflow_two_value_shorthand_splits_axes() {
+        let page = build_page(
+            "<style>.c { overflow: hidden auto; height: 40px; }</style>\
+             <div class='c'><div style='height: 500px;'></div></div>",
+            Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        let clip = &page.layout.children[0];
+        assert_eq!(clip.style.overflow_x, crate::style::Overflow::Hidden);
+        assert_eq!(clip.style.overflow_y, crate::style::Overflow::Scroll);
+        // Scrollable vertically: reports room to scroll.
+        assert!(clip.max_inner_scroll() > 0.0);
+    }
+
+    /// Builds a page with one decoded image per `<img>`.
+    fn page_with_image(html: &str, width: u32, height: u32) -> crate::Page {
+        use crate::image::RasterImage;
+        use std::sync::Arc;
+        let document = lumen_html::parse_document(html);
+        let sheet = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document));
+        let mut images = crate::image::ImageMap::new();
+        for (node, _) in crate::image::collect_image_sources(&document) {
+            images.insert(
+                node,
+                Arc::new(RasterImage {
+                    width,
+                    height,
+                    rgba: vec![0; (width * height * 4) as usize],
+                    encoded: Vec::new(),
+                    mime: "image/png",
+                }),
+            );
+        }
+        crate::page_from_document(
+            document,
+            std::sync::Arc::new(sheet),
+            std::sync::Arc::new(images),
+            Size {
+                width: 800.0,
+                height: 600.0,
+            },
+            &crate::HeuristicMeasurer,
+            None,
+        )
+    }
+
+    fn drawn_image(page: &crate::Page) -> Rect {
+        page.display_list
+            .iter()
+            .find_map(|command| match command {
+                DisplayCommand::DrawImage { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("a DrawImage command")
+    }
+
+    #[test]
+    fn object_fit_contain_letterboxes_the_image() {
+        // 200x50 intrinsic in a 100x100 box: contain draws 100x25,
+        // centered by the default 50% 50% object-position.
+        let page = page_with_image(
+            "<style>img { width: 100px; height: 100px; object-fit: contain; }</style>\
+             <img src='a.png'>",
+            200,
+            50,
+        );
+        let rect = drawn_image(&page);
+        assert_eq!((rect.width, rect.height), (100.0, 25.0));
+        assert_eq!(rect.y, 37.5);
+    }
+
+    #[test]
+    fn object_fit_cover_overflows_and_clips() {
+        let page = page_with_image(
+            "<style>img { width: 100px; height: 100px; object-fit: cover; \
+                          object-position: 0 0; }</style><img src='a.png'>",
+            200,
+            50,
+        );
+        let rect = drawn_image(&page);
+        // Cover scale = max(100/200, 100/50) = 2 → 400x100 anchored 0 0.
+        assert_eq!((rect.width, rect.height), (400.0, 100.0));
+        assert_eq!((rect.x, rect.y), (0.0, 0.0));
+        // The overflowing image is clipped to the content box.
+        let push = page
+            .display_list
+            .iter()
+            .position(|command| matches!(command, DisplayCommand::PushClip { .. }))
+            .expect("clip");
+        let image = page
+            .display_list
+            .iter()
+            .position(|command| matches!(command, DisplayCommand::DrawImage { .. }))
+            .unwrap();
+        assert!(push < image);
+    }
+
+    #[test]
+    fn object_fit_none_and_scale_down_keep_intrinsic_size() {
+        // 20x10 intrinsic in a 100x100 box: none keeps 20x10 centered.
+        let page = page_with_image(
+            "<style>img { width: 100px; height: 100px; object-fit: none; }</style>\
+             <img src='a.png'>",
+            20,
+            10,
+        );
+        let rect = drawn_image(&page);
+        assert_eq!((rect.width, rect.height), (20.0, 10.0));
+        assert_eq!((rect.x, rect.y), (40.0, 45.0));
+        // scale-down shrinks like contain when the box is smaller.
+        let page = page_with_image(
+            "<style>img { width: 10px; height: 5px; object-fit: scale-down; }</style>\
+             <img src='a.png'>",
+            20,
+            10,
+        );
+        let rect = drawn_image(&page);
+        assert_eq!((rect.width, rect.height), (10.0, 5.0));
     }
 
     #[test]
@@ -1246,5 +1636,146 @@ mod tests {
             })
             .collect();
         assert_eq!(fills, vec!["#111111", "#222222"]);
+    }
+
+    #[test]
+    fn filter_wraps_the_box_in_push_pop_filter() {
+        let list = commands(
+            "<style>div { filter: blur(2px) grayscale(50%); width: 50px; height: 20px; }</style>\
+             <div>x</div>",
+        );
+        let push = list
+            .iter()
+            .position(|command| matches!(command, DisplayCommand::PushFilter { .. }))
+            .expect("a PushFilter");
+        let pop = list
+            .iter()
+            .position(|command| matches!(command, DisplayCommand::PopFilter))
+            .expect("a PopFilter");
+        assert!(push < pop);
+        let Some(DisplayCommand::PushFilter { rect, filters }) = list.get(push) else {
+            unreachable!()
+        };
+        assert_eq!(
+            filters,
+            &vec![
+                crate::style::FilterFunction::Blur(2.0),
+                crate::style::FilterFunction::Grayscale(0.5),
+            ]
+        );
+        // The region is blur-expanded around the border box.
+        assert_eq!(rect.x, -2.0);
+        assert_eq!(rect.width, 54.0);
+    }
+
+    #[test]
+    fn no_filter_commands_without_filter() {
+        let list = commands("<div>x</div>");
+        assert!(!list.iter().any(|command| matches!(
+            command,
+            DisplayCommand::PushFilter { .. } | DisplayCommand::PopFilter
+        )));
+    }
+
+    #[test]
+    fn outline_offset_moves_the_outline_outward() {
+        let list = commands(
+            "<style>div { width: 100px; height: 40px; outline: 2px solid #112233; \
+                          outline-offset: 3px; }</style><div></div>",
+        );
+        let Some(DisplayCommand::StrokeRect { rect, widths, .. }) = list
+            .iter()
+            .find(|command| matches!(command, DisplayCommand::StrokeRect { .. }))
+        else {
+            panic!("no outline in {list:?}");
+        };
+        // Outset = width + offset = 5px around the 100x40 border box.
+        assert_eq!(widths.top, 2.0);
+        assert_eq!(rect.x, -5.0);
+        assert_eq!(rect.y, -5.0);
+        assert_eq!(rect.width, 110.0);
+        assert_eq!(rect.height, 50.0);
+    }
+
+    #[test]
+    fn background_clip_content_box_shrinks_the_fill() {
+        let list = commands(
+            "<style>div { width: 100px; height: 40px; padding: 10px; border-width: 5px; \
+                          background-color: #123456; background-clip: content-box; }</style>\
+             <div></div>",
+        );
+        let Some(DisplayCommand::FillRect { rect, .. }) = list
+            .iter()
+            .find(|command| matches!(command, DisplayCommand::FillRect { .. }))
+        else {
+            panic!("no FillRect in {list:?}");
+        };
+        // Content box: 15px in from the 130x70 border box.
+        assert_eq!(rect.x, 15.0);
+        assert_eq!(rect.y, 15.0);
+        assert_eq!(rect.width, 100.0);
+        assert_eq!(rect.height, 40.0);
+    }
+
+    #[test]
+    fn background_origin_padding_box_places_the_gradient() {
+        let list = commands(
+            "<style>div { width: 100px; height: 40px; padding: 10px; border-width: 5px; \
+                          background-image: linear-gradient(to right, #000000, #ffffff); \
+                          background-origin: padding-box; }</style><div></div>",
+        );
+        let Some(DisplayCommand::FillGradient { rect, .. }) = list
+            .iter()
+            .find(|command| matches!(command, DisplayCommand::FillGradient { .. }))
+        else {
+            panic!("no FillGradient in {list:?}");
+        };
+        // Padding box: 5px in from the border box.
+        assert_eq!(rect.x, 5.0);
+        assert_eq!(rect.y, 5.0);
+        assert_eq!(rect.width, 120.0);
+        assert_eq!(rect.height, 60.0);
+    }
+
+    #[test]
+    fn accent_color_colors_the_value_bar() {
+        let list = commands(
+            "<style>input { accent-color: #010203; }</style>\
+             <input type='range' value='50'>",
+        );
+        let Some(DisplayCommand::DrawMark { color, mark, .. }) = list
+            .iter()
+            .find(|command| matches!(command, DisplayCommand::DrawMark { .. }))
+        else {
+            panic!("no DrawMark in {list:?}");
+        };
+        assert!(matches!(mark, Mark::Fraction(_)));
+        assert_eq!(*color, Color::rgb(1, 2, 3));
+        // Default stays the UA blue.
+        let list = commands("<input type='range' value='50'>");
+        let Some(DisplayCommand::DrawMark { color, .. }) = list
+            .iter()
+            .find(|command| matches!(command, DisplayCommand::DrawMark { .. }))
+        else {
+            panic!("no DrawMark in {list:?}");
+        };
+        assert_eq!(*color, Color::rgb(0x22, 0x66, 0xaa));
+    }
+
+    #[test]
+    fn individual_transform_properties_reach_the_display_list() {
+        let list = commands(
+            "<style>div { translate: 10px 0; scale: 2; width: 10px; height: 10px; }</style>\
+             <div></div>",
+        );
+        let Some(DisplayCommand::PushTransform { matrix }) = list
+            .iter()
+            .find(|command| matches!(command, DisplayCommand::PushTransform { .. }))
+        else {
+            panic!("no PushTransform in {list:?}");
+        };
+        // Scale 2 about the box center, then translate by 10px.
+        assert!((matrix.a - 2.0).abs() < 1e-4);
+        assert!((matrix.d - 2.0).abs() < 1e-4);
     }
 }

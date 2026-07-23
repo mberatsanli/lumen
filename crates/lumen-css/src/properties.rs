@@ -49,6 +49,10 @@ pub const PROPERTIES: &[PropertyMeta] = &[
     row("word-spacing", true, false),
     row("word-wrap", true, false),
     row("overflow-wrap", true, false),
+    // Inherited per CSS: tab width, caret and accent colors, cell spacing.
+    row("tab-size", true, false),
+    row("caret-color", true, false),
+    row("accent-color", true, false),
     // Internal carriers for `::selection` styling (treated as inherited
     // so descendants highlight consistently).
     row("::selection-background", true, false),
@@ -64,10 +68,20 @@ pub const PROPERTIES: &[PropertyMeta] = &[
     row("background-size", false, true),
     row("background-repeat", false, true),
     row("grid-template-columns", false, true),
+    row("grid-template-rows", false, true),
     row("grid-column", false, true),
+    row("grid-row", false, true),
     row("transform", false, true),
     row("transform-origin", false, true),
     row("transition", false, true),
+    // Raw-kept only: function lists / multi-value forms the component
+    // parser would mangle.
+    row("filter", false, true),
+    row("rotate", false, true),
+    row("scale", false, true),
+    row("translate", false, true),
+    // Inherited AND raw-kept (two lengths).
+    row("border-spacing", true, true),
 ];
 
 /// Whether `name` inherits from the parent element.

@@ -174,9 +174,11 @@ pub fn render_svg(page: &Page) -> String {
                     );
                 }
                 crate::style::Mark::Fraction(fraction) => {
+                    // The fill uses the mark color (the accent color, UA
+                    // blue by default).
                     let _ = writeln!(
                         svg,
-                        "<rect x=\"{}\" y=\"{}\" width=\"{:.2}\" height=\"{}\" rx=\"{:.2}\" fill=\"#2266aa\"/>",
+                        "<rect x=\"{}\" y=\"{}\" width=\"{:.2}\" height=\"{}\" rx=\"{:.2}\" fill=\"{color}\"/>",
                         rect.x,
                         rect.y,
                         rect.width * fraction.fraction,
@@ -204,6 +206,9 @@ pub fn render_svg(page: &Page) -> String {
             DisplayCommand::PopTransform => {
                 svg.push_str("</g>\n");
             }
+            // CSS filters are unsupported in the SVG backend: the content
+            // renders unfiltered (the raster backend applies them).
+            DisplayCommand::PushFilter { .. } | DisplayCommand::PopFilter => {}
             DisplayCommand::FillRect {
                 rect,
                 color,

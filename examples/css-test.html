@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Lumen CSS Test Panosu</title>
+<style>
+    body {
+        background-color: #f4f5f7;
+        color: #1c1e21;
+        margin: 0px;
+        padding: 24px;
+        line-height: 1.4;
+    }
+    h1 { font-size: 24px; margin: 0px 0px 4px 0px; }
+    h2 {
+        font-size: 17px;
+        margin: 0px 0px 10px 0px;
+        padding-bottom: 4px;
+        border-bottom: 2px solid #d0d4d9;
+    }
+    .alt-baslik { color: #5a6068; font-size: 13px; margin: 0px 0px 24px 0px; }
+    .bolum { margin-bottom: 28px; }
+    .kart-izgara {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+    }
+    .kart {
+        background-color: #ffffff;
+        border: 1px solid #d8dce1;
+        border-radius: 8px;
+        padding: 12px;
+    }
+    .etiket {
+        font-family: monospace;
+        font-size: 11px;
+        color: #6a7078;
+        margin-bottom: 8px;
+    }
+    .not { font-size: 11px; color: #8a9098; margin-top: 6px; }
+    .kutu { padding: 8px; border-radius: 4px; color: #ffffff; font-size: 13px; }
+    .mini { width: 36px; height: 24px; border-radius: 3px; }
+
+    /* --- Renkler --- */
+    .renk-hex { background-color: #2f6fdd; }
+    .renk-hexa { background-color: #2f6fdd80; color: #1c1e21; }
+    .renk-rgb { background-color: rgb(46, 160, 67); }
+    .renk-rgb-yuzde { background-color: rgb(90%, 20%, 20%); }
+    .renk-rgba { background-color: rgba(46, 160, 67, 0.4); color: #1c1e21; }
+    .renk-hsl { background-color: hsl(265, 60%, 55%); }
+    .renk-hsl-modern { background-color: hsl(150 70% 40% / 0.85); }
+
+    /* --- Arkaplanlar --- */
+    .bg-renk { background-color: #fff3cd; color: #1c1e21; border: 1px solid #e0c060; }
+    .bg-linear { background-image: linear-gradient(90deg, #ff8a00, #e52e71); }
+    .bg-radial { background-image: radial-gradient(#ffe259, #ffa751); color: #1c1e21; }
+    .bg-conic { background-image: conic-gradient(#ff8a00, #e52e71, #2f6fdd, #ff8a00); }
+    .bg-clip {
+        background-color: #2f6fdd;
+        background-clip: content-box;
+        border: 6px dashed #1c1e21;
+        padding: 10px;
+    }
+    .bg-origin {
+        background-image: linear-gradient(45deg, #9b59b6, #8e44ad);
+        background-origin: content-box;
+        background-repeat: no-repeat;
+        border: 6px solid #d7bde2;
+        padding: 10px;
+    }
+    .bg-size-tekrar {
+        background-image: linear-gradient(90deg, #e52e71, #ff8a00);
+        background-size: 30px 12px;
+        background-repeat: repeat-x;
+        background-position: 0px 8px;
+        background-color: #fdf0f5;
+        color: #1c1e21;
+        height: 40px;
+    }
+
+    /* --- Kutu modeli --- */
+    .kutu-margin { margin: 12px; border: 2px solid #2f6fdd; color: #1c1e21; }
+    .kutu-padding { padding: 4px 16px; border: 2px solid #2ea043; color: #1c1e21; }
+    .kutu-border { border: 4px solid #e52e71; color: #1c1e21; }
+    .kutu-radius { border: 3px solid #8e44ad; border-radius: 16px; color: #1c1e21; }
+    .kutu-outline { outline: 3px solid #ff8a00; outline-offset: 4px; border: 1px solid #999; color: #1c1e21; }
+    .kutu-golge { box-shadow: 6px 6px 8px rgba(0, 0, 0, 0.35); border: 1px solid #ccc; color: #1c1e21; }
+    .kutu-golge-ic { box-shadow: inset 4px 4px 6px rgba(0, 0, 0, 0.3); border: 1px solid #ccc; color: #1c1e21; }
+    .metin-golge { text-shadow: 2px 2px 3px rgba(0, 0, 0, 0.4); font-size: 18px; color: #2f6fdd; }
+
+    /* --- Metin --- */
+    .metin-agir { font-weight: bold; }
+    .metin-italik { font-style: italic; }
+    .metin-boyut { font-size: 20px; }
+    .metin-satir { line-height: 2.0; }
+    .metin-harf { letter-spacing: 3px; }
+    .metin-kelime { word-spacing: 12px; }
+    .metin-orta { text-align: center; }
+    .metin-sag { text-align: right; }
+    .metin-altcizgi { text-decoration: underline; }
+    .metin-ustunu-ciz { text-decoration: line-through; }
+    .metin-dekor-renk { text-decoration: underline; text-decoration-color: #e52e71; }
+    .metin-buyuk { text-transform: uppercase; }
+    .metin-girinti { text-indent: 32px; }
+    .ilk-harf::first-letter { font-size: 32px; color: #e52e71; font-weight: bold; }
+    .ilk-satir::first-line { color: #2f6fdd; font-weight: bold; }
+    .elips {
+        width: 180px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        border: 1px solid #ccc;
+        padding: 4px;
+    }
+    .pre-ornek { white-space: pre; font-family: monospace; background-color: #eef1f4; padding: 6px; border-radius: 4px; }
+    .tab-ornek { white-space: pre; tab-size: 2; font-family: monospace; background-color: #eef1f4; padding: 6px; border-radius: 4px; }
+
+    /* --- Layout --- */
+    .inline-blok { display: inline-block; width: 60px; background-color: #d6e4ff; margin: 2px; padding: 4px; text-align: center; border-radius: 3px; }
+    .float-kapsa { border: 1px dashed #999; padding: 6px; }
+    .float-sol { float: left; width: 56px; height: 40px; background-color: #ffd8a8; margin-right: 8px; border-radius: 3px; }
+    .float-temiz { clear: both; color: #2ea043; font-size: 12px; }
+    .relative-kapsa { position: relative; height: 64px; border: 1px dashed #999; }
+    .relative-kutu { position: relative; top: 6px; left: 10px; background-color: #d6e4ff; width: 90px; padding: 3px; }
+    .absolute-kutu { position: absolute; top: 4px; right: 8px; background-color: #e52e71; color: #fff; padding: 3px 6px; border-radius: 3px; font-size: 11px; }
+    .fixed-kutu {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        background-color: #1c1e21;
+        color: #ffffff;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        z-index: 50;
+    }
+    .sticky-kapsa { height: 64px; overflow: scroll; border: 1px dashed #999; padding: 4px; }
+    .sticky-kutu { position: sticky; top: 0px; background-color: #fff3cd; padding: 3px; border: 1px solid #e0c060; }
+    .zindex-kapsa { position: relative; height: 56px; }
+    .z-alt { position: absolute; top: 0px; left: 0px; width: 90px; height: 40px; background-color: #ffd8a8; z-index: 1; padding: 3px; }
+    .z-ust { position: absolute; top: 12px; left: 40px; width: 90px; height: 40px; background-color: #d6e4ff; z-index: 2; padding: 3px; }
+    .tasma-gizli { height: 34px; overflow: hidden; border: 1px solid #ccc; padding: 3px; }
+    .gorunmez-kutu { visibility: hidden; }
+    .yarim-seffaf { opacity: 0.5; background-color: #2f6fdd; }
+
+    /* --- Flex --- */
+    .flex-satir { display: flex; gap: 6px; }
+    .flex-sutun { display: flex; flex-direction: column; gap: 4px; }
+    .flex-orta { display: flex; justify-content: center; align-items: center; height: 52px; border: 1px dashed #999; }
+    .flex-aralik { display: flex; justify-content: space-between; border: 1px dashed #999; padding: 3px; }
+    .flex-sar { display: flex; flex-wrap: wrap; gap: 4px; width: 150px; }
+    .flex-sar > div { width: 60px; background-color: #d6e4ff; padding: 3px; border-radius: 3px; }
+    .flex-sira { display: flex; gap: 4px; }
+    .flex-sira .bir { order: 3; background-color: #ffd8a8; padding: 3px 6px; }
+    .flex-sira .iki { order: 1; background-color: #d6e4ff; padding: 3px 6px; }
+    .flex-sira .uc { order: 2; background-color: #c3f0ca; padding: 3px 6px; }
+    .flex-basis { display: flex; gap: 6px; }
+    .flex-basis .dar { flex-basis: 40px; background-color: #ffd8a8; padding: 3px; }
+    .flex-basis .genis { flex-basis: 140px; background-color: #d6e4ff; padding: 3px; }
+    .flex-hiza { display: flex; flex-wrap: wrap; align-content: space-between; height: 74px; border: 1px dashed #999; padding: 2px; }
+    .flex-hiza > div { width: 100%; background-color: #e7d6ff; padding: 2px 4px; }
+
+    /* --- Grid --- */
+    .izgara-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .izgara-3 > div { background-color: #d6e4ff; padding: 4px; border-radius: 3px; text-align: center; }
+    .izgara-kapsama { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .izgara-kapsama > div { background-color: #c3f0ca; padding: 4px; border-radius: 3px; text-align: center; }
+    .izgara-kapsama .genis-iki { grid-column: span 2; background-color: #ffd8a8; }
+    .izgara-satir { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 20px 40px; gap: 4px; }
+    .izgara-satir > div { background-color: #e7d6ff; padding: 2px 4px; border-radius: 3px; font-size: 11px; }
+
+    /* --- Tablo --- */
+    table.ornek { border: 1px solid #999; width: 100%; }
+    table.ornek td, table.ornek th { border: 1px solid #999; padding: 3px 6px; font-size: 12px; }
+    table.aralikli { border-spacing: 6px; }
+    table.birlesik { border-collapse: collapse; }
+
+    /* --- Transform --- */
+    .donmus { transform: rotate(8deg); background-color: #ffd8a8; width: 100px; margin: 10px; padding: 4px; }
+    .olcekli { scale: 1.2; background-color: #d6e4ff; width: 90px; margin: 12px; padding: 4px; }
+    .kaymis { translate: 20px 6px; background-color: #c3f0ca; width: 110px; padding: 4px; }
+    .bilesik { transform: translate(14px, 6px) rotate(-6deg) scale(0.95); transform-origin: 0% 0%; background-color: #e7d6ff; width: 120px; margin: 10px; padding: 4px; }
+
+    /* --- Transition / Animation --- */
+    .gecisli { background-color: #2f6fdd; transition: background-color 0.4s; }
+    .gecisli:hover { background-color: #e52e71; }
+    @keyframes renk-dongusu {
+        from { background-color: #ff8a00; }
+        to { background-color: #2f6fdd; }
+    }
+    .animasyonlu { animation: renk-dongusu 2s infinite; }
+
+    /* --- Filter --- */
+    .filtre-gri { filter: grayscale(100%); background-color: #e52e71; }
+    .filtre-bulanik { filter: blur(2px); background-color: #2f6fdd; }
+    .filtre-parlak { filter: brightness(1.6); background-color: #2ea043; }
+    .filtre-ters { filter: invert(100%); background-color: #ff8a00; }
+    .filtre-kontrast { filter: contrast(40%); background-color: #8e44ad; }
+    .filtre-sepya { filter: sepia(100%); background-color: #2f6fdd; }
+    .filtre-doygun { filter: saturate(30%); background-color: #e52e71; }
+
+    /* --- Form --- */
+    .aksanli { accent-color: #e52e71; }
+    .imlecli { caret-color: #e52e71; border: 2px solid #2f6fdd; padding: 4px; width: 90%; }
+
+    /* --- Cursor --- */
+    .imlec-izgara { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .imlec-kart {
+        border: 1px solid #d8dce1;
+        border-radius: 6px;
+        padding: 8px;
+        text-align: center;
+        font-family: monospace;
+        font-size: 11px;
+        background-color: #fafbfc;
+    }
+    .c-pointer { cursor: pointer; }
+    .c-text { cursor: text; }
+    .c-move { cursor: move; }
+    .c-crosshair { cursor: crosshair; }
+    .c-wait { cursor: wait; }
+    .c-help { cursor: help; }
+    .c-not-allowed { cursor: not-allowed; }
+    .c-grab { cursor: grab; }
+    .c-grabbing { cursor: grabbing; }
+    .c-ew { cursor: ew-resize; }
+    .c-ns { cursor: ns-resize; }
+    .c-col { cursor: col-resize; }
+    .c-row { cursor: row-resize; }
+    .c-n { cursor: n-resize; }
+    .c-s { cursor: s-resize; }
+    .c-e { cursor: e-resize; }
+    .c-w { cursor: w-resize; }
+    .c-default { cursor: default; }
+
+    /* --- pointer-events --- */
+    .pe-kapsa { position: relative; border: 1px dashed #999; height: 60px; padding: 6px; }
+    .pe-perde {
+        position: absolute;
+        top: 0px;
+        left: 0px;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(47, 111, 221, 0.15);
+        pointer-events: none;
+        text-align: right;
+        font-size: 11px;
+        color: #2f6fdd;
+        padding: 4px;
+    }
+
+    /* --- Seçiciler --- */
+    .hover-kart { background-color: #d6e4ff; padding: 8px; border-radius: 4px; }
+    .hover-kart:hover { background-color: #ffd8a8; }
+    .cizgili { margin: 0px; padding-left: 20px; }
+    .cizgili li:nth-child(odd) { background-color: #eef1f4; }
+    .cizgili li:first-child { font-weight: bold; }
+    .secili-kart:has(input:checked) { border-color: #2ea043; background-color: #eafbea; }
+    .oznitelik-demo a[target] { color: #e52e71; font-weight: bold; }
+    input:disabled { background-color: #e8eaed; border: 1px solid #bbb; padding: 4px; }
+
+    /* --- Mantıksal özellikler + inset --- */
+    .mantiksal {
+        margin-inline-start: 24px;
+        padding-block: 8px;
+        padding-inline: 12px;
+        inline-size: 70%;
+        border: 2px solid #2ea043;
+        border-radius: 4px;
+        color: #1c1e21;
+    }
+    .inset-kapsa { position: relative; height: 54px; border: 1px dashed #999; }
+    .inset-kutu {
+        position: absolute;
+        inset: 6px 12px;
+        background-color: #d6e4ff;
+        padding: 4px;
+        border-radius: 3px;
+    }
+
+    /* --- object-fit --- */
+    .fit-kutu { width: 120px; height: 60px; border: 1px solid #999; }
+
+    /* --- Media query --- */
+    .mq-kutu { background-color: #2ea043; }
+    @media (max-width: 600px) {
+        .mq-kutu { background-color: #d33a2c; }
+    }
+
+    /* --- ::before / ::after --- */
+    .once-sonra::before { content: "★ "; color: #ff8a00; }
+    .once-sonra::after { content: " ★"; color: #ff8a00; }
+    .rozet::after {
+        content: "yeni";
+        background-color: #e52e71;
+        color: #ffffff;
+        font-size: 10px;
+        padding: 2px 5px;
+        border-radius: 3px;
+        margin-left: 6px;
+    }
+</style>
+</head>
+<body>
+
+<h1>Lumen CSS Test Panosu</h1>
+<p class="alt-baslik">Motorun desteklediği tüm CSS özellik aileleri — her kart bir özelliği görsel olarak gösterir.</p>
+<div class="fixed-kutu">position: fixed</div>
+
+<div class="bolum">
+    <h2>Renkler</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">hex (#2f6fdd)</div><div class="kutu renk-hex">hex renk</div></div>
+        <div class="kart"><div class="etiket">hex + alpha (#2f6fdd80)</div><div class="kutu renk-hexa">8 haneli hex</div></div>
+        <div class="kart"><div class="etiket">rgb(46, 160, 67)</div><div class="kutu renk-rgb">rgb()</div></div>
+        <div class="kart"><div class="etiket">rgb(90%, 20%, 20%)</div><div class="kutu renk-rgb-yuzde">yüzde kanallı rgb</div></div>
+        <div class="kart"><div class="etiket">rgba(..., 0.4)</div><div class="kutu renk-rgba">alfa kanallı</div></div>
+        <div class="kart"><div class="etiket">hsl(265, 60%, 55%)</div><div class="kutu renk-hsl">hsl()</div></div>
+        <div class="kart"><div class="etiket">hsl(150 70% 40% / 0.85)</div><div class="kutu renk-hsl-modern">modern hsl sözdizimi</div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Arkaplanlar</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">background-color</div><div class="kutu bg-renk">düz renk</div></div>
+        <div class="kart"><div class="etiket">linear-gradient(90deg, ...)</div><div class="kutu bg-linear">doğrusal geçiş</div></div>
+        <div class="kart"><div class="etiket">radial-gradient(...)</div><div class="kutu bg-radial">radyal geçiş</div></div>
+        <div class="kart"><div class="etiket">conic-gradient(...)</div><div class="kutu bg-conic">konik geçiş</div></div>
+        <div class="kart"><div class="etiket">background-clip: content-box</div><div class="kutu bg-clip">renk yalnızca içerikte</div></div>
+        <div class="kart"><div class="etiket">background-origin + no-repeat</div><div class="kutu bg-origin">başlangıç içerik kutusu</div></div>
+        <div class="kart"><div class="etiket">background-size + repeat-x + position</div><div class="bg-size-tekrar"></div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Kutu Modeli ve Gölgeler</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">margin: 12px</div><div class="kutu-margin">dış boşluklu kutu</div></div>
+        <div class="kart"><div class="etiket">padding: 4px 16px</div><div class="kutu-padding">iç boşluklu kutu</div></div>
+        <div class="kart"><div class="etiket">border: 4px solid</div><div class="kutu-border">kalın kenarlık</div></div>
+        <div class="kart"><div class="etiket">border-radius: 16px</div><div class="kutu-radius">yuvarlak köşe</div></div>
+        <div class="kart"><div class="etiket">outline + outline-offset</div><div class="kutu-outline">dış çizgi (4px ofset)</div></div>
+        <div class="kart"><div class="etiket">box-shadow (dış)</div><div class="kutu-golge">düşen gölge</div></div>
+        <div class="kart"><div class="etiket">box-shadow: inset</div><div class="kutu-golge-ic">iç gölge</div></div>
+        <div class="kart"><div class="etiket">text-shadow</div><div class="metin-golge">Gölgeli metin</div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Metin</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">font-weight / font-style / font-size</div>
+            <div><span class="metin-agir">kalın</span> · <span class="metin-italik">italik</span> · <span class="metin-boyut">20px</span></div></div>
+        <div class="kart"><div class="etiket">line-height: 2.0</div><div class="metin-satir">Satır aralığı geniş<br>iki satırlı metin örneği</div></div>
+        <div class="kart"><div class="etiket">letter-spacing / word-spacing</div>
+            <div class="metin-harf">HARF</div><div class="metin-kelime">kelime aralığı geniş</div></div>
+        <div class="kart"><div class="etiket">text-align</div><div class="metin-orta">ortalanmış</div><div class="metin-sag">sağa yaslı</div></div>
+        <div class="kart"><div class="etiket">text-decoration</div>
+            <div><span class="metin-altcizgi">altı çizili</span> · <span class="metin-ustunu-ciz">üstü çizili</span> · <span class="metin-dekor-renk">renkli çizgi</span></div></div>
+        <div class="kart"><div class="etiket">text-transform: uppercase</div><div class="metin-buyuk">büyük harfe çevrildi</div></div>
+        <div class="kart"><div class="etiket">text-indent: 32px</div><div class="metin-girinti">İlk satırı girintili uzun bir paragraf metni buraya geliyor.</div></div>
+        <div class="kart"><div class="etiket">::first-letter</div><div class="ilk-harf">Lumen motoru ilk harfi büyütür.</div></div>
+        <div class="kart"><div class="etiket">::first-line</div><div class="ilk-satir">İlk satır mavi ve kalın görünür, ikinci satır ise normal stiline döner.</div></div>
+        <div class="kart"><div class="etiket">text-overflow: ellipsis</div><div class="elips">Bu uzun metin kutuya sığmaz ve üç nokta ile kesilir</div></div>
+        <div class="kart"><div class="etiket">white-space: pre</div><div class="pre-ornek">satır bir
+    girintili satır</div></div>
+        <div class="kart"><div class="etiket">tab-size: 2</div><div class="tab-ornek">a
+	b</div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Layout</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">display: inline-block</div>
+            <div><span class="inline-blok">A</span><span class="inline-blok">B</span><span class="inline-blok">C</span></div></div>
+        <div class="kart"><div class="etiket">float + clear</div>
+            <div class="float-kapsa"><div class="float-sol"></div>yüzen kutu metni iter
+            <div class="float-temiz">clear: both ile alta inildi</div></div></div>
+        <div class="kart"><div class="etiket">position: relative / absolute</div>
+            <div class="relative-kapsa"><div class="relative-kutu">relative</div><div class="absolute-kutu">absolute</div></div></div>
+        <div class="kart"><div class="etiket">position: fixed</div><div>Sağ üst köşedeki koyu rozet viewport'a sabitlendi.</div></div>
+        <div class="kart"><div class="etiket">position: sticky</div>
+            <div class="sticky-kapsa"><div class="sticky-kutu">sticky başlık</div><div>kaydırılabilir içerik satırı 1<br>satır 2<br>satır 3<br>satır 4</div></div></div>
+        <div class="kart"><div class="etiket">z-index</div>
+            <div class="zindex-kapsa"><div class="z-alt">z: 1</div><div class="z-ust">z: 2 üstte</div></div></div>
+        <div class="kart"><div class="etiket">overflow: hidden</div>
+            <div class="tasma-gizli">Bu uzun metin sabit yükseklikli kutudan taşar ve gizlenen kısmı görünmez olur, taşma kesilir.</div></div>
+        <div class="kart"><div class="etiket">visibility: hidden</div>
+            <div>görünür <span class="gorunmez-kutu">gizli kutu (yer tutar)</span> görünür</div></div>
+        <div class="kart"><div class="etiket">opacity: 0.5</div><div class="kutu yarim-seffaf">yarı saydam kutu</div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Flexbox</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">flex-direction: row / column + gap</div>
+            <div class="flex-satir"><div class="mini" style="background-color:#2f6fdd"></div><div class="mini" style="background-color:#e52e71"></div></div>
+            <div class="flex-sutun" style="margin-top:4px"><div class="mini" style="background-color:#2ea043"></div><div class="mini" style="background-color:#ff8a00"></div></div></div>
+        <div class="kart"><div class="etiket">justify-content: center + align-items: center</div>
+            <div class="flex-orta"><div class="mini" style="background-color:#8e44ad"></div></div></div>
+        <div class="kart"><div class="etiket">justify-content: space-between</div>
+            <div class="flex-aralik"><div class="mini" style="background-color:#2f6fdd"></div><div class="mini" style="background-color:#e52e71"></div></div></div>
+        <div class="kart"><div class="etiket">flex-wrap: wrap</div>
+            <div class="flex-sar"><div>bir</div><div>iki</div><div>üç</div></div></div>
+        <div class="kart"><div class="etiket">order</div>
+            <div class="flex-sira"><div class="bir">order 3</div><div class="iki">order 1</div><div class="uc">order 2</div></div></div>
+        <div class="kart"><div class="etiket">flex-basis</div>
+            <div class="flex-basis"><div class="dar">40</div><div class="genis">140px basis</div></div></div>
+        <div class="kart"><div class="etiket">align-content: space-between</div>
+            <div class="flex-hiza"><div>satır bir</div><div>satır iki</div></div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Grid</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">grid-template-columns: repeat(3, 1fr)</div>
+            <div class="izgara-3"><div>1</div><div>2</div><div>3</div><div>4</div><div>5</div><div>6</div></div></div>
+        <div class="kart"><div class="etiket">grid-column: span 2</div>
+            <div class="izgara-kapsama"><div class="genis-iki">span 2</div><div>1</div><div>2</div><div>3</div><div>4</div></div></div>
+        <div class="kart"><div class="etiket">grid-template-rows: 20px 40px</div>
+            <div class="izgara-satir"><div>20px</div><div>20px</div><div>40px</div><div>40px</div></div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Tablo</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">border-spacing: 6px</div>
+            <table class="ornek aralikli"><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table></div>
+        <div class="kart"><div class="etiket">border-collapse: collapse</div>
+            <table class="ornek birlesik"><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Transform</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">transform: rotate(8deg)</div><div class="donmus">döndürülmüş</div></div>
+        <div class="kart"><div class="etiket">scale: 1.2</div><div class="olcekli">ölçekli</div></div>
+        <div class="kart"><div class="etiket">translate: 20px 6px</div><div class="kaymis">kaydırılmış</div></div>
+        <div class="kart"><div class="etiket">transform + transform-origin</div><div class="bilesik">bileşik dönüşüm</div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Transition ve Animation</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">transition (hover ile)</div><div class="kutu gecisli">üzerime gel</div></div>
+        <div class="kart"><div class="etiket">@keyframes + animation</div><div class="kutu animasyonlu">renk döngüsü</div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Filter <span style="font-size:11px; color:#8a9098">(yalnızca masaüstü raster backend'de uygulanır; SVG çıktısı yok sayar)</span></h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">grayscale(100%)</div><div class="kutu filtre-gri">gri</div></div>
+        <div class="kart"><div class="etiket">blur(2px)</div><div class="kutu filtre-bulanik">bulanık</div></div>
+        <div class="kart"><div class="etiket">brightness(1.6)</div><div class="kutu filtre-parlak">parlak</div></div>
+        <div class="kart"><div class="etiket">invert(100%)</div><div class="kutu filtre-ters">ters</div></div>
+        <div class="kart"><div class="etiket">contrast(40%)</div><div class="kutu filtre-kontrast">düşük kontrast</div></div>
+        <div class="kart"><div class="etiket">sepia(100%)</div><div class="kutu filtre-sepya">sepya</div></div>
+        <div class="kart"><div class="etiket">saturate(30%)</div><div class="kutu filtre-doygun">soluk</div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Form Kontrolleri</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">accent-color</div>
+            <div><input class="aksanli" type="checkbox" checked> işaretli
+            <input class="aksanli" type="radio" checked> seçili</div></div>
+        <div class="kart"><div class="etiket">caret-color: #e52e71</div>
+            <div><input class="imlecli" type="text" value="odakla ve yaz"></div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Cursor</h2>
+    <div class="imlec-izgara">
+        <div class="imlec-kart c-pointer">pointer</div>
+        <div class="imlec-kart c-text">text</div>
+        <div class="imlec-kart c-move">move</div>
+        <div class="imlec-kart c-crosshair">crosshair</div>
+        <div class="imlec-kart c-wait">wait</div>
+        <div class="imlec-kart c-help">help</div>
+        <div class="imlec-kart c-not-allowed">not-allowed</div>
+        <div class="imlec-kart c-grab">grab</div>
+        <div class="imlec-kart c-grabbing">grabbing</div>
+        <div class="imlec-kart c-ew">ew-resize</div>
+        <div class="imlec-kart c-ns">ns-resize</div>
+        <div class="imlec-kart c-col">col-resize</div>
+        <div class="imlec-kart c-row">row-resize</div>
+        <div class="imlec-kart c-n">n-resize</div>
+        <div class="imlec-kart c-s">s-resize</div>
+        <div class="imlec-kart c-e">e-resize</div>
+        <div class="imlec-kart c-w">w-resize</div>
+        <div class="imlec-kart c-default">default</div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>pointer-events</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">pointer-events: none</div>
+            <div class="pe-kapsa">
+                <a href="css-test.html">Bu link perdenin altında ama tıklanabilir</a>
+                <div class="pe-perde">tıklama geçiren perde</div>
+            </div>
+            <div class="not">Mavi perde pointer-events: none — tıklama altındaki linke düşer.</div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Seçiciler</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">:hover</div><div class="hover-kart">üzerime gel — renk değişir</div></div>
+        <div class="kart"><div class="etiket">:nth-child(odd) + :first-child</div>
+            <ul class="cizgili"><li>birinci (kalın)</li><li>ikinci</li><li>üçüncü</li><li>dördüncü</li></ul></div>
+        <div class="kart secili-kart"><div class="etiket">:has(input:checked)</div>
+            <div><input type="checkbox" checked> işaretliyken kart yeşillenir</div></div>
+        <div class="kart"><div class="etiket">:disabled</div>
+            <div><input type="text" value="devre dışı" disabled></div></div>
+        <div class="kart oznitelik-demo"><div class="etiket">öznitelik seçici a[target]</div>
+            <div><a href="css-test.html" target="_blank">target'lı link</a> · <a href="css-test.html">normal link</a></div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Mantıksal Özellikler ve inset</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">margin-inline / padding-block / inline-size</div>
+            <div class="mantiksal">mantıksal eksenlerle boyutlanmış kutu</div></div>
+        <div class="kart"><div class="etiket">inset: 6px 12px</div>
+            <div class="inset-kapsa"><div class="inset-kutu">inset ile yerleşti</div></div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>object-fit</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">object-fit: cover</div>
+            <img class="fit-kutu" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" alt="kırmızı piksel">
+            <div class="not">Kaynak data-URI (yükleyici data: şemasını indirmez); kutu ve alt metin gösterilir. Masaüstünde gerçek dosyalı img ile cover/contain davranışı görülür.</div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>Media Query</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">@media (max-width: 600px)</div>
+            <div class="kutu mq-kutu">viewport ≤ 600px'te kırmızı</div>
+            <div class="not">Şu anki render viewport'u 1024px — kutu yeşil kalır; pencereyi daraltınca kırmızıya döner.</div></div>
+    </div>
+</div>
+
+<div class="bolum">
+    <h2>::before / ::after</h2>
+    <div class="kart-izgara">
+        <div class="kart"><div class="etiket">content ile ikon</div><div class="once-sonra">yıldızlı metin</div></div>
+        <div class="kart"><div class="etiket">::after rozeti</div><div><span class="rozet">özellik</span></div></div>
+    </div>
+</div>
+
+</body>
+</html>
