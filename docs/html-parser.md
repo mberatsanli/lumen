@@ -1,65 +1,47 @@
 # HTML parser
 
-`crates/lumen-html` is split into three modules:
+`crates/lumen-html` delegates parsing to
+[html5ever](https://github.com/servo/html5ever) — Servo's implementation
+of the WHATWG HTML5 parsing algorithm — and keeps the Lumen-specific
+parts in two modules:
 
 ```text
-tokenizer.rs   source text -> Vec<HtmlToken>   (explicit state machine)
-parser.rs      Vec<HtmlToken> -> Document      (open-element stack)
+sink.rs        html5ever TreeSink -> Document  (tree-builder callbacks -> arena ops)
 dom.rs         arena-based Document / Node / AttributeMap
 ```
 
-## Tokenizer
+`parse_document(source) -> Document` runs html5ever's tokenizer and tree
+builder over a `TreeSink` implementation that appends nodes into our
+arena. Parsing never fails: malformed markup is recovered from by the
+full WHATWG algorithm, and recoverable errors are merely counted
+(`Document::parse_error_count`). `parse_fragment(context_tag, source)`
+implements the innerHTML algorithm and backs `Document::set_inner_html`.
 
-An explicit state machine with states named after their WHATWG counterparts:
-`Data`, `TagOpen`, `EndTagOpen`, `TagName`, `BeforeAttributeName`,
-`AttributeName`, `AfterAttributeName`, `BeforeAttributeValue`,
-`AttributeValue{Double,Single}Quoted`, `AttributeValueUnquoted`,
-`SelfClosingStartTag`, `MarkupDeclarationOpen`, `Comment`, `Doctype`,
-`BogusComment`, `Rawtext`.
+What the migration buys, for free:
 
-Tokens: `Doctype`, `StartTag { name, attributes, self_closing }`,
-`EndTag { name }`, `Text`, `Comment`.
+- the `html`/`head`/`body` skeleton is always synthesized (even for
+  bare fragments like `<p>x</p>`),
+- WHATWG insertion modes: the adoption agency (`<b><i>x</b></i>`),
+  foster parenting (stray text inside tables moves before the table),
+  implied `<tbody>` around bare `<tr>`s, and the rest of the tree-
+  construction rules,
+- RCDATA (`title`, `textarea`) and raw-text (`script`, `style`, `xmp`,
+  `iframe`, `noembed`, `noframes`, `plaintext`) states,
+- the complete WHATWG named character reference table (`&copy;`,
+  `&nbsp;`, `&auml;`, ...) plus numeric forms,
+- spec-correct self-closing rules (`/>` is honored only on void and
+  foreign elements; `<script/>` keeps consuming raw text).
 
-Supported syntax:
+Deliberate simplifications in the sink:
 
-- start/end tags, tag names normalized to lowercase,
-- double-quoted, single-quoted, unquoted and boolean attributes,
-- self-closing (`/>`) syntax,
-- `<!-- comments -->` and `<!doctype ...>`,
-- basic character references: `&amp; &lt; &gt; &quot; &apos; &nbsp;`,
-  `&#nnn;` and `&#xhh;` (unknown references stay literal),
-- raw-text elements: the content of `script`, `style`, `title` and
-  `textarea` is not scanned for markup until the matching end tag.
-
-### Error recovery
-
-The tokenizer never fails. Recovery rules:
-
-| Input | Behavior |
-|---|---|
-| `a < 5` | `<` followed by a non-letter is literal text |
-| `</>` | empty end tag is dropped |
-| `</3...>` | bogus content skipped up to `>` |
-| `<div class="x` (EOF) | incomplete tag dropped, preceding text kept |
-| `<!-- open` (EOF) | comment emitted with collected content |
-| `<![CDATA[...]]>` | unknown markup declaration skipped like a comment |
-| `<div / class=x>` | stray `/` inside a tag ignored |
-
-## Tree builder
-
-A simplified open-element stack; no WHATWG insertion modes, no implied
-`<html>`/`<body>` synthesis.
-
-- Void elements (`br`, `img`, `input`, `meta`, `link`, ...) and
-  self-closing tags are never pushed onto the stack.
-- An end tag closes the nearest matching open element **and** everything
-  opened after it (`<div><p>a</div>` closes the `p` too).
-- End tags with no matching open element are ignored.
-- Elements still open at end of input are closed implicitly.
-- Comments and doctype are dropped — they are not represented in the DOM.
-- Duplicate attributes keep the first value.
-
-Parsing therefore never returns an error; `parse_document(source) -> Document`.
+- comments, processing instructions and the doctype are dropped (the
+  DOM has no node kinds for them),
+- `<template>` contents become direct children of the `<template>`
+  element instead of a separate "template contents" fragment,
+- namespaces are flattened to local names (attributes keep
+  `prefix:local`); foreign SVG/MathML content parses with correct tag
+  names but no namespace distinction,
+- quirks mode is ignored by rendering.
 
 ## DOM
 
@@ -73,8 +55,8 @@ does name lookup.
 
 ## Known limitations
 
-- Not WHATWG compliant: no insertion modes, no implied elements, no
-  active-formatting reconstruction, no foreign content (SVG/MathML).
-- Character reference support is a small practical subset.
-- Source spans / diagnostics are not recorded yet (planned; the state
-  machine keeps a single `position` so spans can be added cleanly).
+- Input is assumed to be UTF-8 (html5ever is fed `&str`); byte-level
+  encoding detection (BOM, `<meta charset>`, Encoding Standard) is
+  future work (see ROADMAP).
+- No namespace-aware processing beyond tag names (see above).
+- Source spans / diagnostics are not recorded (only an error count).

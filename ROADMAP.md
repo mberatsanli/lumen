@@ -44,10 +44,13 @@
 - [ ] Small JavaScript interpreter
 - [ ] DOM/layout inspector
 
-## Parser migration (decided)
+## Parser migration (done)
 
 Maintaining hand-written HTML/CSS parsers costs more than it returns.
-Planned: replace `lumen-html` with [html5ever](https://crates.io/crates/html5ever)
-and `lumen-css` with [lightningcss](https://crates.io/crates/lightningcss)
-(or `cssparser` + `selectors` from Servo) behind the existing crate
-APIs, so the engine keeps working unchanged.
+`lumen-html` now delegates parsing to [html5ever](https://crates.io/crates/html5ever)
+and `lumen-css` to [lightningcss](https://crates.io/crates/lightningcss),
+both behind the existing crate APIs, so the engine keeps working unchanged.
+
+Known limitation: html5ever is fed Rust `&str`, so input is assumed to be
+UTF-8. Byte-level encoding detection (BOM, `<meta charset>`, Encoding
+Standard) is future work.

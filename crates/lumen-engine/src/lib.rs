@@ -15,10 +15,10 @@ pub mod paint;
 pub mod raster;
 pub mod selection;
 pub mod style;
-mod ua;
 pub mod svg;
 mod table;
 pub mod text;
+mod ua;
 
 pub use font::SystemFont;
 pub use geometry::{Corners, Dimensions, EdgeSizes, Edges, Rect, Size};
@@ -188,17 +188,15 @@ fn materialize_form_values(document: &mut Document) {
             for child in document.children(id) {
                 match document.element(*child).map(|e| e.tag_name.as_str()) {
                     Some("option") => options.push(*child),
-                    Some("optgroup") => options.extend(
-                        document
-                            .children(*child)
-                            .iter()
-                            .copied()
-                            .filter(|grandchild| {
+                    Some("optgroup") => {
+                        options.extend(document.children(*child).iter().copied().filter(
+                            |grandchild| {
                                 document
                                     .element(*grandchild)
                                     .is_some_and(|option| option.tag_name == "option")
-                            }),
-                    ),
+                            },
+                        ))
+                    }
                     _ => {}
                 }
             }
@@ -228,7 +226,11 @@ fn materialize_form_values(document: &mut Document) {
             (element.tag_name == "optgroup").then(|| {
                 (
                     id,
-                    element.attributes.get("label").unwrap_or_default().to_string(),
+                    element
+                        .attributes
+                        .get("label")
+                        .unwrap_or_default()
+                        .to_string(),
                 )
             })
         })
@@ -262,7 +264,11 @@ fn materialize_form_values(document: &mut Document) {
             };
             // An empty value still needs a line box, or the control's
             // height collapses; a lone space keeps it alive.
-            let text = if text.is_empty() { " ".to_string() } else { text };
+            let text = if text.is_empty() {
+                " ".to_string()
+            } else {
+                text
+            };
             Some((id, text))
         })
         .collect();
@@ -575,6 +581,19 @@ mod tests {
         })
     }
 
+    /// First laid-out box with this tag, depth-first. html5ever wraps
+    /// every document in html/head/body, so tests locate boxes by tag
+    /// instead of fixed child indices from the root.
+    fn find_box<'a>(layout: &'a LayoutBox, tag: &str) -> &'a LayoutBox {
+        fn find<'a>(layout: &'a LayoutBox, tag: &str) -> Option<&'a LayoutBox> {
+            if matches!(&layout.kind, LayoutKind::Element(t) if t == tag) {
+                return Some(layout);
+            }
+            layout.children.iter().find_map(|child| find(child, tag))
+        }
+        find(layout, tag).unwrap_or_else(|| panic!("no laid-out box for <{tag}>"))
+    }
+
     const BLUE: Color = Color::rgb(0, 0, 255);
 
     #[test]
@@ -654,7 +673,7 @@ mod tests {
             "<style>div { margin: 10px 20px; height: 30px; }</style>\
              <body><div></div></body>",
         );
-        let body = &page.layout.children[0];
+        let body = find_box(&page.layout, "body");
         let div = &body.children[0];
         assert_eq!(div.border_box().x, 20.0);
         assert_eq!(div.border_box().y, 10.0);
@@ -690,7 +709,7 @@ mod tests {
             "<style>body { padding: 0; margin: 0; } div { width: 50%; height: 10px; }</style>\
              <body><div></div></body>",
         );
-        let body = &page.layout.children[0];
+        let body = find_box(&page.layout, "body");
         let div = &body.children[0];
         assert_eq!(div.content_box().width, 400.0);
     }
@@ -807,13 +826,15 @@ mod tests {
 mod list_marker_tests {
     use super::*;
 
-
     #[test]
     fn lists_get_bullets_and_numbers() {
         let page = build_page(
             "<ul><li>a</li><li>b</li></ul>\
              <ol><li>x</li><li style='list-style: none'>y</li><li>z</li></ol>",
-            Size { width: 400.0, height: 300.0 },
+            Size {
+                width: 400.0,
+                height: 300.0,
+            },
         );
         let document = &page.document;
         let texts: Vec<String> = document
@@ -825,9 +846,6 @@ mod list_marker_tests {
             })
             .map(|li| document.text_content(li))
             .collect();
-        assert_eq!(
-            texts,
-            vec!["\u{2022} a", "\u{2022} b", "1. x", "y", "3. z"]
-        );
+        assert_eq!(texts, vec!["\u{2022} a", "\u{2022} b", "1. x", "y", "3. z"]);
     }
 }

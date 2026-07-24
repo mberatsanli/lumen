@@ -1645,6 +1645,25 @@ mod tests {
         )
     }
 
+    /// First laid-out box with this tag, depth-first. html5ever wraps
+    /// every document in html/head/body, so tests locate boxes by tag
+    /// instead of fixed child indices from the root.
+    fn find_box<'a>(layout: &'a LayoutBox, tag: &str) -> &'a LayoutBox {
+        fn find<'a>(layout: &'a LayoutBox, tag: &str) -> Option<&'a LayoutBox> {
+            if matches!(&layout.kind, LayoutKind::Element(t) if t == tag) {
+                return Some(layout);
+            }
+            layout.children.iter().find_map(|child| find(child, tag))
+        }
+        find(layout, tag).unwrap_or_else(|| panic!("no laid-out box for <{tag}>"))
+    }
+
+    /// The old "top-level" boxes are now the body box's children, in
+    /// the same order (head/style/title produce no boxes).
+    fn body_box(layout: &LayoutBox) -> &LayoutBox {
+        find_box(layout, "body")
+    }
+
     /// The brief's canonical deterministic-geometry example.
     #[test]
     fn parent_and_children_have_exact_rects() {
@@ -1655,7 +1674,7 @@ mod tests {
              </style>
              <div class='parent'><div class='child'></div><div class='child'></div></div>",
         );
-        let parent = &layout.children[0];
+        let parent = &body_box(&layout).children[0];
         assert_eq!(
             parent.content_box(),
             Rect {
@@ -1706,7 +1725,7 @@ mod tests {
              </style>
              <div></div>",
         );
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         assert_eq!(
             div.content_box(),
             Rect {
@@ -1733,7 +1752,7 @@ mod tests {
         let layout = layout_of(
             "<style>div { border-width: 2px; padding: 8px; margin: 10px; }</style><div></div>",
         );
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         // 800 - 2*10 margin - 2*2 border - 2*8 padding
         assert_eq!(div.content_box().width, 760.0);
         assert_eq!(div.border_box().width, 780.0);
@@ -1748,7 +1767,7 @@ mod tests {
              </style>
              <div class='outer'><div class='inner'></div></div>",
         );
-        let outer = &layout.children[0];
+        let outer = &body_box(&layout).children[0];
         let inner = &outer.children[0];
         assert_eq!(inner.content_box().x, 15.0);
         assert_eq!(inner.content_box().y, 15.0);
@@ -1760,13 +1779,13 @@ mod tests {
         let auto = layout_of(
             "<style>.child { height: 40px; }</style><div><div class='child'></div></div>",
         );
-        assert_eq!(auto.children[0].border_box().height, 40.0);
+        assert_eq!(body_box(&auto).children[0].border_box().height, 40.0);
 
         let fixed = layout_of(
             "<style>.parent { height: 25px; } .child { height: 40px; }</style>\
              <div class='parent'><div class='child'></div></div>",
         );
-        assert_eq!(fixed.children[0].border_box().height, 25.0);
+        assert_eq!(body_box(&fixed).children[0].border_box().height, 25.0);
     }
 
     #[test]
@@ -1774,7 +1793,7 @@ mod tests {
         let layout = layout_of(
             "<style>div { width: 100px; height: 10px; margin: 0 auto; }</style><div></div>",
         );
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         // (800 - 100) / 2 on each side.
         assert_eq!(div.border_box().x, 350.0);
         assert_eq!(div.dimensions.margin.left, 350.0);
@@ -1786,7 +1805,7 @@ mod tests {
         let layout = layout_of(
             "<style>div { width: 100px; height: 10px; margin-left: auto; }</style><div></div>",
         );
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         assert_eq!(div.border_box().x, 700.0);
     }
 
@@ -1796,7 +1815,7 @@ mod tests {
             "<style>div { font-size: 20px; margin-left: 2em; padding-top: 1.5em; height: 10px; }\
              </style><div></div>",
         );
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         assert_eq!(div.border_box().x, 40.0);
         assert_eq!(div.dimensions.padding.top, 30.0);
     }
@@ -1808,7 +1827,7 @@ mod tests {
             "<style>div { width: 400px; margin: 0; padding: 0; }</style>\
              <div>one <span>two</span> three</div>",
         );
-        let anonymous = &layout.children[0].children[0];
+        let anonymous = &body_box(&layout).children[0].children[0];
         let LayoutKind::Inline { lines } = &anonymous.kind else {
             panic!("expected inline content");
         };
@@ -1826,7 +1845,7 @@ mod tests {
     #[test]
     fn words_join_without_boundary_whitespace() {
         let layout = layout_of("<div>foo<span>bar</span></div>");
-        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+        let LayoutKind::Inline { lines } = &body_box(&layout).children[0].children[0].kind else {
             panic!("expected inline content");
         };
         // No space between fragments: "foo" ends at 24, "bar" starts at 24.
@@ -1836,7 +1855,7 @@ mod tests {
     #[test]
     fn br_forces_a_line_break() {
         let layout = layout_of("<div>a<br>b</div>");
-        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+        let LayoutKind::Inline { lines } = &body_box(&layout).children[0].children[0].kind else {
             panic!("expected inline content");
         };
         assert_eq!(lines.len(), 2);
@@ -1847,7 +1866,7 @@ mod tests {
     #[test]
     fn mixed_block_and_inline_children_get_anonymous_blocks() {
         let layout = layout_of("<div>before<p>block</p>after</div>");
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         assert_eq!(div.children.len(), 3);
         assert_eq!(div.children[0].box_type, BoxType::AnonymousBlock);
         assert_eq!(div.children[1].box_type, BoxType::Block);
@@ -1863,7 +1882,7 @@ mod tests {
             "<style>span { font-size: 32px; line-height: 1; }</style>\
              <div>small <span>BIG</span></div>",
         );
-        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+        let LayoutKind::Inline { lines } = &body_box(&layout).children[0].children[0].kind else {
             panic!("expected inline content");
         };
         // Default 16px text line-height is 22.4; the span's is 32. The
@@ -1940,10 +1959,18 @@ mod tests {
             &crate::text::HeuristicMeasurer,
             &images,
         );
-        let boxes: Vec<&LayoutBox> = layout
-            .children
+        // The imgs are inline content, so the body wraps them in one
+        // anonymous block whose line fragments carry the laid boxes.
+        let LayoutKind::Inline { lines } = &body_box(&layout).children[0].kind else {
+            panic!("expected inline content");
+        };
+        let boxes: Vec<&LayoutBox> = lines
             .iter()
-            .filter(|child| child.box_type == BoxType::Replaced)
+            .flat_map(|line| &line.fragments)
+            .filter_map(|fragment| match &fragment.content {
+                FragmentContent::Box(laid) => Some(laid.as_ref()),
+                _ => None,
+            })
             .collect();
         assert_eq!(boxes.len(), 3);
         // Attributes win when CSS is absent.
@@ -1965,7 +1992,7 @@ mod tests {
                       padding: 20px; border-width: 5px; }
              </style><div></div>",
         );
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         // width/height name the border box.
         assert_eq!(div.border_box().width, 200.0);
         assert_eq!(div.border_box().height, 100.0);
@@ -1980,7 +2007,7 @@ mod tests {
                 div { width: 200px; height: 100px; padding: 20px; border-width: 5px; }
              </style><div></div>",
         );
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         assert_eq!(div.content_box().width, 200.0);
         assert_eq!(div.border_box().width, 250.0);
         assert_eq!(div.border_box().height, 150.0);
@@ -1992,7 +2019,7 @@ mod tests {
             "<style>div { box-sizing: border-box; width: 10px; padding: 20px; height: 5px; }\
              </style><div></div>",
         );
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         assert_eq!(div.content_box().width, 0.0);
         assert_eq!(div.border_box().width, 40.0); // padding only
     }
@@ -2005,7 +2032,7 @@ mod tests {
                 .b { height: 10px; margin-top: 12px; }
              </style><div><div class='a'></div><div class='b'></div></div>",
         );
-        let container = &layout.children[0];
+        let container = &body_box(&layout).children[0];
         let first = &container.children[0];
         let second = &container.children[1];
         // Gap is max(20, 12) = 20, not 32.
@@ -2021,7 +2048,7 @@ mod tests {
                 .b { height: 10px; margin-top: 12px; }
              </style><div><div class='a'></div>separator<div class='b'></div></div>",
         );
-        let container = &layout.children[0];
+        let container = &body_box(&layout).children[0];
         // a (10) + margin 20 + text line (22.4) + margin 12 + b (10)
         let second = container.children.last().unwrap();
         assert_eq!(second.border_box().y, 10.0 + 20.0 + 22.4 + 12.0);
@@ -2035,7 +2062,7 @@ mod tests {
                 .child { margin-top: 30px; height: 10px; }
              </style><div class='parent'><div class='child'></div></div>",
         );
-        let parent = &layout.children[0];
+        let parent = &body_box(&layout).children[0];
         let child = &parent.children[0];
         // Parent moves down by the collapsed max(10, 30) = 30...
         assert_eq!(parent.border_box().y, 30.0);
@@ -2052,7 +2079,7 @@ mod tests {
                 .child { margin-top: 30px; height: 10px; }
              </style><div class='parent'><div class='child'></div></div>",
         );
-        let parent = &layout.children[0];
+        let parent = &body_box(&layout).children[0];
         let child = &parent.children[0];
         assert_eq!(parent.border_box().y, 10.0);
         assert_eq!(child.border_box().y, 10.0 + 4.0 + 30.0);
@@ -2066,7 +2093,7 @@ mod tests {
                         background-color: #eee; }
              </style><div>before <span class='chip'></span> after</div>",
         );
-        let anonymous = &layout.children[0].children[0];
+        let anonymous = &body_box(&layout).children[0].children[0];
         let LayoutKind::Inline { lines } = &anonymous.kind else {
             panic!("expected inline content");
         };
@@ -2094,7 +2121,7 @@ mod tests {
             "<style>.tag { display: inline-block; padding: 5px; }</style>\
              <div><span class='tag'>hi</span> rest</div>",
         );
-        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+        let LayoutKind::Inline { lines } = &body_box(&layout).children[0].children[0].kind else {
             panic!("expected inline content");
         };
         // Content "hi" = 16px + 2*5 padding = 26 margin-box width.
@@ -2109,7 +2136,7 @@ mod tests {
              </style>\
              <div class='wrap'><div class='f'></div>aaaa bbbb cccc</div>",
         );
-        let wrap = &layout.children[0];
+        let wrap = &body_box(&layout).children[0];
         // First child is the float, positioned at the left edge, no flow advance.
         let float_box = &wrap.children[0];
         assert_eq!(float_box.border_box().x, 0.0);
@@ -2129,7 +2156,7 @@ mod tests {
             "<style>.f { float: right; width: 50px; height: 10px; }</style>\
              <div><div class='f'></div>text</div>",
         );
-        let float_box = &layout.children[0].children[0];
+        let float_box = &body_box(&layout).children[0].children[0];
         assert_eq!(float_box.border_box().x, 800.0 - 50.0);
     }
 
@@ -2141,7 +2168,7 @@ mod tests {
                 .c { clear: left; height: 10px; }
              </style><div><div class='f'></div><div class='c'></div></div>",
         );
-        let cleared = &layout.children[0].children[1];
+        let cleared = &body_box(&layout).children[0].children[1];
         assert_eq!(cleared.border_box().y, 40.0);
     }
 
@@ -2155,7 +2182,7 @@ mod tests {
              <div class='row'><div class='item'></div><div class='item'></div>\
              <div class='item'></div></div>",
         );
-        let row = &layout.children[0];
+        let row = &body_box(&layout).children[0];
         let xs: Vec<f32> = row
             .children
             .iter()
@@ -2177,7 +2204,7 @@ mod tests {
              <div class='row'><div class='a'></div><div class='b'></div>\
              <div class='c'></div></div>",
         );
-        let row = &layout.children[0];
+        let row = &body_box(&layout).children[0];
         // Free space 700 split 1:3 → 175 and 525.
         assert_eq!(row.children[1].border_box().width, 175.0);
         assert_eq!(row.children[2].border_box().width, 525.0);
@@ -2194,7 +2221,7 @@ mod tests {
              <div class='row'><div class='item'></div><div class='item'></div>\
              <div class='item'></div></div>",
         );
-        let row = &layout.children[0];
+        let row = &body_box(&layout).children[0];
         // 300+10+300 = 610 fits in 800; the third item (needs 920) wraps.
         assert_eq!(
             row.children[0].border_box().y,
@@ -2216,7 +2243,7 @@ mod tests {
              </style>\
              <div class='row'><div class='a'></div><div class='b'></div></div>",
         );
-        let row = &layout.children[0];
+        let row = &body_box(&layout).children[0];
         // Overflow 400 split by shrink*base 600 : 1200 → 133.3 and 266.7.
         let a = row.children[0].border_box().width;
         let b = row.children[1].border_box().width;
@@ -2237,7 +2264,7 @@ mod tests {
              <div class='row'><div class='a'></div><div class='b'></div>\
              <div class='c'></div></div>",
         );
-        let row = &layout.children[0];
+        let row = &body_box(&layout).children[0];
         assert_eq!(row.children[0].border_box().y, 0.0);
         assert_eq!(row.children[1].border_box().y, 80.0);
         assert_eq!(row.children[2].border_box().height, 100.0);
@@ -2257,7 +2284,7 @@ mod tests {
                  </style>\
                  <div class='row'><div class='item'></div><div class='item'></div></div>"
             ));
-            let row = &layout.children[0];
+            let row = &body_box(&layout).children[0];
             assert_eq!(row.children[0].border_box().x, expected_x, "{justify}");
             if justify == "space-between" {
                 assert_eq!(row.children[1].border_box().x, 700.0);
@@ -2273,7 +2300,10 @@ mod tests {
                 .item { width: 50px; height: 40px; }
              </style><div class='row'><div class='item'></div></div>",
         );
-        assert_eq!(layout.children[0].children[0].border_box().y, 30.0);
+        assert_eq!(
+            body_box(&layout).children[0].children[0].border_box().y,
+            30.0
+        );
 
         let stretch = layout_of(
             "<style>
@@ -2281,7 +2311,12 @@ mod tests {
                 .item { width: 50px; }
              </style><div class='row'><div class='item'></div></div>",
         );
-        assert_eq!(stretch.children[0].children[0].border_box().height, 100.0);
+        assert_eq!(
+            body_box(&stretch).children[0].children[0]
+                .border_box()
+                .height,
+            100.0
+        );
     }
 
     #[test]
@@ -2293,7 +2328,7 @@ mod tests {
                 .b { flex-grow: 1; }
              </style><div class='col'><div class='a'></div><div class='b'></div></div>",
         );
-        let col = &layout.children[0];
+        let col = &body_box(&layout).children[0];
         assert_eq!(col.children[0].border_box().y, 0.0);
         assert_eq!(col.children[1].border_box().y, 60.0);
         // 200 - 50 - 10 gap = 140 for the growing item.
@@ -2308,7 +2343,7 @@ mod tests {
             "<style>.row { display: flex; gap: 8px; }</style>\
              <div class='row'>label<div style='width: 40px; height: 10px'></div></div>",
         );
-        let row = &layout.children[0];
+        let row = &body_box(&layout).children[0];
         assert_eq!(row.children.len(), 2);
         // "label" = 5 chars * 8px wide anonymous item, then the div after the gap.
         assert_eq!(row.children[1].border_box().x, 48.0);
@@ -2322,8 +2357,8 @@ mod tests {
                 .after { height: 10px; }
              </style><div class='rel'></div><div class='after'></div>",
         );
-        let rel = &layout.children[0];
-        let after = &layout.children[1];
+        let rel = &body_box(&layout).children[0];
+        let after = &body_box(&layout).children[1];
         assert_eq!(rel.border_box().x, 10.0);
         assert_eq!(rel.border_box().y, 5.0);
         // The sibling flows as if the box had not moved.
@@ -2340,7 +2375,7 @@ mod tests {
                 .flow { height: 20px; }
              </style><div class='wrap'><div class='abs'></div><div class='flow'></div></div>",
         );
-        let wrap = &layout.children[0];
+        let wrap = &body_box(&layout).children[0];
         let abs = &wrap.children[0];
         let flow = &wrap.children[1];
         // Positioned against the parent's content box (10,10).
@@ -2359,7 +2394,7 @@ mod tests {
                            width: 50px; height: 5px; }</style>\
              <div><div class='abs'></div></div>",
         );
-        let abs = &layout.children[0].children[0];
+        let abs = &body_box(&layout).children[0].children[0];
         assert_eq!(abs.border_box().x, 800.0 - 50.0 - 20.0);
     }
 
@@ -2378,12 +2413,12 @@ mod tests {
              <div class='anchor'><div class='middle'>\
              <div class='abs'></div><div class='btm'></div></div></div>",
         );
-        let abs = &layout.children[0].children[0].children[0];
+        let abs = &body_box(&layout).children[0].children[0].children[0];
         // Against the .anchor content box (x=100), not .middle's (x=120).
         assert_eq!(abs.border_box().x, 110.0);
         assert_eq!(abs.border_box().y, 10.0);
         // Absolute bottom now resolves against the explicit 120px height.
-        let btm = &layout.children[0].children[0].children[1];
+        let btm = &body_box(&layout).children[0].children[0].children[1];
         assert_eq!(btm.border_box().y, 120.0 - 10.0 - 10.0);
     }
 
@@ -2394,7 +2429,7 @@ mod tests {
                            width: 50px; height: 20px; }</style>\
              <div><div class='abs'></div></div>",
         );
-        let abs = &layout.children[0].children[0];
+        let abs = &body_box(&layout).children[0].children[0];
         assert_eq!(abs.border_box().x, 800.0 - 50.0);
         assert_eq!(abs.border_box().y, 600.0 - 20.0);
     }
@@ -2405,13 +2440,16 @@ mod tests {
             "<style>.wrap { margin-bottom: 10px; } .inner { margin-bottom: 30px; height: 5px; }\
              </style><main><div class='wrap'><div class='inner'></div></div><p>after</p></main>",
         );
-        let wrap = &layout.children[0].children[0];
+        let wrap = &body_box(&layout).children[0].children[0];
         // The parent's content stops at the child's border box...
         assert_eq!(wrap.content_box().height, 5.0);
         // ...and the collapsed 30px margin sits on the parent.
         assert_eq!(wrap.dimensions.margin.bottom, 30.0);
         // The following paragraph starts after exactly one collapsed margin.
-        assert_eq!(layout.children[0].children[1].border_box().y, 35.0);
+        assert_eq!(
+            body_box(&layout).children[0].children[1].border_box().y,
+            35.0
+        );
     }
 
     #[test]
@@ -2422,7 +2460,10 @@ mod tests {
              <main><div class='gap'></div><div class='after'></div></main>",
         );
         // One collapsed margin (30), not 20 + 30.
-        assert_eq!(layout.children[0].children[1].border_box().y, 30.0);
+        assert_eq!(
+            body_box(&layout).children[0].children[1].border_box().y,
+            30.0
+        );
     }
 
     #[test]
@@ -2434,7 +2475,7 @@ mod tests {
                        width: 40px; height: 20px; }
              </style><div class='wrap'><div class='fix'></div></div>",
         );
-        let fix = &layout.children[0].children[0];
+        let fix = &body_box(&layout).children[0].children[0];
         assert_eq!(fix.border_box().x, 800.0 - 40.0 - 5.0);
         assert_eq!(fix.border_box().y, 600.0 - 20.0 - 10.0);
     }
@@ -2458,7 +2499,7 @@ mod tests {
             &crate::text::HeuristicMeasurer,
             &crate::image::ImageMap::new(),
         );
-        let container = &layout.children[0];
+        let container = &body_box(&layout).children[0];
         let ordered = container.children_in_paint_order();
         // .b (z=1) paints before .a (z=2) despite DOM order.
         let z_of = |layout: &LayoutBox| layout.style.z_index.unwrap_or(0);
@@ -2554,7 +2595,7 @@ mod tests {
             "<style>p { text-transform: uppercase; text-indent: 40px; }</style>\
              <p>hello world</p>",
         );
-        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+        let LayoutKind::Inline { lines } = &body_box(&layout).children[0].children[0].kind else {
             panic!("expected inline content");
         };
         assert_eq!(lines[0].fragments[0].text(), Some("HELLO WORLD"));
@@ -2569,7 +2610,7 @@ mod tests {
                           text-overflow: ellipsis; }</style>\
              <div>a very long sentence that cannot fit</div>",
         );
-        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+        let LayoutKind::Inline { lines } = &body_box(&layout).children[0].children[0].kind else {
             panic!("expected inline content");
         };
         assert_eq!(lines.len(), 1);
@@ -2585,7 +2626,7 @@ mod tests {
             "<style>div { width: 40px; word-break: break-all; }</style>\
              <div>abcdefghijklmnop</div>",
         );
-        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+        let LayoutKind::Inline { lines } = &body_box(&layout).children[0].children[0].kind else {
             panic!("expected inline content");
         };
         // 16 chars at 8px = 128px over a 40px box → 4 lines of 5 chars.
@@ -2601,7 +2642,7 @@ mod tests {
             "<style>div { width: 200px; text-align: justify; }</style>\
              <div>aaaa bbbb cccc dddd eeee ffff gggg hhhh last</div>",
         );
-        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+        let LayoutKind::Inline { lines } = &body_box(&layout).children[0].children[0].kind else {
             panic!("expected inline content");
         };
         assert!(lines.len() >= 2);
@@ -2632,7 +2673,7 @@ mod tests {
              <p class='line'>x <span class='box top'></span>\
              <span class='box mid'></span> <sup>up</sup></p>",
         );
-        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+        let LayoutKind::Inline { lines } = &body_box(&layout).children[0].children[0].kind else {
             panic!("expected inline content");
         };
         let line = &lines[0];
@@ -2644,7 +2685,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        let line_top = layout.children[0].children[0].content_box().y + line.y;
+        let line_top = body_box(&layout).children[0].children[0].content_box().y + line.y;
         // top-aligned box sits at the line top.
         assert_eq!(boxes[0].margin_box().y, line_top);
         // middle-aligned box is centered in the 60px line.
@@ -2664,7 +2705,7 @@ mod tests {
             "<style>div { width: 60px; white-space: nowrap; }</style>\
              <div>many words that would surely wrap</div>",
         );
-        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+        let LayoutKind::Inline { lines } = &body_box(&layout).children[0].children[0].kind else {
             panic!("expected inline content");
         };
         assert_eq!(lines.len(), 1);
@@ -2675,7 +2716,7 @@ mod tests {
         let layout = layout_of(
             "<pre>a  b\nverylongline that would normally wrap far beyond any width limit set here</pre>",
         );
-        let pre = &layout.children[0];
+        let pre = &body_box(&layout).children[0];
         let LayoutKind::Inline { lines } = &pre.children[0].kind else {
             panic!("expected inline content in pre");
         };
@@ -2696,16 +2737,36 @@ mod tests {
              <div class='auto-parent'><div class='orphan'></div></div>",
         );
         // 50% of the explicit 200px parent.
-        assert_eq!(layout.children[0].children[0].content_box().height, 100.0);
+        assert_eq!(
+            body_box(&layout).children[0].children[0]
+                .content_box()
+                .height,
+            100.0
+        );
         // Percent inside an auto parent stays auto (0 here).
-        assert_eq!(layout.children[1].children[0].content_box().height, 0.0);
+        assert_eq!(
+            body_box(&layout).children[1].children[0]
+                .content_box()
+                .height,
+            0.0
+        );
     }
 
     #[test]
     fn viewport_is_the_root_containing_height() {
+        // The html5ever skeleton puts <html>/<body> between the viewport
+        // and the content; their height is auto by default, so a bare
+        // percentage height collapses to auto (spec behavior — the old
+        // expectation only held when the div was a direct child of the
+        // viewport-height root).
         let layout = layout_of("<style>div { height: 50%; }</style><div></div>");
-        // 50% of the 600px viewport.
-        assert_eq!(layout.children[0].content_box().height, 300.0);
+        assert_eq!(body_box(&layout).children[0].content_box().height, 0.0);
+        // With html/body pinned to 100%, the viewport height propagates
+        // through and 50% resolves to 300px of the 600px viewport.
+        let layout = layout_of(
+            "<style>html, body { height: 100%; } div { height: 50%; }</style><div></div>",
+        );
+        assert_eq!(body_box(&layout).children[0].content_box().height, 300.0);
     }
 
     #[test]
@@ -2714,8 +2775,8 @@ mod tests {
             "<style>div { width: 200px; aspect-ratio: 2 / 1; }\
                     p { width: 90px; aspect-ratio: 3; }</style><div></div><p></p>",
         );
-        assert_eq!(layout.children[0].content_box().height, 100.0);
-        assert_eq!(layout.children[1].content_box().height, 30.0);
+        assert_eq!(body_box(&layout).children[0].content_box().height, 100.0);
+        assert_eq!(body_box(&layout).children[1].content_box().height, 30.0);
     }
 
     #[test]
@@ -2724,7 +2785,7 @@ mod tests {
             "<style>div { max-width: 400px; margin-left: auto; margin-right: auto; \
                           height: 10px; }</style><div></div>",
         );
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         assert_eq!(div.content_box().width, 400.0);
         // (800 - 400) / 2 on each side.
         assert_eq!(div.content_box().x, 200.0);
@@ -2736,7 +2797,7 @@ mod tests {
             "<style>div { width: 100px; max-width: 50px; min-width: 200px; height: 5px; }\
              </style><div></div>",
         );
-        assert_eq!(layout.children[0].content_box().width, 200.0);
+        assert_eq!(body_box(&layout).children[0].content_box().width, 200.0);
     }
 
     #[test]
@@ -2746,10 +2807,10 @@ mod tests {
              <div class='short'></div>\
              <div class='tall'><div style='height: 100px;'></div></div>",
         );
-        assert_eq!(layout.children[0].content_box().height, 50.0);
-        assert_eq!(layout.children[1].content_box().height, 20.0);
+        assert_eq!(body_box(&layout).children[0].content_box().height, 50.0);
+        assert_eq!(body_box(&layout).children[1].content_box().height, 20.0);
         // The clamped box still stacks flow at its used height.
-        assert_eq!(layout.children[1].content_box().y, 50.0);
+        assert_eq!(body_box(&layout).children[1].content_box().y, 50.0);
     }
 
     #[test]
@@ -2759,7 +2820,7 @@ mod tests {
         let layout = layout_of(
             "<div style='height: 30px; overflow: scroll; white-space: pre;'>a\nb\nc\nd\ne</div>",
         );
-        let scroller = &layout.children[0];
+        let scroller = &body_box(&layout).children[0];
         assert!(
             scroller.max_inner_scroll() > 0.0,
             "inline overflow should scroll, got {}",
@@ -2770,7 +2831,7 @@ mod tests {
     #[test]
     fn images_flow_inline_with_text() {
         let layout = layout_of("<p>before <img src='x.png' width='30' height='20'> after</p>");
-        let paragraph = &layout.children[0];
+        let paragraph = &body_box(&layout).children[0];
         let LayoutKind::Inline { lines } = &paragraph.children[0].kind else {
             panic!("expected inline content in p");
         };
@@ -2794,7 +2855,7 @@ mod tests {
                     .g div { height: 10px; }</style>\
              <div class='g'><div></div><div></div><div></div><div></div></div>",
         );
-        let grid = &layout.children[0];
+        let grid = &body_box(&layout).children[0];
         let cell = |index: usize| grid.children[index].border_box();
         // 800 - 100 - 20 gaps = 680 leftover → 1fr ≈ 226.67, 2fr ≈ 453.33.
         assert_eq!(cell(0).width, 100.0);
@@ -2816,7 +2877,7 @@ mod tests {
              <div class='g'><div class='wide'></div><div class='one'></div>\
              <div class='one'></div></div>",
         );
-        let grid = &layout.children[0];
+        let grid = &body_box(&layout).children[0];
         let wide = grid.children[0].border_box();
         let single = grid.children[1].border_box();
         assert!((wide.width - 2.0 * 800.0 / 3.0).abs() < 1.0);
@@ -2833,7 +2894,7 @@ mod tests {
                     .g div { width: 10px; }</style>\
              <div class='g'><div></div><div></div><div></div></div>",
         );
-        let grid = &layout.children[0];
+        let grid = &body_box(&layout).children[0];
         let cell = |index: usize| grid.children[index].border_box();
         // Auto-height items stretch to their fixed row track.
         assert_eq!(cell(0).height, 30.0);
@@ -2853,7 +2914,7 @@ mod tests {
                     .g div { width: 10px; }</style>\
              <div class='g'><div class='tall'></div><div></div><div></div></div>",
         );
-        let grid = &layout.children[0];
+        let grid = &body_box(&layout).children[0];
         let tall = grid.children[0].border_box();
         // 20 + 10 gap + 20.
         assert_eq!(tall.height, 50.0);
@@ -2872,7 +2933,7 @@ mod tests {
                     .b { flex: 1 100px; height: 10px; }</style>\
              <div class='row'><div class='a'></div><div class='b'></div></div>",
         );
-        let row = &layout.children[0];
+        let row = &body_box(&layout).children[0];
         assert_eq!(row.children[0].border_box().width, 200.0);
         // b: basis 100 + the whole free space (800 - 300).
         assert_eq!(row.children[1].border_box().width, 600.0);
@@ -2887,7 +2948,7 @@ mod tests {
                     .b { width: 100px; height: 10px; order: 1; }</style>\
              <div class='row'><div class='a'></div><div class='b'></div></div>",
         );
-        let row = &layout.children[0];
+        let row = &body_box(&layout).children[0];
         // DOM order is a, b; layout order follows `order` (b first).
         assert_eq!(row.children[0].style.order, 1);
         assert_eq!(row.children[0].border_box().x, 0.0);
@@ -2903,7 +2964,7 @@ mod tests {
                     .item { width: 800px; height: 20px; }</style>\
              <div class='row'><div class='item'></div><div class='item'></div></div>",
         );
-        let row = &layout.children[0];
+        let row = &body_box(&layout).children[0];
         assert_eq!(row.children[0].border_box().y, 0.0);
         // Free cross space 100 - 40 = 60 goes between the two lines.
         assert_eq!(row.children[1].border_box().y, 80.0);
@@ -2917,7 +2978,7 @@ mod tests {
                           inline-size: 100px; block-size: 20px; }</style>\
              <div></div>",
         );
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         // border box x = margin-left 30; content width 100.
         assert_eq!(div.border_box().x, 30.0);
         assert_eq!(div.border_box().y, 10.0);
@@ -2933,7 +2994,7 @@ mod tests {
             "<style>div { position: relative; inset: 5px 0 0 10px; height: 20px; }</style>\
              <div></div>",
         );
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         assert_eq!(div.border_box().x, 10.0);
         assert_eq!(div.border_box().y, 5.0);
     }
@@ -2946,7 +3007,7 @@ mod tests {
                     .c { width: clamp(150px, 500px, 250px); height: 10px; }</style>\
              <div class='a'></div><div class='b'></div><div class='c'></div>",
         );
-        let body = &layout;
+        let body = body_box(&layout);
         assert_eq!(body.children[0].content_box().width, 200.0);
         assert_eq!(body.children[1].content_box().width, 100.0);
         // clamp picks the preferred value bounded to [min, max] → 250.
@@ -2963,7 +3024,7 @@ mod tests {
              <tr><td style='height: 20px;'>c</td><td style='height: 20px;'>d</td></tr>\
              </table>",
         );
-        let table = &layout.children[0];
+        let table = &body_box(&layout).children[0];
         assert_eq!(table.children.len(), 4);
         let cell = |index: usize| table.children[index].border_box();
         // Columns align across rows (spacing floor is 2px).
@@ -2985,7 +3046,7 @@ mod tests {
                  <td style='width: 40px; height: 5px;'>b</td></tr>\
              </table>",
         );
-        let table = &layout.children[0];
+        let table = &body_box(&layout).children[0];
         let wide = table.children[0].border_box();
         let a = table.children[1].border_box();
         let b = table.children[2].border_box();
@@ -3026,7 +3087,7 @@ mod tests {
     #[test]
     fn text_becomes_anonymous_inline_content_inside_blocks() {
         let layout = layout_of("<div>hi</div>");
-        let div = &layout.children[0];
+        let div = &body_box(&layout).children[0];
         assert_eq!(div.box_type, BoxType::Block);
         let anonymous = &div.children[0];
         assert_eq!(anonymous.box_type, BoxType::AnonymousBlock);
@@ -3040,7 +3101,7 @@ mod tests {
                     .inner { position: absolute; top: 50%; height: 10px; }</style>\
              <div class='outer'><div class='inner'></div></div>",
         );
-        let outer = &layout.children[0];
+        let outer = &body_box(&layout).children[0];
         assert_eq!(outer.content_box().height, 100.0);
         let inner = outer
             .children
@@ -3061,7 +3122,7 @@ mod tests {
                     .child { margin-top: 20px; height: 5px; }</style>\
              <div class='parent'><div class='fl'></div><div class='child'></div></div>",
         );
-        let parent = &layout.children[0];
+        let parent = &body_box(&layout).children[0];
         assert_eq!(parent.dimensions.margin.top, 20.0);
         // Both children are laid out (the float was not dropped either).
         assert_eq!(parent.children.len(), 2);
@@ -3070,7 +3131,7 @@ mod tests {
     #[test]
     fn negative_explicit_width_clamps_to_zero() {
         let layout = layout_of("<style>div { width: -50px; height: 10px; }</style><div>x</div>");
-        assert_eq!(layout.children[0].content_box().width, 0.0);
+        assert_eq!(body_box(&layout).children[0].content_box().width, 0.0);
     }
 
     #[test]
@@ -3131,7 +3192,7 @@ mod tests {
         );
         let start = std::time::Instant::now();
         let layout = layout_of(&html);
-        let LayoutKind::Inline { lines } = &layout.children[0].children[0].kind else {
+        let LayoutKind::Inline { lines } = &body_box(&layout).children[0].children[0].kind else {
             panic!("expected inline content");
         };
         let text = lines[0].fragments[0].text().unwrap();

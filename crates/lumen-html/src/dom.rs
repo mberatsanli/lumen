@@ -137,6 +137,9 @@ pub struct Document {
     /// CSS-generated (`::before`/`::after`) text nodes by
     /// (parent element, leading?) — lets regeneration update in place.
     generated: std::collections::BTreeMap<(NodeId, bool), NodeId>,
+    /// Recoverable errors reported by the HTML parser (debug aid only;
+    /// parsing always recovers, so this never affects the tree).
+    parse_error_count: usize,
 }
 
 impl Document {
@@ -151,6 +154,7 @@ impl Document {
             }],
             root: 0,
             generated: std::collections::BTreeMap::new(),
+            parse_error_count: 0,
         }
     }
 
@@ -209,6 +213,92 @@ impl Document {
         }
         self.generated.insert((parent, leading), id);
         id
+    }
+
+    /// Number of recoverable errors the parser reported for this document.
+    #[must_use]
+    pub const fn parse_error_count(&self) -> usize {
+        self.parse_error_count
+    }
+
+    pub(crate) fn set_parse_error_count(&mut self, count: usize) {
+        self.parse_error_count = count;
+    }
+
+    /// Attaches an already-detached node as the last child of `parent`
+    /// (the html5ever tree builder guarantees fresh children, so this
+    /// skips the detach and cycle check of [`Document::append_child`]).
+    pub(crate) fn attach(&mut self, parent: NodeId, child: NodeId) {
+        self.nodes[child].parent = Some(parent);
+        self.nodes[parent].children.push(child);
+    }
+
+    /// Appends text to `parent`, merging into its last child when that is
+    /// a text node (adjacent text nodes must stay a single node).
+    pub(crate) fn append_text(&mut self, parent: NodeId, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        if let Some(&last) = self.nodes[parent].children.last()
+            && let NodeKind::Text(existing) = &mut self.nodes[last].kind
+        {
+            existing.push_str(text);
+            return;
+        }
+        self.append(parent, NodeKind::Text(text.to_string()));
+    }
+
+    /// Inserts `child` (detaching it from any old parent first)
+    /// immediately before `sibling`. Used for foster parenting.
+    pub(crate) fn insert_before(&mut self, sibling: NodeId, child: NodeId) {
+        let Some(parent) = self.nodes[sibling].parent else {
+            return;
+        };
+        self.detach(child);
+        let Some(position) = self.nodes[parent]
+            .children
+            .iter()
+            .position(|candidate| *candidate == sibling)
+        else {
+            return;
+        };
+        self.nodes[child].parent = Some(parent);
+        self.nodes[parent].children.insert(position, child);
+    }
+
+    /// Inserts text immediately before `sibling`, merging into the
+    /// preceding sibling when it is a text node.
+    pub(crate) fn insert_text_before(&mut self, sibling: NodeId, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let Some(parent) = self.nodes[sibling].parent else {
+            return;
+        };
+        let Some(position) = self.nodes[parent]
+            .children
+            .iter()
+            .position(|candidate| *candidate == sibling)
+        else {
+            return;
+        };
+        if position > 0 {
+            let previous = self.nodes[parent].children[position - 1];
+            if let NodeKind::Text(existing) = &mut self.nodes[previous].kind {
+                existing.push_str(text);
+                return;
+            }
+        }
+        let id = self.create_text(text);
+        self.nodes[id].parent = Some(parent);
+        self.nodes[parent].children.insert(position, id);
+    }
+
+    /// Adds an attribute unless one with the same name already exists.
+    pub(crate) fn add_attribute_if_missing(&mut self, node: NodeId, name: String, value: String) {
+        if let NodeKind::Element(element) = &mut self.nodes[node].kind {
+            element.attributes.insert(name, value);
+        }
     }
 
     #[must_use]
@@ -294,21 +384,30 @@ impl Document {
     }
 
     /// Replaces a node's children with the parse of an HTML fragment
-    /// (the innerHTML setter). Scripts inside the fragment become inert
-    /// nodes, as in real browsers.
+    /// (the innerHTML setter). The fragment is parsed in the context of
+    /// the element's own tag (so `<li>` under a `<ul>` stays a list item
+    /// and RCDATA elements decode entities). Scripts inside the fragment
+    /// become inert nodes, as in real browsers.
     pub fn set_inner_html(&mut self, parent: NodeId, html: &str) {
         for child in std::mem::take(&mut self.nodes[parent].children) {
             self.nodes[child].parent = None;
         }
         // Generated value/pseudo text under the old children is stale now.
         self.generated.retain(|(host, _), _| *host != parent);
-        let fragment = crate::parse_document(html);
-        let mut stack: Vec<(NodeId, NodeId)> = fragment
+        let context = match &self.nodes[parent].kind {
+            NodeKind::Element(element) => element.tag_name.clone(),
+            _ => "body".to_string(),
+        };
+        let fragment = crate::parse_fragment(&context, html);
+        // Fragment output lives under a synthetic `<html>` root
+        // (per the fragment parsing algorithm); its children are the
+        // actual fragment nodes.
+        let roots: Vec<NodeId> = fragment
             .children(fragment.root())
-            .iter()
-            .rev()
-            .map(|child| (*child, parent))
-            .collect();
+            .first()
+            .map_or_else(Vec::new, |html_root| fragment.children(*html_root).to_vec());
+        let mut stack: Vec<(NodeId, NodeId)> =
+            roots.iter().rev().map(|child| (*child, parent)).collect();
         while let Some((source, target_parent)) = stack.pop() {
             let copy = self.append(target_parent, fragment.node(source).kind.clone());
             for child in fragment.children(source).iter().rev() {
@@ -552,7 +651,7 @@ mod tests {
     #[test]
     fn attributes_keep_source_order() {
         let document = crate::parse_document("<div z='1' id='x' class='c'>");
-        let div = document.children(document.root())[0];
+        let div = document.get_element_by_id("x").unwrap();
         let names: Vec<&str> = document
             .element(div)
             .unwrap()
@@ -562,8 +661,9 @@ mod tests {
             .collect();
         assert_eq!(names, vec!["z", "id", "class"]);
         // inner_html serializes in that same order.
+        let body = document.parent(div).unwrap();
         assert_eq!(
-            document.inner_html(document.root()),
+            document.inner_html(body),
             "<div z=\"1\" id=\"x\" class=\"c\"></div>"
         );
     }
@@ -633,7 +733,7 @@ mod inner_html_tests {
         document.set_attribute(paragraph, "title", "a & b \"c\"");
         assert_eq!(
             document.inner_html(document.root()),
-            "<p id=\"x\" title=\"a &amp; b &quot;c&quot;\">hi</p>"
+            "<html><head></head><body><p id=\"x\" title=\"a &amp; b &quot;c&quot;\">hi</p></body></html>"
         );
         // Round-trip: parsing the serialized form restores the value.
         let reparsed = crate::parse_document(&document.inner_html(document.root()));

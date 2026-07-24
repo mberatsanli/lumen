@@ -46,10 +46,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .as_slice()
     {
         ["parse-html", input] => {
-            let source = read_input(input)?;
-            for token in lumen_html::tokenize(&source) {
-                println!("{token:?}");
-            }
+            // The hand-written tokenizer is gone (html5ever parses in one
+            // pass), so "parse-html" now shows the parsed tree.
+            print!("{}", lumen_html::parse_document(&read_input(input)?).dump());
         }
         ["parse-css", input] => {
             let source = read_input(input)?;
@@ -98,7 +97,7 @@ fn print_usage() {
     eprintln!(
         "Lumen CLI — inspect every stage of the rendering pipeline\n\n\
          Commands:\n\
-           parse-html <file>         HTML token stream\n\
+           parse-html <file>         parsed HTML tree (same as dump-dom)\n\
            parse-css <file>          parsed stylesheet rules\n\
            dump-dom <file>           DOM tree\n\
            dump-style <file>         computed styles per element\n\

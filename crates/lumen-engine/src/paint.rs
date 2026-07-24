@@ -989,6 +989,19 @@ mod tests {
         .display_list
     }
 
+    /// First laid-out box with this tag, depth-first. html5ever wraps
+    /// every document in html/head/body, so tests locate boxes by tag
+    /// instead of fixed child indices from the root.
+    fn find_box<'a>(layout: &'a crate::LayoutBox, tag: &str) -> &'a crate::LayoutBox {
+        fn find<'a>(layout: &'a crate::LayoutBox, tag: &str) -> Option<&'a crate::LayoutBox> {
+            if matches!(&layout.kind, crate::LayoutKind::Element(t) if t == tag) {
+                return Some(layout);
+            }
+            layout.children.iter().find_map(|child| find(child, tag))
+        }
+        find(layout, tag).unwrap_or_else(|| panic!("no laid-out box for <{tag}>"))
+    }
+
     #[test]
     fn body_background_propagates_to_the_canvas() {
         let list = commands(
@@ -1195,7 +1208,7 @@ mod tests {
                 height: 600.0,
             },
         );
-        let scroller = &page.layout.children[0];
+        let scroller = find_box(&page.layout, "div");
         let head = &scroller.children[0];
         let container_top = scroller.dimensions.padding_box().y;
         let offsets = std::collections::HashMap::from([(scroller.node_id, 60.0)]);
@@ -1249,7 +1262,7 @@ mod tests {
                 height: 600.0,
             },
         );
-        let scroller = &page.layout.children[0];
+        let scroller = find_box(&page.layout, "div");
         let container = scroller.dimensions.padding_box();
         let offsets = std::collections::HashMap::from([(scroller.node_id, 30.0)]);
         let list = build_display_list_scrolled(&page.layout, &page.images, &offsets);
@@ -1282,7 +1295,7 @@ mod tests {
                 height: 600.0,
             },
         );
-        let clip = &page.layout.children[0];
+        let clip = find_box(&page.layout, "div");
         assert_eq!(clip.style.overflow_x, crate::style::Overflow::Hidden);
         assert_eq!(clip.style.overflow_y, crate::style::Overflow::Scroll);
         assert!(
@@ -1302,7 +1315,7 @@ mod tests {
                 height: 600.0,
             },
         );
-        let clip = &page.layout.children[0];
+        let clip = find_box(&page.layout, "div");
         assert_eq!(clip.style.overflow_x, crate::style::Overflow::Hidden);
         assert_eq!(clip.style.overflow_y, crate::style::Overflow::Scroll);
         // Scrollable vertically: reports room to scroll.

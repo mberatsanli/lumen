@@ -2,8 +2,7 @@
 
 ```text
 source HTML
-  -> HTML tokenizer
-  -> tree builder
+  -> HTML parsing (html5ever: tokenizer + tree builder)
   -> DOM
   -> embedded stylesheet extraction
   -> CSS parser

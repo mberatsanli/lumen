@@ -8,22 +8,26 @@ interaction) — not just a DOM node.
 
 ## Parsing / tokenizer
 
+Parsing is delegated to html5ever (the WHATWG HTML5 algorithm), so the
+rows below mostly describe spec behavior; "Note" flags our deliberate
+simplifications.
+
 | Feature | Lumen | Chrome | Firefox | Safari | Note |
 |---|:-:|:-:|:-:|:-:|---|
 | Start/end tags, nesting | ✅ | ✅ | ✅ | ✅ | |
 | Quoted/unquoted/boolean attributes | ✅ | ✅ | ✅ | ✅ | |
-| Self-closing `<br />` | ✅ | ✅ | ✅ | ✅ | |
-| Void elements | ✅ | ✅ | ✅ | ✅ | 13-element set |
+| Self-closing `<br />` | ✅ | ✅ | ✅ | ✅ | `/>` honored only on void/foreign elements, per spec |
+| Void elements | ✅ | ✅ | ✅ | ✅ | |
 | Comments | ✅ | ✅ | ✅ | ✅ | dropped from DOM |
 | Doctype | ✅ | ✅ | ✅ | ✅ | recognized, dropped; no quirks mode |
-| Character references | ✅ | ✅ | ✅ | ✅ | the full WHATWG named table (via htmlize) + numeric forms; semicolon required |
-| Raw text (`script/style/title/textarea`) | ✅ | ✅ | ✅ | ✅ | |
-| Error recovery | ✅ | ✅ | ✅ | ✅ | mismatched tags, stray `<`, EOF cases |
+| Character references | ✅ | ✅ | ✅ | ✅ | the full WHATWG named table (via html5ever) + numeric forms |
+| Raw text (`script/style`), RCDATA (`title/textarea`), `xmp/iframe/noembed/noframes/plaintext` | ✅ | ✅ | ✅ | ✅ | |
+| Error recovery | ✅ | ✅ | ✅ | ✅ | full WHATWG tree-construction recovery; errors counted, never fatal |
 | Case normalization, duplicate attrs | ✅ | ✅ | ✅ | ✅ | first attribute wins |
-| Implied `<html>/<head>/<body>` | ❌ | ✅ | ✅ | ✅ | not synthesized |
-| WHATWG insertion modes | ❌ | ✅ | ✅ | ✅ | no foster parenting etc. |
-| Foreign content (SVG/MathML) | ❌ | ✅ | ✅ | ✅ | |
-| Parse diagnostics / source spans | ❌ | — | — | — | devtools concern |
+| Implied `<html>/<head>/<body>` | ✅ | ✅ | ✅ | ✅ | always synthesized |
+| WHATWG insertion modes | ✅ | ✅ | ✅ | ✅ | adoption agency, foster parenting, implied `<tbody>`, ... |
+| Foreign content (SVG/MathML) | ⚠️ | ✅ | ✅ | ✅ | correct tag names; namespaces flattened to local names |
+| Parse diagnostics / source spans | ⚠️ | — | — | — | error count only, no spans |
 
 ## Document metadata
 

@@ -390,9 +390,7 @@ impl<L: ResourceLoader> Session<L> {
                         }
                         // Selected options match :checked so multiple
                         // selects can style their list rows.
-                        "option" => {
-                            live.unwrap_or_else(|| element.attributes.contains("selected"))
-                        }
+                        "option" => live.unwrap_or_else(|| element.attributes.contains("selected")),
                         _ => false,
                     }
                 })
@@ -681,8 +679,8 @@ impl<L: ResourceLoader> Session<L> {
         }
         self.animations.retain(|animation| {
             animation.start_ms.is_none_or(|start| {
-                let cycles =
-                    ((now_ms - start - animation.delay_ms).max(0.0)) / animation.duration_ms.max(0.001);
+                let cycles = ((now_ms - start - animation.delay_ms).max(0.0))
+                    / animation.duration_ms.max(0.001);
                 (cycles as f32) < animation.iterations
             })
         });
@@ -1088,9 +1086,7 @@ impl<L: ResourceLoader> Session<L> {
                             }
                         }
                         _ => match &declaration.value {
-                            lumen_css::CssValue::Color(color) => {
-                                Some(AnimatedValue::Color(*color))
-                            }
+                            lumen_css::CssValue::Color(color) => Some(AnimatedValue::Color(*color)),
                             lumen_css::CssValue::Keyword(keyword) => {
                                 lumen_css::Color::parse(keyword).map(AnimatedValue::Color)
                             }
@@ -1457,7 +1453,11 @@ mod tests {
         let mut session = Session::new(
             FakeLoader::new(&[(
                 "https://a.test/",
-                "<style>a:hover { padding: 8px; }</style>\
+                // `display: block` gives the link a real layout box:
+                // html5ever nests it in <body> where a plain inline
+                // element flows in line fragments and has no box to
+                // inspect for the hover padding.
+                "<style>a { display: block; } a:hover { padding: 8px; }</style>\
                  <p>unrelated paragraph</p><a href='/x'>link</a>",
             )]),
             VIEWPORT,
@@ -1560,10 +1560,7 @@ mod tests {
         assert_eq!(session.current_url().unwrap().as_str(), "https://a.test/");
         let violation = session.form_violation().unwrap();
         assert_eq!(violation.node, field);
-        assert_eq!(
-            violation.message,
-            "Value must be less than or equal to 99."
-        );
+        assert_eq!(violation.message, "Value must be less than or equal to 99.");
     }
 
     #[test]
@@ -1853,9 +1850,8 @@ mod tests {
         session.load(url("https://a.test/")).unwrap();
         let document = &session.page().unwrap().document;
         let node = document.get_element_by_id("k").unwrap();
-        let opacity = |session: &Session<FakeLoader>| {
-            session.page().unwrap().styles.by_node[&node].opacity
-        };
+        let opacity =
+            |session: &Session<FakeLoader>| session.page().unwrap().styles.by_node[&node].opacity;
         assert!(session.tick(0.0)); // starts the clock
         assert!(opacity(&session) < 0.05, "{}", opacity(&session));
         session.tick(500.0);
@@ -2035,7 +2031,12 @@ mod tests {
         );
         session.load(url("http://a.test/")).unwrap();
         let _scripts = PageScripts::new(&mut session).expect("page has scripts");
-        assert!(session.cookies.header_for_http(&url("http://a.test/")).is_none());
+        assert!(
+            session
+                .cookies
+                .header_for_http(&url("http://a.test/"))
+                .is_none()
+        );
     }
 
     #[test]
@@ -2113,7 +2114,10 @@ mod tests {
                        });\
                      </script>",
                 ),
-                ("https://a.test/veri.json", "{\"ad\": \"lumen\", \"sayilar\": [1, 2, 3]}"),
+                (
+                    "https://a.test/veri.json",
+                    "{\"ad\": \"lumen\", \"sayilar\": [1, 2, 3]}",
+                ),
             ]),
             VIEWPORT,
         );
@@ -2266,7 +2270,12 @@ mod tests {
                 VIEWPORT,
             );
             session.load(url("https://a.test/")).unwrap();
-            let field = session.page().unwrap().document.get_element_by_id("q").unwrap();
+            let field = session
+                .page()
+                .unwrap()
+                .document
+                .get_element_by_id("q")
+                .unwrap();
             assert!(session.begin_edit(field, None));
             session.edit(EditOp::Insert("hello world".to_string()));
             session
@@ -2297,7 +2306,17 @@ mod tests {
                 "fast-path box for #{id} {fast:?} != full {full:?}"
             );
         }
-        assert_eq!(typed.form_value(typed.page().unwrap().document.get_element_by_id("q").unwrap()), "hello world");
+        assert_eq!(
+            typed.form_value(
+                typed
+                    .page()
+                    .unwrap()
+                    .document
+                    .get_element_by_id("q")
+                    .unwrap()
+            ),
+            "hello world"
+        );
     }
 
     #[test]
@@ -2322,13 +2341,10 @@ mod tests {
             })
             .unwrap();
         session.set_form_value(field, "a   b");
-        let rendered = session
-            .page()
-            .unwrap()
-            .display_list
-            .iter()
-            .any(|command| matches!(command,
-                lumen_engine::DisplayCommand::DrawText { text, .. } if text == "a   b"));
+        let rendered = session.page().unwrap().display_list.iter().any(|command| {
+            matches!(command,
+                lumen_engine::DisplayCommand::DrawText { text, .. } if text == "a   b")
+        });
         assert!(rendered, "spaces collapsed in the rendered input value");
     }
 
@@ -2514,7 +2530,10 @@ mod tests {
         };
         assert_eq!(background(&session), lumen_css::Color::rgb(0xff, 0, 0));
         session.set_color_value(field, "#2266aa");
-        assert_eq!(background(&session), lumen_css::Color::rgb(0x22, 0x66, 0xaa));
+        assert_eq!(
+            background(&session),
+            lumen_css::Color::rgb(0x22, 0x66, 0xaa)
+        );
     }
 
     #[test]

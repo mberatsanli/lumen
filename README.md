@@ -11,7 +11,7 @@ standards-compliant.
 ## Pipeline
 
 ```text
-HTML source -> tokenizer -> DOM ─┐
+HTML source -> html5ever -> DOM ─┐
                                  ├-> cascade -> computed styles
 embedded CSS  -> CSS parser ─────┘        |
                                           v
@@ -23,8 +23,8 @@ embedded CSS  -> CSS parser ─────┘        |
 
 ## Implemented
 
-- State-machine HTML tokenizer (WHATWG-style states, comments, doctype,
-  character references, raw-text elements) with lenient error recovery
+- HTML parsing via html5ever (the full WHATWG algorithm: insertion modes,
+  adoption agency, foster parenting, RCDATA/rawtext, complete entity table)
 - Arena-based DOM with traversal and attribute helpers
 - CSS parser with typed values (`px`, `%`, colors, keywords), selector
   lists, compound and descendant selectors, shorthand expansion
@@ -79,7 +79,7 @@ cargo run -p lumen-cli -- render <file> <out.svg>    # SVG output
 ## Workspace
 
 ```text
-crates/lumen-html      HTML tokenizer, tree builder and DOM
+crates/lumen-html      HTML parsing (html5ever sink) and arena DOM
 crates/lumen-css       CSS parser, typed values and selector model
 crates/lumen-engine    style system, layout, display list, SVG renderer
 crates/lumen-platform  resource loading (file/http) and surfaces
