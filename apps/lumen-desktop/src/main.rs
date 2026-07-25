@@ -21,7 +21,7 @@
 mod popups;
 mod text_input;
 
-use lumen_browser::{EditOp, Motion, Session};
+use lumen_browser::{EditOp, Motion, RepaintDamage, Session};
 use lumen_engine::{
     Caret, Cursor, DisplayCommand, HeuristicMeasurer, Rect, Selection, Size, SystemFont, TextRun,
     caret_at_point, collect_text_runs, highlight_rects, rasterize_over, rasterize_region,
@@ -456,6 +456,27 @@ fn draw_inner_scrollbars(
 
 fn count_boxes(layout: &lumen_engine::LayoutBox) -> usize {
     1 + layout.children.iter().map(count_boxes).sum::<usize>()
+}
+
+/// Maps a page-space damage rect to the device-pixel raster region for
+/// [`rasterize_region`], clipped to the framebuffer. `raster_scroll` is
+/// the same shift the full raster uses (`scroll_y - CHROME_HEIGHT`).
+/// `None` when the damage lies entirely outside the visible frame.
+fn damage_device_region(
+    damage: Rect,
+    raster_scroll: f32,
+    scale: f32,
+    width: u32,
+    height: u32,
+) -> Option<(u32, u32, u32, u32)> {
+    let x0 = (damage.x * scale).floor().max(0.0) as u32;
+    let y0 = ((damage.y - raster_scroll) * scale).floor().max(0.0) as u32;
+    let x1 = ((damage.x + damage.width) * scale).ceil().max(0.0) as u32;
+    let y1 = ((damage.y + damage.height - raster_scroll) * scale)
+        .ceil()
+        .max(0.0) as u32;
+    let (x1, y1) = (x1.min(width), y1.min(height));
+    (x0 < x1 && y0 < y1).then_some((x0, y0, x1, y1))
 }
 
 /// Clipboard text bound for a form control: single-line inputs flatten
@@ -2709,43 +2730,105 @@ impl App {
             .as_ref()
             .is_none_or(|(key, _)| *key != cache_key)
         {
-            // Same page, same size, different scroll: hand the old buffer
-            // to the blit, which shifts it in place instead of cloning.
-            let blit_viable = matches!(
-                &self.page_frame,
-                Some((key, _))
-                    if key.0 == self.page_generation
-                        && key.2 == size.width
-                        && key.3 == size.height
-            );
-            let blitted = if blit_viable {
-                self.page_frame.take().and_then(|(key, frame)| {
-                    self.blit_scrolled(frame, f32::from_bits(key.1), size.width, size.height, scale)
-                })
-            } else {
-                None
+            // Paint-only restyle (hover/:active/:focus) with the cached
+            // frame otherwise intact (same size, same scroll): re-rasterize
+            // just the damaged region into the old buffer. `None` damage
+            // means the restyle changed nothing visible — keep the pixels.
+            let damage = match self.session().map(Session::repaint_damage) {
+                Some(RepaintDamage::Region(damage)) => match &self.page_frame {
+                    Some((key, _))
+                        if key.1 == self.scroll_y.to_bits()
+                            && key.2 == size.width
+                            && key.3 == size.height =>
+                    {
+                        Some(damage)
+                    }
+                    _ => None,
+                },
+                _ => None,
             };
-            let frame = match blitted {
-                Some(frame) => {
-                    self.last_frame_kind = "blit";
-                    frame
+            let frame = if let Some(damage) = damage {
+                let (_, mut frame) = self.page_frame.take().expect("damage implies a cache");
+                let region = damage.and_then(|rect| {
+                    damage_device_region(
+                        rect,
+                        self.scroll_y - CHROME_HEIGHT,
+                        scale,
+                        size.width,
+                        size.height,
+                    )
+                });
+                match region {
+                    Some(region) => {
+                        self.last_frame_kind = "damage";
+                        if let Some(page) = self.session().and_then(Session::page) {
+                            rasterize_region(
+                                &mut frame,
+                                &page.display_list,
+                                self.scroll_y - CHROME_HEIGHT,
+                                scale,
+                                self.effective_font().as_deref(),
+                                region,
+                            );
+                        }
+                        frame
+                    }
+                    None => {
+                        self.last_frame_kind = "cache";
+                        frame
+                    }
                 }
-                None => {
-                    self.last_frame_kind = "full";
-                    match self.session().and_then(Session::page) {
-                        Some(page) => rasterize_with(
-                            &page.display_list,
+            } else {
+                // Same page, same size, different scroll: hand the old
+                // buffer to the blit, which shifts it in place instead of
+                // cloning.
+                let blit_viable = matches!(
+                    &self.page_frame,
+                    Some((key, _))
+                        if key.0 == self.page_generation
+                            && key.2 == size.width
+                            && key.3 == size.height
+                );
+                let blitted = if blit_viable {
+                    self.page_frame.take().and_then(|(key, frame)| {
+                        self.blit_scrolled(
+                            frame,
+                            f32::from_bits(key.1),
                             size.width,
                             size.height,
-                            self.scroll_y - CHROME_HEIGHT,
                             scale,
-                            self.effective_font().as_deref(),
-                        ),
-                        None => lumen_engine::Framebuffer::new(size.width, size.height),
+                        )
+                    })
+                } else {
+                    None
+                };
+                match blitted {
+                    Some(frame) => {
+                        self.last_frame_kind = "blit";
+                        frame
+                    }
+                    None => {
+                        self.last_frame_kind = "full";
+                        match self.session().and_then(Session::page) {
+                            Some(page) => rasterize_with(
+                                &page.display_list,
+                                size.width,
+                                size.height,
+                                self.scroll_y - CHROME_HEIGHT,
+                                scale,
+                                self.effective_font().as_deref(),
+                            ),
+                            None => lumen_engine::Framebuffer::new(size.width, size.height),
+                        }
                     }
                 }
             };
             self.page_frame = Some((cache_key, frame));
+            // The cache now matches the page: any accumulated damage has
+            // been applied (or subsumed by a full raster).
+            if let SessionState::Ready(session) = &mut self.state {
+                session.note_rasterized();
+            }
         } else {
             self.last_frame_kind = "cache";
         }
@@ -3812,6 +3895,78 @@ fn resolve_omnibox(input: &str) -> Url {
 #[cfg(test)]
 mod tests {
     use super::{DefaultLoader, Session, Url, resolve_omnibox};
+
+    #[test]
+    fn damage_region_maps_page_rects_to_device_pixels() {
+        use super::{CHROME_HEIGHT, Rect, damage_device_region};
+        // scroll_y = 0 → raster_scroll = -CHROME_HEIGHT: page y=0 lands
+        // just below the chrome.
+        let region = damage_device_region(
+            Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 40.0,
+            },
+            -CHROME_HEIGHT,
+            2.0,
+            1600,
+            1200,
+        );
+        let top = ((20.0 + CHROME_HEIGHT) * 2.0) as u32;
+        assert_eq!(region, Some((20, top, 220, top + 80)));
+    }
+
+    #[test]
+    fn damage_region_clips_to_the_frame() {
+        use super::{Rect, damage_device_region};
+        let region = damage_device_region(
+            Rect {
+                x: 90.0,
+                y: 50.0,
+                width: 100.0,
+                height: 100.0,
+            },
+            0.0,
+            1.0,
+            120,
+            100,
+        );
+        assert_eq!(region, Some((90, 50, 120, 100)));
+    }
+
+    #[test]
+    fn damage_region_drops_offscreen_damage() {
+        use super::{Rect, damage_device_region};
+        // Entirely above the scroll offset (scrolled past).
+        let above = damage_device_region(
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 50.0,
+                height: 50.0,
+            },
+            200.0,
+            1.0,
+            800,
+            600,
+        );
+        assert_eq!(above, None);
+        // Entirely below the frame.
+        let below = damage_device_region(
+            Rect {
+                x: 0.0,
+                y: 1000.0,
+                width: 50.0,
+                height: 50.0,
+            },
+            0.0,
+            1.0,
+            800,
+            600,
+        );
+        assert_eq!(below, None);
+    }
 
     #[test]
     fn omnibox_routes_urls_hosts_and_searches() {

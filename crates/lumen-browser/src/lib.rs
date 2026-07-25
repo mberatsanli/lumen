@@ -25,6 +25,43 @@ mod network;
 mod scripting;
 mod storage;
 
+/// What the session's most recent page mutation did to the painted
+/// output — drives the shell's choice between a full re-raster and a
+/// cheap damage-region update.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RepaintDamage {
+    /// Everything must be re-rasterized (navigation, relayout, script or
+    /// animation changes, or simply no information).
+    Full,
+    /// A paint-only interaction restyle ran since the last full repaint:
+    /// only the union of these page-space rects can differ on screen.
+    /// `None` means the restyle changed nothing visible — the cached
+    /// frame is still pixel-exact.
+    Region(Option<lumen_engine::Rect>),
+}
+
+/// The rect two optional damage rects span together (`None` = no damage).
+fn union_damage(
+    a: Option<lumen_engine::Rect>,
+    b: Option<lumen_engine::Rect>,
+) -> Option<lumen_engine::Rect> {
+    match (a, b) {
+        (Some(a), Some(b)) => {
+            let x0 = a.x.min(b.x);
+            let y0 = a.y.min(b.y);
+            let x1 = (a.x + a.width).max(b.x + b.width);
+            let y1 = (a.y + a.height).max(b.y + b.height);
+            Some(lumen_engine::Rect {
+                x: x0,
+                y: y0,
+                width: x1 - x0,
+                height: y1 - y0,
+            })
+        }
+        (a, b) => a.or(b),
+    }
+}
+
 /// One browsing context with linear history.
 ///
 /// History entries are re-fetched on `back`/`forward`/`refresh`; there is
@@ -93,12 +130,14 @@ pub struct Session<L: ResourceLoader> {
     /// How the current stylesheet's hover rules can affect the page —
     /// picks the cheapest reaction to hover changes.
     hover_impact: lumen_engine::HoverImpact,
+    /// Damage left by paint-only interaction restyles since the shell's
+    /// last full raster; see [`RepaintDamage`].
+    repaint_damage: RepaintDamage,
 }
 
 /// A property transition in flight.
 #[derive(Debug, Clone)]
-struct ActiveTransition {
-    node: NodeId,
+struct ActiveTransition {    node: NodeId,
     property: &'static str,
     from: AnimatedValue,
     to: AnimatedValue,
@@ -223,6 +262,7 @@ impl<L: ResourceLoader> Session<L> {
             loading_page: None,
             web_font: None,
             hover_impact: lumen_engine::HoverImpact::Nothing,
+            repaint_damage: RepaintDamage::Full,
         }
     }
 
@@ -522,7 +562,16 @@ impl<L: ResourceLoader> Session<L> {
                 };
                 match &mut self.page {
                     Some(page) => {
-                        lumen_engine::repaint_page_interactive(page, &interaction);
+                        let damage =
+                            lumen_engine::repaint_page_interactive_damaged(page, &interaction);
+                        // A pending full repaint subsumes any damage;
+                        // consecutive paint-only restyles union together.
+                        self.repaint_damage = match self.repaint_damage {
+                            RepaintDamage::Full => RepaintDamage::Full,
+                            RepaintDamage::Region(so_far) => {
+                                RepaintDamage::Region(union_damage(so_far, damage))
+                            }
+                        };
                         true
                     }
                     None => false,
@@ -628,6 +677,7 @@ impl<L: ResourceLoader> Session<L> {
         if self.transitions.is_empty() && self.animations.is_empty() {
             return false;
         }
+        self.note_full_repaint();
         let Some(page) = self.page.as_mut() else {
             self.transitions.clear();
             self.animations.clear();
@@ -763,6 +813,7 @@ impl<L: ResourceLoader> Session<L> {
     }
 
     fn relayout(&mut self) {
+        self.note_full_repaint();
         // Reuse the page's document: it already carries materialized
         // ::before/::after nodes, so hover ids (which may point at
         // generated content) stay valid. Fall back to reparsing the
@@ -796,6 +847,7 @@ impl<L: ResourceLoader> Session<L> {
     /// correct even for content-sized controls; only the expensive style
     /// cascade is skipped.
     fn relayout_reusing_styles(&mut self) {
+        self.note_full_repaint();
         let Some(mut page) = self.page.take() else {
             return;
         };
@@ -845,6 +897,7 @@ impl<L: ResourceLoader> Session<L> {
             &page.images,
             &self.scroll_offsets,
         );
+        self.note_full_repaint();
         true
     }
 
@@ -976,6 +1029,28 @@ impl<L: ResourceLoader> Session<L> {
     #[must_use]
     pub fn page(&self) -> Option<&Page> {
         self.page.as_ref()
+    }
+
+    /// Damage accumulated by paint-only interaction restyles since the
+    /// shell's last raster: the shell may re-rasterize only this region
+    /// (or nothing at all for `Region(None)`) instead of the full frame.
+    #[must_use]
+    pub fn repaint_damage(&self) -> RepaintDamage {
+        self.repaint_damage
+    }
+
+    /// Marks the shell's frame cache current with the page. Call after
+    /// every re-raster — full, scrolled blit or damage-region — so the
+    /// accumulated damage is never applied twice.
+    pub fn note_rasterized(&mut self) {
+        self.repaint_damage = RepaintDamage::Region(None);
+    }
+
+    /// Marks the next repaint as full (relayout, navigation, scripts,
+    /// animation ticks, inner scrolling — anything but the paint-only
+    /// interaction path, which tracks its own damage).
+    fn note_full_repaint(&mut self) {
+        self.repaint_damage = RepaintDamage::Full;
     }
 
     /// The text of the page's `<title>` element, when present.
@@ -1139,6 +1214,7 @@ impl<L: ResourceLoader> Session<L> {
         self.form_values.clear();
         self.form_checked.clear();
         self.form_violation = None;
+        self.note_full_repaint();
         // Mark this page itself visited before building, so its own links
         // back to already-seen pages style immediately.
         self.visited.insert(response.final_url.to_string());
@@ -1519,6 +1595,98 @@ mod tests {
         assert!(session.set_hovered(None));
         // Initial load only; hover never touched the network.
         assert_eq!(session.loader.loads.lock().unwrap().len(), 1);
+    }
+
+    fn find_tag(page: &Page, tag: &str) -> NodeId {
+        page.document
+            .descendants(page.document.root())
+            .find(|id| {
+                page.document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == tag)
+            })
+            .unwrap_or_else(|| panic!("no <{tag}>"))
+    }
+
+    #[test]
+    fn paint_only_hover_reports_damage_region() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>p { width: 100px; height: 20px; }\
+                        p:hover { color: #ff0000; }</style><p>hi</p>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        // Navigation requires a full raster; once the shell has
+        // rasterized it, the cache is current and damage is empty.
+        assert_eq!(session.repaint_damage(), RepaintDamage::Full);
+        session.note_rasterized();
+        assert_eq!(session.repaint_damage(), RepaintDamage::Region(None));
+
+        let p = find_tag(session.page().unwrap(), "p");
+        let p_box = session
+            .page()
+            .unwrap()
+            .layout
+            .find_by_node(p)
+            .unwrap()
+            .border_box();
+        assert!(session.set_hovered(Some(p)));
+        assert_eq!(
+            session.repaint_damage(),
+            RepaintDamage::Region(Some(p_box))
+        );
+
+        // Hovering off unions with the pending damage (same rect here).
+        assert!(session.set_hovered(None));
+        assert_eq!(
+            session.repaint_damage(),
+            RepaintDamage::Region(Some(p_box))
+        );
+    }
+
+    #[test]
+    fn paint_only_restyle_without_visible_change_reports_empty_damage() {
+        // `cursor` is paint-level for hover_impact but never reaches the
+        // raster: the restyle runs, yet nothing visible changes.
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>p:hover { cursor: pointer; }</style><p>hi</p>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        session.note_rasterized();
+        let p = find_tag(session.page().unwrap(), "p");
+        assert!(session.set_hovered(Some(p)));
+        assert_eq!(session.repaint_damage(), RepaintDamage::Region(None));
+    }
+
+    #[test]
+    fn relayout_after_hover_resets_damage_to_full() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>p:hover { color: #ff0000; }</style><p>hi</p>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        session.note_rasterized();
+        let p = find_tag(session.page().unwrap(), "p");
+        assert!(session.set_hovered(Some(p)));
+        assert!(matches!(
+            session.repaint_damage(),
+            RepaintDamage::Region(Some(_))
+        ));
+        session.set_viewport(Size {
+            width: 400.0,
+            height: 600.0,
+        });
+        assert_eq!(session.repaint_damage(), RepaintDamage::Full);
     }
 
     #[test]

@@ -3,6 +3,7 @@
 //! [`build_page`] runs the full pipeline over an HTML string; the
 //! intermediate results are all inspectable on the returned [`Page`].
 
+mod damage;
 mod flex;
 mod float;
 pub mod font;
@@ -361,6 +362,25 @@ pub fn repaint_page_interactive(page: &mut Page, interaction: &InteractionState)
     patch_layout_styles(&mut page.layout, &styles);
     page.display_list = build_display_list(&page.layout, &page.images);
     page.styles = styles;
+}
+
+/// [`repaint_page_interactive`] plus damage tracking: returns the union
+/// of page-space rects whose paint changed (`None` = nothing visible
+/// changed), so the shell can re-rasterize just that region instead of
+/// the whole viewport. The display list is rebuilt either way — paint is
+/// cheap, raster is not.
+pub fn repaint_page_interactive_damaged(
+    page: &mut Page,
+    interaction: &InteractionState,
+) -> Option<Rect> {
+    let effective = page.stylesheet.for_width(page.viewport.width);
+    let mut styles = compute_styles_interactive(&page.document, &effective, interaction);
+    apply_generated_content(&mut page.document, &mut styles);
+    let damage = damage::paint_damage(&page.document, &page.layout, &page.styles, &styles);
+    patch_layout_styles(&mut page.layout, &styles);
+    page.display_list = build_display_list(&page.layout, &page.images);
+    page.styles = styles;
+    damage
 }
 
 /// Replaces the computed styles stored in a laid-out tree (boxes and text
