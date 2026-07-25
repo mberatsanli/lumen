@@ -145,6 +145,34 @@ pub fn rasterize_with(
     framebuffer
 }
 
+/// Like [`rasterize_with`], but `fixed_origin` is the scroll value used
+/// inside `position: fixed` scopes. Shells that draw chrome above the
+/// page pass their combined page scroll as `scroll_y` and
+/// `-chrome_height` here, so fixed content lands below the chrome
+/// while normal content scrolls past it.
+#[must_use]
+pub fn rasterize_with_fixed_origin(
+    commands: &[DisplayCommand],
+    width: u32,
+    height: u32,
+    scroll_y: f32,
+    fixed_origin: f32,
+    scale: f32,
+    font: Option<&SystemFont>,
+) -> Framebuffer {
+    let mut framebuffer = Framebuffer::new(width, height);
+    rasterize_clipped(
+        &mut framebuffer,
+        commands,
+        scroll_y,
+        fixed_origin,
+        scale,
+        font,
+        None,
+    );
+    framebuffer
+}
+
 /// Paints commands onto an existing framebuffer without clearing it —
 /// used for UI chrome overlays (e.g. the desktop address bar).
 pub fn rasterize_over(
@@ -154,7 +182,7 @@ pub fn rasterize_over(
     scale: f32,
     font: Option<&SystemFont>,
 ) {
-    rasterize_clipped(framebuffer, commands, scroll_y, scale, font, None);
+    rasterize_clipped(framebuffer, commands, scroll_y, 0.0, scale, font, None);
 }
 
 /// Like [`rasterize_over`], but restricted to a device-pixel region
@@ -179,13 +207,23 @@ pub fn rasterize_region(
         },
         0x00ff_ffff,
     );
-    rasterize_clipped(framebuffer, commands, scroll_y, scale, font, Some(region));
+    rasterize_clipped(
+        framebuffer,
+        commands,
+        scroll_y,
+        0.0,
+        scale,
+        font,
+        Some(region),
+    );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rasterize_clipped(
     framebuffer: &mut Framebuffer,
     commands: &[DisplayCommand],
     scroll_y: f32,
+    fixed_origin: f32,
     scale: f32,
     font: Option<&SystemFont>,
     region: Option<(u32, u32, u32, u32)>,
@@ -228,9 +266,9 @@ fn rasterize_clipped(
             height: max_y - min_y,
         }
     };
-    let device = |rect: Rect| Rect {
+    let device = |rect: Rect, scroll: f32| Rect {
         x: rect.x * scale,
-        y: (rect.y - scroll_y) * scale,
+        y: (rect.y - scroll) * scale,
         width: rect.width * scale,
         height: rect.height * scale,
     };
@@ -245,10 +283,25 @@ fn rasterize_clipped(
     // active then, so `shift` maps them like any other primitive).
     let mut filter_stack: Vec<(Rect, Vec<FilterFunction>)> = Vec::new();
 
+    // `position: fixed` scopes (PushFixed/PopFixed) replace the page
+    // scroll with the fixed origin: their content is viewport-relative.
+    let mut fixed_depth: usize = 0;
+
     for command in commands {
         let current = transforms.last().copied();
-        let shift = |rect: &Rect| device(map_rect(rect, current));
+        let eff_scroll = if fixed_depth > 0 {
+            fixed_origin
+        } else {
+            scroll_y
+        };
+        let shift = |rect: &Rect| device(map_rect(rect, current), eff_scroll);
         match command {
+            DisplayCommand::PushFixed => {
+                fixed_depth += 1;
+            }
+            DisplayCommand::PopFixed => {
+                fixed_depth = fixed_depth.saturating_sub(1);
+            }
             DisplayCommand::DrawMark { rect, color, mark } => {
                 draw_mark(framebuffer, &shift(rect), *color, *mark);
             }
@@ -343,14 +396,14 @@ fn rasterize_clipped(
                 if let Some(matrix) = current
                     && !(matrix.b.abs() < 1e-6 && matrix.c.abs() < 1e-6)
                 {
-                    let bounds = device(map_rect(rect, Some(matrix)));
+                    let bounds = device(map_rect(rect, Some(matrix)), eff_scroll);
                     fill_transformed_rect(
                         framebuffer,
                         rect,
                         matrix,
                         &bounds,
                         scale,
-                        scroll_y,
+                        eff_scroll,
                         radius,
                         *color,
                     );
@@ -464,7 +517,7 @@ fn rasterize_clipped(
                         font,
                         matrix,
                         scale,
-                        scroll_y,
+                        eff_scroll,
                         *x,
                         *y,
                         text,
@@ -493,7 +546,7 @@ fn rasterize_clipped(
                 };
                 let (x, y, font_size) = (
                     page_x * scale,
-                    (page_y - scroll_y) * scale,
+                    (page_y - eff_scroll) * scale,
                     font_size * text_scale * scale,
                 );
                 let letter_spacing = letter_spacing * text_scale * scale;
@@ -1715,6 +1768,39 @@ mod tests {
         assert_eq!(framebuffer.pixel(5, 4), 0x00ff_0000);
         assert_eq!(framebuffer.pixel(6, 3), 0x00ff_ffff); // right edge exclusive
         assert_eq!(framebuffer.pixel(2, 5), 0x00ff_ffff); // bottom edge exclusive
+    }
+
+    #[test]
+    fn fixed_content_ignores_the_page_scroll() {
+        let badge = DisplayCommand::FillRect {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            color: RED,
+            radius: Corners::uniform(0.0),
+        };
+        let tall = DisplayCommand::FillRect {
+            rect: Rect {
+                x: 20.0,
+                y: 0.0,
+                width: 10.0,
+                height: 150.0,
+            },
+            color: Color::rgb(0, 0, 255),
+            radius: Corners::uniform(0.0),
+        };
+        let commands = vec![tall, DisplayCommand::PushFixed, badge, DisplayCommand::PopFixed];
+        let top = rasterize(&commands, 100, 100, 0.0);
+        let scrolled = rasterize(&commands, 100, 100, 200.0);
+        // The fixed badge stays at its viewport position...
+        assert_eq!(scrolled.pixel(5, 5), top.pixel(5, 5));
+        assert_ne!(scrolled.pixel(5, 5), 0x00ff_ffff);
+        // ...while normal content scrolls out of view.
+        assert_eq!(scrolled.pixel(25, 5), 0x00ff_ffff);
+        assert_ne!(top.pixel(25, 5), 0x00ff_ffff);
     }
 
     #[test]

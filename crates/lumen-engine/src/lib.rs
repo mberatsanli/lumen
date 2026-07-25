@@ -27,7 +27,10 @@ pub use image::{ImageMap, RasterImage, collect_image_sources};
 pub use inline::{Fragment, LineBox};
 pub use layout::{BoxType, LayoutBox, LayoutKind, dump_layout, layout_document};
 pub use paint::{DisplayCommand, GradientKind, build_display_list, build_display_list_scrolled};
-pub use raster::{Framebuffer, rasterize, rasterize_over, rasterize_region, rasterize_with};
+pub use raster::{
+    Framebuffer, rasterize, rasterize_over, rasterize_region, rasterize_with,
+    rasterize_with_fixed_origin,
+};
 pub use selection::{
     Caret, HighlightRegion, Selection, TextRun, caret_at_point, collect_text_runs, highlight_rects,
     selected_text,

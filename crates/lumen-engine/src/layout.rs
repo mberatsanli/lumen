@@ -254,18 +254,55 @@ impl LayoutBox {
         y: f32,
         scroll_offsets: &std::collections::HashMap<NodeId, f32>,
     ) -> Option<NodeId> {
+        self.hit_test_impl(x, y, 0.0, true, scroll_offsets)
+    }
+
+    /// Like [`Self::hit_test_scrolled`], but the point is in page
+    /// coordinates (viewport point + page scroll) and `position: fixed`
+    /// boxes are tested at their viewport position: the page scroll is
+    /// subtracted back out at each fixed boundary.
+    #[must_use]
+    pub fn hit_test_page(
+        &self,
+        x: f32,
+        y: f32,
+        page_scroll: f32,
+        scroll_offsets: &std::collections::HashMap<NodeId, f32>,
+    ) -> Option<NodeId> {
+        self.hit_test_impl(x, y, page_scroll, false, scroll_offsets)
+    }
+
+    fn hit_test_impl(
+        &self,
+        x: f32,
+        y: f32,
+        page_scroll: f32,
+        in_fixed: bool,
+        scroll_offsets: &std::collections::HashMap<NodeId, f32>,
+    ) -> Option<NodeId> {
         let scroll_offset = match scroll_offsets.get(&self.node_id) {
             Some(offset) if self.style.clips_overflow() => *offset,
             _ => 0.0,
         };
         let (child_x, child_y) = (x, y + scroll_offset);
         // Sticky children sit at their stuck (visual) position: convert
-        // the point into their flow coordinates per child.
+        // the point into their flow coordinates per child. Fixed
+        // children escape both the enclosing inner scroll and the page
+        // scroll — their coordinates are viewport-relative.
         let child_point = |child: &LayoutBox| {
-            (
-                child_x,
-                child_y - self.sticky_child_shift(child, scroll_offset),
-            )
+            if !in_fixed && child.style.position == Position::Fixed {
+                (child_x, child_y - scroll_offset - page_scroll)
+            } else {
+                (
+                    child_x,
+                    child_y - self.sticky_child_shift(child, scroll_offset),
+                )
+            }
+        };
+        let hit_child = |child: &LayoutBox| {
+            let (px, py) = child_point(child);
+            let nested_fixed = in_fixed || child.style.position == Position::Fixed;
+            child.hit_test_impl(px, py, page_scroll, nested_fixed, scroll_offsets)
         };
         // Fast path: with no z-index anywhere, paint order is DOM order,
         // so neither the collecting Vec nor the sort is needed.
@@ -274,18 +311,12 @@ impl LayoutBox {
             .iter()
             .all(|child| child.style.z_index.unwrap_or(0) == 0)
         {
-            self.children.iter().rev().find_map(|child| {
-                let (px, py) = child_point(child);
-                child.hit_test_scrolled(px, py, scroll_offsets)
-            })
+            self.children.iter().rev().find_map(hit_child)
         } else {
             self.children_in_paint_order()
                 .into_iter()
                 .rev()
-                .find_map(|child| {
-                    let (px, py) = child_point(child);
-                    child.hit_test_scrolled(px, py, scroll_offsets)
-                })
+                .find_map(hit_child)
         };
         if let Some(hit) = hit {
             return Some(hit);
@@ -305,10 +336,21 @@ impl LayoutBox {
             let content = self.content_box();
             for line in lines {
                 for fragment in &line.fragments {
-                    if let FragmentContent::Box(laid) = &fragment.content
-                        && let Some(hit) = laid.hit_test_scrolled(x, y, scroll_offsets)
-                    {
-                        return Some(hit);
+                    if let FragmentContent::Box(laid) = &fragment.content {
+                        let (px, py) = if !in_fixed && laid.style.position == Position::Fixed {
+                            (x, y - page_scroll)
+                        } else {
+                            (x, y)
+                        };
+                        if let Some(hit) = laid.hit_test_impl(
+                            px,
+                            py,
+                            page_scroll,
+                            in_fixed || laid.style.position == Position::Fixed,
+                            scroll_offsets,
+                        ) {
+                            return Some(hit);
+                        }
                     }
                     let fx = content.x + fragment.x;
                     let fy = content.y + line.y;
@@ -3225,5 +3267,26 @@ mod tests {
             .expect("spawn")
             .join()
             .expect("no stack overflow");
+    }
+
+    #[test]
+    fn hit_test_page_finds_fixed_boxes_after_scrolling() {
+        let layout = layout_of(
+            "<style>.badge { position: fixed; top: 10px; left: 10px; \
+                    width: 50px; height: 20px; }\
+                    .tall { height: 5000px; }</style>\
+             <div class='tall'></div><div class='badge'></div>",
+        );
+        let offsets = std::collections::HashMap::new();
+        // Same viewport point (15, 15), once unscrolled and once with
+        // the page scrolled 1000px down: the fixed badge is hit both
+        // times, not the tall div scrolled underneath the point.
+        let unscrolled = layout.hit_test_page(15.0, 15.0, 0.0, &offsets);
+        let scrolled = layout.hit_test_page(15.0, 1015.0, 1000.0, &offsets);
+        assert!(unscrolled.is_some());
+        assert_eq!(unscrolled, scrolled);
+        let node = scrolled.expect("the badge is hit");
+        let laid = layout.find_by_node(node).expect("hit node has a box");
+        assert_eq!(laid.style.position, Position::Fixed);
     }
 }

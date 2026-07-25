@@ -8,7 +8,7 @@ use crate::image::{ImageMap, RasterImage};
 use crate::layout::{BoxType, LayoutBox, LayoutKind};
 use crate::style::{
     BackgroundBox, BackgroundImage, BackgroundLayer, BackgroundSize, BorderStyle, FilterFunction,
-    Mark, Transform2D,
+    Mark, Position, Transform2D,
 };
 use lumen_css::Color;
 use std::sync::Arc;
@@ -109,6 +109,12 @@ pub enum DisplayCommand {
         filters: Vec<FilterFunction>,
     },
     PopFilter,
+    /// Everything until the matching [`Self::PopFixed`] is
+    /// `position: fixed` content: the raster backend must NOT apply the
+    /// page scroll offset to it (it is viewport-relative). The SVG
+    /// backend renders without scroll, so it treats these as no-ops.
+    PushFixed,
+    PopFixed,
 }
 
 /// How a gradient sweeps its box.
@@ -169,6 +175,45 @@ fn canvas_background(root: &LayoutBox) -> Option<Color> {
             .find(|child| is_element(child, "body"))
             .and_then(|body| body.style.background_color)
     })
+}
+
+/// Paints one child box. A `position: fixed` child escapes every
+/// enclosing scroll shift (it is viewport-relative by definition), so
+/// it paints with a zero shift inside a [`DisplayCommand::PushFixed`]
+/// scope — the raster backend then skips the page scroll for it too.
+#[allow(clippy::too_many_arguments)]
+fn paint_child(
+    child: &LayoutBox,
+    images: &ImageMap,
+    opacity: f32,
+    shift: (f32, f32),
+    scroll_offsets: &std::collections::HashMap<lumen_html::NodeId, f32>,
+    commands: &mut Vec<DisplayCommand>,
+    depth: usize,
+) {
+    if child.style.position == Position::Fixed {
+        commands.push(DisplayCommand::PushFixed);
+        paint_box(
+            child,
+            images,
+            opacity,
+            (0.0, 0.0),
+            scroll_offsets,
+            commands,
+            depth + 1,
+        );
+        commands.push(DisplayCommand::PopFixed);
+    } else {
+        paint_box(
+            child,
+            images,
+            opacity,
+            shift,
+            scroll_offsets,
+            commands,
+            depth + 1,
+        );
+    }
 }
 
 fn paint_box(
@@ -650,14 +695,14 @@ fn paint_box(
                         });
                     }
                     crate::inline::FragmentContent::Box(laid) => {
-                        paint_box(
+                        paint_child(
                             laid,
                             images,
                             opacity,
                             child_shift,
                             scroll_offsets,
                             commands,
-                            depth + 1,
+                            depth,
                         );
                     }
                     crate::inline::FragmentContent::Text { .. } => {}
@@ -676,27 +721,27 @@ fn paint_box(
     {
         for child in &layout.children {
             let sticky = layout.sticky_child_shift(child, scroll_offset);
-            paint_box(
+            paint_child(
                 child,
                 images,
                 opacity,
                 (child_shift.0, child_shift.1 + sticky),
                 scroll_offsets,
                 commands,
-                depth + 1,
+                depth,
             );
         }
     } else {
         for child in layout.children_in_paint_order() {
             let sticky = layout.sticky_child_shift(child, scroll_offset);
-            paint_box(
+            paint_child(
                 child,
                 images,
                 opacity,
                 (child_shift.0, child_shift.1 + sticky),
                 scroll_offsets,
                 commands,
-                depth + 1,
+                depth,
             );
         }
     }
@@ -947,6 +992,12 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
             DisplayCommand::PopFilter => {
                 let _ = writeln!(output, "PopFilter");
             }
+            DisplayCommand::PushFixed => {
+                let _ = writeln!(output, "PushFixed");
+            }
+            DisplayCommand::PopFixed => {
+                let _ = writeln!(output, "PopFixed");
+            }
             DisplayCommand::FillGradient {
                 rect,
                 angle_degrees,
@@ -1050,6 +1101,8 @@ mod tests {
                 DisplayCommand::PopTransform => "pop-transform",
                 DisplayCommand::PushFilter { .. } => "push-filter",
                 DisplayCommand::PopFilter => "pop-filter",
+                DisplayCommand::PushFixed => "push-fixed",
+                DisplayCommand::PopFixed => "pop-fixed",
             })
             .collect();
         assert_eq!(kinds, vec!["fill", "stroke", "text"]);
@@ -1790,5 +1843,29 @@ mod tests {
         // Scale 2 about the box center, then translate by 10px.
         assert!((matrix.a - 2.0).abs() < 1e-4);
         assert!((matrix.d - 2.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn fixed_boxes_are_wrapped_in_a_fixed_scope() {
+        let list = commands(
+            "<style>.badge { position: fixed; top: 10px; right: 10px; \
+                    width: 50px; height: 20px; background-color: #333; }</style>\
+             <div class='badge'></div><p>content</p>",
+        );
+        let push = list
+            .iter()
+            .position(|command| matches!(command, DisplayCommand::PushFixed))
+            .expect("fixed badge emits PushFixed");
+        let pop = list
+            .iter()
+            .position(|command| matches!(command, DisplayCommand::PopFixed))
+            .expect("fixed badge emits PopFixed");
+        assert!(push < pop);
+        // The badge's own background is painted inside the scope.
+        assert!(
+            list[push + 1..pop]
+                .iter()
+                .any(|command| matches!(command, DisplayCommand::FillRect { .. }))
+        );
     }
 }

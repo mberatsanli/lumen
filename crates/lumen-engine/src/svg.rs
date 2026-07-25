@@ -209,6 +209,9 @@ pub fn render_svg(page: &Page) -> String {
             // CSS filters are unsupported in the SVG backend: the content
             // renders unfiltered (the raster backend applies them).
             DisplayCommand::PushFilter { .. } | DisplayCommand::PopFilter => {}
+            // The SVG backend renders without scroll, so fixed content
+            // already sits at its viewport position.
+            DisplayCommand::PushFixed | DisplayCommand::PopFixed => {}
             DisplayCommand::FillRect {
                 rect,
                 color,

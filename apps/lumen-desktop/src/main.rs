@@ -25,7 +25,7 @@ use lumen_browser::{EditOp, Motion, RepaintDamage, Session};
 use lumen_engine::{
     Caret, Cursor, DisplayCommand, HeuristicMeasurer, Rect, Selection, Size, SystemFont, TextRun,
     caret_at_point, collect_text_runs, highlight_rects, rasterize_over, rasterize_region,
-    rasterize_with, selected_text,
+    rasterize_with_fixed_origin, selected_text,
 };
 use lumen_engine::{FontWeight, TextMeasurer, TextMetrics, TextStyle};
 use lumen_platform::{DefaultLoader, Url, url_from_user_input};
@@ -1049,6 +1049,18 @@ impl App {
         (y >= CHROME_HEIGHT).then_some((x, y - CHROME_HEIGHT + self.scroll_y))
     }
 
+    /// Whether the current page paints any `position: fixed` content.
+    /// Such pages can use neither the scroll blit (shifted pixels would
+    /// smear the fixed boxes) nor the damage fast path (damage rects
+    /// are page-relative; fixed boxes are viewport-relative).
+    fn page_has_fixed(&self) -> bool {
+        self.session().and_then(Session::page).is_some_and(|page| {
+            page.display_list
+                .iter()
+                .any(|command| matches!(command, DisplayCommand::PushFixed))
+        })
+    }
+
     /// Paint commands for the browser chrome (address bar, nav buttons).
     /// Geometry of the tab strip: one `Rect` per tab (in order) plus the
     /// trailing "+" new-tab button, all in CSS window coordinates.
@@ -1679,7 +1691,7 @@ impl App {
         let hit = self.page_cursor().and_then(|(x, y)| {
             self.session().and_then(Session::page).and_then(|page| {
                 page.layout
-                    .hit_test_scrolled(x, y, session_offsets(&self.state))
+                    .hit_test_page(x, y, self.scroll_y, session_offsets(&self.state))
             })
         });
         let over_link = hit.is_some_and(|node| {
@@ -1822,7 +1834,7 @@ impl App {
         let node = self.page_cursor().and_then(|(x, y)| {
             self.session().and_then(Session::page).and_then(|page| {
                 page.layout
-                    .hit_test_scrolled(x, y, session_offsets(&self.state))
+                    .hit_test_page(x, y, self.scroll_y, session_offsets(&self.state))
             })
         });
         // Script listeners see the click first, bubbling to ancestors;
@@ -2734,8 +2746,11 @@ impl App {
             // frame otherwise intact (same size, same scroll): re-rasterize
             // just the damaged region into the old buffer. `None` damage
             // means the restyle changed nothing visible — keep the pixels.
+            // Pages with `position: fixed` content take the slow path:
+            // damage rects are page-relative, fixed boxes are not.
+            let has_fixed = self.page_has_fixed();
             let damage = match self.session().map(Session::repaint_damage) {
-                Some(RepaintDamage::Region(damage)) => match &self.page_frame {
+                Some(RepaintDamage::Region(damage)) if !has_fixed => match &self.page_frame {
                     Some((key, _))
                         if key.1 == self.scroll_y.to_bits()
                             && key.2 == size.width
@@ -2781,14 +2796,16 @@ impl App {
             } else {
                 // Same page, same size, different scroll: hand the old
                 // buffer to the blit, which shifts it in place instead of
-                // cloning.
-                let blit_viable = matches!(
-                    &self.page_frame,
-                    Some((key, _))
-                        if key.0 == self.page_generation
-                            && key.2 == size.width
-                            && key.3 == size.height
-                );
+                // cloning. Pages with `position: fixed` content cannot
+                // blit — the shifted pixels would smear the fixed boxes.
+                let blit_viable = !has_fixed
+                    && matches!(
+                        &self.page_frame,
+                        Some((key, _))
+                            if key.0 == self.page_generation
+                                && key.2 == size.width
+                                && key.3 == size.height
+                    );
                 let blitted = if blit_viable {
                     self.page_frame.take().and_then(|(key, frame)| {
                         self.blit_scrolled(
@@ -2810,11 +2827,14 @@ impl App {
                     None => {
                         self.last_frame_kind = "full";
                         match self.session().and_then(Session::page) {
-                            Some(page) => rasterize_with(
+                            Some(page) => rasterize_with_fixed_origin(
                                 &page.display_list,
                                 size.width,
                                 size.height,
                                 self.scroll_y - CHROME_HEIGHT,
+                                // Fixed content pins below the chrome,
+                                // not to the framebuffer's top edge.
+                                -CHROME_HEIGHT,
                                 scale,
                                 self.effective_font().as_deref(),
                             ),
@@ -3733,7 +3753,7 @@ impl ApplicationHandler<ShellEvent> for App {
                 let hit = self.page_cursor().and_then(|(x, y)| {
                     self.session().and_then(Session::page).and_then(|page| {
                         page.layout
-                            .hit_test_scrolled(x, y, session_offsets(&self.state))
+                            .hit_test_page(x, y, self.scroll_y, session_offsets(&self.state))
                     })
                 });
                 if let SessionState::Ready(session) = &mut self.state
