@@ -902,10 +902,9 @@ fn fill_transformed_rect(
             } else {
                 // Plain rect with a half-pixel feather for smooth edges.
                 let feather = 0.5 / scale;
-                let inside_x = (local_x - page_rect.x)
-                    .min(page_rect.x + page_rect.width - local_x);
-                let inside_y = (local_y - page_rect.y)
-                    .min(page_rect.y + page_rect.height - local_y);
+                let inside_x = (local_x - page_rect.x).min(page_rect.x + page_rect.width - local_x);
+                let inside_y =
+                    (local_y - page_rect.y).min(page_rect.y + page_rect.height - local_y);
                 (inside_x.min(inside_y) / feather + 0.5).clamp(0.0, 1.0)
             };
             if coverage <= 0.0 {
@@ -916,8 +915,7 @@ fn fill_transformed_rect(
                 continue;
             }
             let position = (pixel_y * framebuffer.width + pixel_x) as usize;
-            framebuffer.pixels[position] =
-                blend(framebuffer.pixels[position], pack(color), alpha);
+            framebuffer.pixels[position] = blend(framebuffer.pixels[position], pack(color), alpha);
         }
     }
 }
@@ -965,12 +963,18 @@ fn draw_text_transformed(
                 matrix.apply(gx, gy + gh),
                 matrix.apply(gx + gw, gy + gh),
             ];
-            let min_x = corners.iter().map(|(x, _)| *x).fold(f32::INFINITY, f32::min);
+            let min_x = corners
+                .iter()
+                .map(|(x, _)| *x)
+                .fold(f32::INFINITY, f32::min);
             let max_x = corners
                 .iter()
                 .map(|(x, _)| *x)
                 .fold(f32::NEG_INFINITY, f32::max);
-            let min_y = corners.iter().map(|(_, y)| *y).fold(f32::INFINITY, f32::min);
+            let min_y = corners
+                .iter()
+                .map(|(_, y)| *y)
+                .fold(f32::INFINITY, f32::min);
             let max_y = corners
                 .iter()
                 .map(|(_, y)| *y)
@@ -1001,8 +1005,7 @@ fn draw_text_transformed(
                     } else {
                         coverage
                     };
-                    let alpha =
-                        (u32::from(coverage) * u32::from(alpha_multiplier) / 255) as u8;
+                    let alpha = (u32::from(coverage) * u32::from(alpha_multiplier) / 255) as u8;
                     if alpha == 0 {
                         continue;
                     }
@@ -1365,15 +1368,21 @@ fn fill_rounded(framebuffer: &mut Framebuffer, rect: &Rect, radius: &Corners<f32
     // edges, so only the corner bands and a one-pixel border need the
     // per-pixel distance math; the interior is a plain fill. Without this a
     // full-width rounded box costs a `rounded_coverage` per pixel.
-    let solid_x0 = (rect.x.ceil() as i64 + 1).clamp(x0 as i64, x1 as i64) as u32;
-    let solid_x1 = ((rect.x + rect.width).floor() as i64 - 1).clamp(x0 as i64, x1 as i64) as u32;
-    let corner_top = ((rect.y + radius.top_left.max(radius.top_right)).ceil() as i64 + 1)
+    // The f32→i64 casts saturate (huge absolute positions from CSS like
+    // `top: -1e30px` hit i64::MIN/MAX), so the ±1 must be saturating too.
+    let solid_x0 = (rect.x.ceil() as i64)
+        .saturating_add(1)
+        .clamp(x0 as i64, x1 as i64) as u32;
+    let solid_x1 = ((rect.x + rect.width).floor() as i64)
+        .saturating_sub(1)
+        .clamp(x0 as i64, x1 as i64) as u32;
+    let corner_top = ((rect.y + radius.top_left.max(radius.top_right)).ceil() as i64)
+        .saturating_add(1)
         .clamp(y0 as i64, y1 as i64) as u32;
-    let corner_bottom = ((rect.y + rect.height
-        - radius.bottom_left.max(radius.bottom_right))
-    .floor() as i64
-        - 1)
-    .clamp(y0 as i64, y1 as i64) as u32;
+    let corner_bottom = ((rect.y + rect.height - radius.bottom_left.max(radius.bottom_right))
+        .floor() as i64)
+        .saturating_sub(1)
+        .clamp(y0 as i64, y1 as i64) as u32;
     let solid_alpha = (color_alpha * 255.0) as u8;
     for pixel_y in y0..y1 {
         let shade = |framebuffer: &mut Framebuffer, from: u32, to: u32| {
@@ -1444,15 +1453,14 @@ fn fill_rounded_ring(
     // interior span is skipped instead of evaluating it per pixel.
     let side_band = width.ceil() + 2.0;
     let left_band = ((rect.x + side_band).ceil() as i64).clamp(x0 as i64, x1 as i64) as u32;
-    let right_band = ((rect.x + rect.width - side_band).floor() as i64)
-        .clamp(x0 as i64, x1 as i64) as u32;
+    let right_band =
+        ((rect.x + rect.width - side_band).floor() as i64).clamp(x0 as i64, x1 as i64) as u32;
     let corner_top = ((rect.y + side_band + radius.top_left.max(radius.top_right)).ceil() as i64)
         .clamp(y0 as i64, y1 as i64) as u32;
-    let corner_bottom = ((rect.y + rect.height
-        - side_band
-        - radius.bottom_left.max(radius.bottom_right))
-    .floor() as i64)
-        .clamp(y0 as i64, y1 as i64) as u32;
+    let corner_bottom =
+        ((rect.y + rect.height - side_band - radius.bottom_left.max(radius.bottom_right)).floor()
+            as i64)
+            .clamp(y0 as i64, y1 as i64) as u32;
     for pixel_y in y0..y1 {
         let shade = |framebuffer: &mut Framebuffer, from: u32, to: u32| {
             for pixel_x in from..to {
@@ -1668,6 +1676,27 @@ mod tests {
     use crate::geometry::EdgeSizes;
 
     const RED: Color = Color::rgb(255, 0, 0);
+
+    #[test]
+    fn fill_rounded_tolerates_extreme_positions() {
+        // Regression (found by tests/stress.rs): with a huge absolute
+        // position (e.g. `top: -1e30px`) the f32→i64 cast in
+        // fill_rounded saturates to i64::MIN/MAX, and the plain ±1 after
+        // it overflowed ("attempt to subtract with overflow").
+        for y in [-1e30, 1e30] {
+            let commands = vec![DisplayCommand::FillRect {
+                rect: Rect {
+                    x: y,
+                    y,
+                    width: 10.0,
+                    height: 10.0,
+                },
+                color: RED,
+                radius: Corners::uniform(5.0),
+            }];
+            let _ = rasterize(&commands, 32, 32, 0.0);
+        }
+    }
 
     #[test]
     fn fill_rect_paints_exact_pixels() {

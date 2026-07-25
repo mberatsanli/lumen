@@ -142,6 +142,40 @@ pub struct Document {
     parse_error_count: usize,
 }
 
+/// Raw-text elements (HTML standard, § 13.1.2): their text children are
+/// never entity-decoded by the parser, so the serializer must write them
+/// verbatim — escaping would amplify `&` on every round trip.
+/// `noscript` is raw text because html5ever's default options enable
+/// scripting (matching browsers with JS on).
+fn is_raw_text_element(tag_name: &str) -> bool {
+    matches!(
+        tag_name,
+        "script" | "style" | "xmp" | "iframe" | "noembed" | "noframes" | "noscript" | "plaintext"
+    )
+}
+
+/// Void elements (HTML standard, § 13.1.2): they never have contents or
+/// an end tag, and the serializer must not write one for them.
+fn is_void_element(tag_name: &str) -> bool {
+    matches!(
+        tag_name,
+        "area"
+            | "base"
+            | "br"
+            | "col"
+            | "embed"
+            | "hr"
+            | "img"
+            | "input"
+            | "link"
+            | "meta"
+            | "param"
+            | "source"
+            | "track"
+            | "wbr"
+    )
+}
+
 impl Document {
     /// Creates a document containing only the root node.
     #[must_use]
@@ -443,7 +477,18 @@ impl Document {
                 Frame::Enter(node) => match &self.node(node).kind {
                     NodeKind::Document => {}
                     NodeKind::Text(text) => {
-                        output.push_str(&text.replace('&', "&amp;").replace('<', "&lt;"));
+                        let raw = self.node(node).parent.is_some_and(|parent| {
+                            matches!(
+                                &self.node(parent).kind,
+                                NodeKind::Element(element)
+                                    if is_raw_text_element(&element.tag_name)
+                            )
+                        });
+                        if raw {
+                            output.push_str(text);
+                        } else {
+                            output.push_str(&text.replace('&', "&amp;").replace('<', "&lt;"));
+                        }
                     }
                     NodeKind::Element(element) => {
                         let _ = write!(output, "<{}", element.tag_name);
@@ -452,7 +497,12 @@ impl Document {
                             let _ = write!(output, " {name}=\"{escaped}\"");
                         }
                         output.push('>');
-                        stack.push(Frame::Exit(node));
+                        // Void elements take no end tag: `</br>` would even
+                        // reparse as a NEW `<br>` per spec, doubling the node
+                        // on every round trip.
+                        if !is_void_element(&element.tag_name) {
+                            stack.push(Frame::Exit(node));
+                        }
                         for child in self.children(node).iter().rev() {
                             stack.push(Frame::Enter(*child));
                         }
@@ -710,6 +760,50 @@ mod tests {
 
 #[cfg(test)]
 mod inner_html_tests {
+    #[test]
+    fn void_elements_serialize_without_end_tag() {
+        // Regression (found by tests/stress.rs): `<br>` used to serialize
+        // as `<br></br>`, and `</br>` reparses as a NEW `<br>` per spec,
+        // so every inner_html round trip doubled the node count.
+        for tag in ["br", "hr", "img", "input", "wbr"] {
+            let document = crate::parse_document(&format!("<{tag}>"));
+            let serialized = document.inner_html(document.root());
+            assert_eq!(
+                serialized,
+                format!("<html><head></head><body><{tag}></body></html>")
+            );
+            let reparsed = crate::parse_document(&serialized);
+            assert_eq!(reparsed.inner_html(reparsed.root()), serialized);
+        }
+    }
+
+    #[test]
+    fn raw_text_elements_serialize_verbatim() {
+        // Regression (found by tests/stress.rs): script/style/plaintext
+        // contents were entity-escaped on serialize, but raw-text parsing
+        // never decodes entities — so `&` doubled on every round trip.
+        let document = crate::parse_document("<style>a &amp; b { color: red }</style>");
+        let serialized = document.inner_html(document.root());
+        assert!(
+            serialized.contains("<style>a &amp; b { color: red }</style>"),
+            "{serialized}"
+        );
+        let reparsed = crate::parse_document(&serialized);
+        assert_eq!(reparsed.inner_html(reparsed.root()), serialized);
+    }
+
+    #[test]
+    fn foreign_content_round_trips_under_flattened_namespaces() {
+        // The sink reports every element as HTML-namespace (documented
+        // simplification), so SVG children parse by HTML rules: `<br>`
+        // stays void, `<script>` stays raw text, and the serialization
+        // must be a fixed point under reparse.
+        let document = crate::parse_document("<svg><br/><script>a &amp; b</script></svg>");
+        let serialized = document.inner_html(document.root());
+        let reparsed = crate::parse_document(&serialized);
+        assert_eq!(reparsed.inner_html(reparsed.root()), serialized);
+    }
+
     #[test]
     fn set_inner_html_replaces_children_and_serializes_back() {
         let mut document = crate::parse_document("<ul id='l'><li>eski</li></ul>");

@@ -194,7 +194,11 @@ impl<'i> Element<'i> for DomElement<'_> {
         }
     }
 
-    fn has_class(&self, name: &lumen_css::selector::Ident, case_sensitivity: CaseSensitivity) -> bool {
+    fn has_class(
+        &self,
+        name: &lumen_css::selector::Ident,
+        case_sensitivity: CaseSensitivity,
+    ) -> bool {
         self.data().classes().any(|class| match case_sensitivity {
             CaseSensitivity::CaseSensitive => class == name.as_str(),
             CaseSensitivity::AsciiCaseInsensitive => class.eq_ignore_ascii_case(name.as_str()),
@@ -515,15 +519,17 @@ fn clause_matches(
     };
     match clause.combinator {
         ClauseCombinator::Descendant => document.descendants(node).any(candidate_matches),
-        ClauseCombinator::Child => document.children(node).iter().copied().any(candidate_matches),
+        ClauseCombinator::Child => document
+            .children(node)
+            .iter()
+            .copied()
+            .any(candidate_matches),
         ClauseCombinator::NextSibling => following_element_siblings(document, node)
             .first()
             .is_some_and(|first| candidate_matches(*first)),
-        ClauseCombinator::LaterSibling => {
-            following_element_siblings(document, node)
-                .into_iter()
-                .any(candidate_matches)
-        }
+        ClauseCombinator::LaterSibling => following_element_siblings(document, node)
+            .into_iter()
+            .any(candidate_matches),
     }
 }
 
@@ -546,4 +552,3 @@ pub(crate) fn selector_matches(
             .iter()
             .all(|clause| clause_matches(document, interaction, node, clause))
 }
-

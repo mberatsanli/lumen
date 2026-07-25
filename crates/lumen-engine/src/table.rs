@@ -159,8 +159,15 @@ pub(crate) fn layout_table_children(
                 .resolve(available, viewport)
                 .unwrap_or_else(|| {
                     natural_content_width(
-                        document, styles, cell.node, available, viewport, measurer, images,
-                        probe_cache, depth,
+                        document,
+                        styles,
+                        cell.node,
+                        available,
+                        viewport,
+                        measurer,
+                        images,
+                        probe_cache,
+                        depth,
                     )
                 })
                 .min(available);
@@ -225,8 +232,16 @@ pub(crate) fn layout_table_children(
                 }
             }
             let mut laid = layout_isolated_with_style(
-                document, styles, cell.node, style, span_width, viewport, measurer, images,
-                probe_cache, depth,
+                document,
+                styles,
+                cell.node,
+                style,
+                span_width,
+                viewport,
+                measurer,
+                images,
+                probe_cache,
+                depth,
             );
             let margin_box = laid.margin_box();
             laid.translate(

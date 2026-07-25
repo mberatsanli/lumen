@@ -3476,10 +3476,7 @@ mod tests {
         );
         assert_eq!(style_of(&document, &styles, "a").cursor, Cursor::Pointer);
         assert_eq!(style_of(&document, &styles, "b").cursor, Cursor::EwResize);
-        assert_eq!(
-            style_of(&document, &styles, "c").cursor,
-            Cursor::NotAllowed
-        );
+        assert_eq!(style_of(&document, &styles, "c").cursor, Cursor::NotAllowed);
         // Unknown keywords fall back to `auto`, as does no declaration.
         assert_eq!(style_of(&document, &styles, "d").cursor, Cursor::Auto);
         assert_eq!(style_of(&document, &styles, "body").cursor, Cursor::Auto);
@@ -3487,9 +3484,8 @@ mod tests {
 
     #[test]
     fn pointer_events_none_parses() {
-        let (document, styles) = styles_for(
-            "<style>a { pointer-events: none; }</style><body><a>x</a><b>x</b></body>",
-        );
+        let (document, styles) =
+            styles_for("<style>a { pointer-events: none; }</style><body><a>x</a><b>x</b></body>");
         assert_eq!(
             style_of(&document, &styles, "a").pointer_events,
             PointerEvents::None

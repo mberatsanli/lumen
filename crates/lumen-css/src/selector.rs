@@ -241,7 +241,9 @@ impl<'i> parcel_selectors::parser::Parser<'i> for LumenSelectorParser {
             () if name.eq_ignore_ascii_case("hover") => PseudoClass::Hover,
             () if name.eq_ignore_ascii_case("active") => PseudoClass::Active,
             // :focus-visible is approximated by :focus.
-            () if name.eq_ignore_ascii_case("focus") || name.eq_ignore_ascii_case("focus-visible") => {
+            () if name.eq_ignore_ascii_case("focus")
+                || name.eq_ignore_ascii_case("focus-visible") =>
+            {
                 PseudoClass::Focus
             }
             () if name.eq_ignore_ascii_case("focus-within") => PseudoClass::FocusWithin,
@@ -251,9 +253,9 @@ impl<'i> parcel_selectors::parser::Parser<'i> for LumenSelectorParser {
             () if name.eq_ignore_ascii_case("disabled") => PseudoClass::Disabled,
             () if name.eq_ignore_ascii_case("checked") => PseudoClass::Checked,
             () => {
-                return Err(location.new_custom_error(
-                    SelectorParseErrorKind::UnsupportedPseudoClass(name),
-                ));
+                return Err(
+                    location.new_custom_error(SelectorParseErrorKind::UnsupportedPseudoClass(name))
+                );
             }
         };
         Ok(pseudo)
@@ -271,9 +273,8 @@ impl<'i> parcel_selectors::parser::Parser<'i> for LumenSelectorParser {
             () if name.eq_ignore_ascii_case("first-letter") => PseudoElement::FirstLetter,
             () if name.eq_ignore_ascii_case("first-line") => PseudoElement::FirstLine,
             () => {
-                return Err(location.new_custom_error(
-                    SelectorParseErrorKind::UnsupportedPseudoElement(name),
-                ));
+                return Err(location
+                    .new_custom_error(SelectorParseErrorKind::UnsupportedPseudoElement(name)));
             }
         };
         Ok(pseudo)
@@ -334,8 +335,14 @@ mod tests {
         assert_eq!(to_css(&parse_selector(".card").unwrap()), ".card");
         assert_eq!(to_css(&parse_selector("#header").unwrap()), "#header");
         assert_eq!(to_css(&parse_selector("*").unwrap()), "*");
-        assert_eq!(to_css(&parse_selector("div.card#main").unwrap()), "div.card#main");
-        assert_eq!(to_css(&parse_selector("ul > li + li ~ b").unwrap()), "ul > li + li ~ b");
+        assert_eq!(
+            to_css(&parse_selector("div.card#main").unwrap()),
+            "div.card#main"
+        );
+        assert_eq!(
+            to_css(&parse_selector("ul > li + li ~ b").unwrap()),
+            "ul > li + li ~ b"
+        );
         assert_eq!(to_css(&parse_selector(".card  p").unwrap()), ".card p");
     }
 

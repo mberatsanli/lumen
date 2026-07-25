@@ -3,8 +3,8 @@
 //! interaction change (nothing / repaint / relayout).
 
 use super::matching;
-use lumen_css::selector::{PseudoClass, Selector, Selectors};
 use lumen_css::Stylesheet;
+use lumen_css::selector::{PseudoClass, Selector, Selectors};
 use lumen_html::{Document, NodeId};
 use parcel_selectors::parser::{Combinator, Component};
 use std::collections::HashSet;
