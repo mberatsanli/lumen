@@ -92,6 +92,17 @@ struct NavDone {
     error: Option<String>,
 }
 
+/// User events into the shell's event loop.
+enum ShellEvent {
+    /// A background navigation finished (boxed: it carries a session).
+    NavDone(Box<NavDone>),
+    /// A tab's script network queue (fetch/XHR/module load) delivered
+    /// a result on a worker thread: the tab's `PageScripts` should be
+    /// pumped so the waiting promises settle. Carries the tab id like
+    /// [`NavDone`], since the user may have switched away meanwhile.
+    FetchReady { tab: u64 },
+}
+
 /// The session is either usable or away on a loader thread.
 enum SessionState {
     Ready(Box<Session<DefaultLoader>>),
@@ -200,7 +211,7 @@ fn main() {
         std::process::exit(2);
     };
 
-    let event_loop = match EventLoop::<NavDone>::with_user_event().build() {
+    let event_loop = match EventLoop::<ShellEvent>::with_user_event().build() {
         Ok(event_loop) => event_loop,
         Err(error) => {
             eprintln!("error: cannot start event loop: {error}");
@@ -292,6 +303,18 @@ fn page_edit_action(key: &Key, command: bool, shift: bool, alt: bool) -> Option<
 /// tab closed mid-load has nowhere to land and is dropped.
 fn tab_position(tabs: &[Tab], id: u64) -> Option<usize> {
     tabs.iter().position(|tab| tab.id == id)
+}
+
+/// Pumps one tab's script network queue: settles completed
+/// fetch/XHR/module results into its script world. A no-op while the
+/// session is away on a loader thread or the page has no scripts.
+fn pump_scripts_network(
+    state: &mut SessionState,
+    scripts: &mut Option<lumen_browser::PageScripts>,
+) {
+    if let (SessionState::Ready(session), Some(scripts)) = (state, scripts.as_mut()) {
+        scripts.pump_network(session);
+    }
 }
 
 /// The session's inner scroll offsets (empty map while loading).
@@ -491,7 +514,7 @@ enum EditBar {
 struct App {
     input: String,
     state: SessionState,
-    proxy: winit::event_loop::EventLoopProxy<NavDone>,
+    proxy: winit::event_loop::EventLoopProxy<ShellEvent>,
     font: Option<Arc<SystemFont>>,
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
@@ -571,7 +594,7 @@ struct App {
 }
 
 impl App {
-    fn new(input: String, proxy: winit::event_loop::EventLoopProxy<NavDone>) -> Self {
+    fn new(input: String, proxy: winit::event_loop::EventLoopProxy<ShellEvent>) -> Self {
         let font = SystemFont::load_default().map(Arc::new);
         if font.is_none() {
             eprintln!("note: no system font found, using the built-in bitmap font");
@@ -898,11 +921,11 @@ impl App {
             };
             // Failure means the event loop is gone (window closed while
             // loading); the navigation result has nowhere to go.
-            if let Err(error) = proxy.send_event(NavDone {
+            if let Err(error) = proxy.send_event(ShellEvent::NavDone(Box::new(NavDone {
                 tab,
                 session,
                 error: result.err().map(|error| error.to_string()),
-            }) {
+            }))) {
                 eprintln!("note: navigation finished after shutdown: {error}");
             }
         });
@@ -2070,6 +2093,99 @@ impl App {
             self.start_nav(Nav::Forward);
         } else {
             self.start_nav(Nav::Follow(target));
+        }
+    }
+
+    /// A fresh script world for a landed page: script-initiated loads
+    /// (fetch/XHR/dynamic import) run on worker threads, and each
+    /// completion wakes the event loop with a `FetchReady` tagged with
+    /// this tab's id — the 20s network timeout lives on the worker,
+    /// never on the UI thread.
+    fn new_page_scripts(
+        &self,
+        session: &mut Session<DefaultLoader>,
+        tab: u64,
+    ) -> Option<lumen_browser::PageScripts> {
+        let scripts = lumen_browser::PageScripts::new_with_network(
+            session,
+            lumen_browser::NetworkQueue::threaded(),
+        )?;
+        let proxy = self.proxy.clone();
+        scripts.set_network_wake(move || {
+            let _ = proxy.send_event(ShellEvent::FetchReady { tab });
+        });
+        Some(scripts)
+    }
+
+    /// A background navigation finished (see [`NavDone`]).
+    fn navigation_done(&mut self, done: NavDone) {
+        let failed = done.error.is_some();
+        if let Some(error) = &done.error {
+            eprintln!("navigation: {error}");
+        }
+        let Some(index) = tab_position(&self.tabs, done.tab) else {
+            // The tab closed while loading; drop the result.
+            return;
+        };
+        let mut session = done.session;
+        // The window may have resized while the session was away.
+        session.set_viewport(self.viewport());
+        if index == self.active {
+            if !failed {
+                self.scroll_y = 0.0;
+            }
+            // A landed navigation gets a fresh script world (run here, on the
+            // main thread); a failed one keeps the old page AND its scripts.
+            if !failed || self.page_scripts.is_none() {
+                self.page_scripts = self.new_page_scripts(&mut session, done.tab);
+            }
+            self.state = SessionState::Ready(session);
+            self.follow_script_navigation();
+            self.invalidate_page();
+            self.scroll_to_fragment();
+            self.refresh_find_matches();
+            self.update_hover();
+            // A blocked submit reports its violation on the session:
+            // show the bubble next to the offending control.
+            self.open_violation_popup();
+        } else {
+            // The user switched away while this tab was loading: the
+            // result parks in its own slot instead of clobbering the
+            // now-active tab. A script's follow-up navigation is dropped
+            // — the parked tab is not live to perform it.
+            if !failed || self.tabs[index].page_scripts.is_none() {
+                let scripts = self.new_page_scripts(&mut session, done.tab);
+                self.tabs[index].page_scripts = scripts;
+            }
+            let tab = &mut self.tabs[index];
+            if !failed {
+                tab.scroll_y = 0.0;
+            }
+            tab.state = SessionState::Ready(session);
+        }
+        self.update_title();
+        self.request_redraw();
+    }
+
+    /// A tab's script fetch/XHR/module load completed on a worker:
+    /// settle the results in THAT tab's script world — a parked tab's
+    /// results wait in its own queue instead of touching the active
+    /// one — and repaint only when the tab is on screen.
+    fn fetch_ready(&mut self, tab: u64) {
+        let Some(index) = tab_position(&self.tabs, tab) else {
+            // The tab closed while the request was in flight.
+            return;
+        };
+        if index == self.active {
+            pump_scripts_network(&mut self.state, &mut self.page_scripts);
+            // A settled promise may have asked for a navigation.
+            self.follow_script_navigation();
+            self.apply_script_focus();
+            self.invalidate_page();
+            self.request_redraw();
+        } else {
+            let tab = &mut self.tabs[index];
+            pump_scripts_network(&mut tab.state, &mut tab.page_scripts);
         }
     }
 
@@ -3283,7 +3399,7 @@ impl App {
     }
 }
 
-impl ApplicationHandler<NavDone> for App {
+impl ApplicationHandler<ShellEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -3329,52 +3445,11 @@ impl ApplicationHandler<NavDone> for App {
         self.request_redraw();
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, done: NavDone) {
-        let failed = done.error.is_some();
-        if let Some(error) = &done.error {
-            eprintln!("navigation: {error}");
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: ShellEvent) {
+        match event {
+            ShellEvent::NavDone(done) => self.navigation_done(*done),
+            ShellEvent::FetchReady { tab } => self.fetch_ready(tab),
         }
-        let Some(index) = tab_position(&self.tabs, done.tab) else {
-            // The tab closed while loading; drop the result.
-            return;
-        };
-        let mut session = done.session;
-        // The window may have resized while the session was away.
-        session.set_viewport(self.viewport());
-        if index == self.active {
-            if !failed {
-                self.scroll_y = 0.0;
-            }
-            // A landed navigation gets a fresh script world (run here, on the
-            // main thread); a failed one keeps the old page AND its scripts.
-            if !failed || self.page_scripts.is_none() {
-                self.page_scripts = lumen_browser::PageScripts::new(&mut session);
-            }
-            self.state = SessionState::Ready(session);
-            self.follow_script_navigation();
-            self.invalidate_page();
-            self.scroll_to_fragment();
-            self.refresh_find_matches();
-            self.update_hover();
-            // A blocked submit reports its violation on the session:
-            // show the bubble next to the offending control.
-            self.open_violation_popup();
-        } else {
-            // The user switched away while this tab was loading: the
-            // result parks in its own slot instead of clobbering the
-            // now-active tab. A script's follow-up navigation is dropped
-            // — the parked tab is not live to perform it.
-            let tab = &mut self.tabs[index];
-            if !failed {
-                tab.scroll_y = 0.0;
-            }
-            if !failed || tab.page_scripts.is_none() {
-                tab.page_scripts = lumen_browser::PageScripts::new(&mut session);
-            }
-            tab.state = SessionState::Ready(session);
-        }
-        self.update_title();
-        self.request_redraw();
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -3651,7 +3726,7 @@ fn resolve_omnibox(input: &str) -> Url {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_omnibox;
+    use super::{DefaultLoader, Session, Url, resolve_omnibox};
 
     #[test]
     fn omnibox_routes_urls_hosts_and_searches() {
@@ -3694,6 +3769,13 @@ mod tests {
         }
     }
 
+    /// The text of the page's `#out` element (script test output).
+    fn out_text(session: &Session<DefaultLoader>) -> String {
+        let document = &session.page().unwrap().document;
+        let out = document.get_element_by_id("out").unwrap();
+        document.text_content(out)
+    }
+
     #[test]
     fn nav_results_route_by_stable_tab_id() {
         let tabs = vec![parked_tab(1), parked_tab(2), parked_tab(3)];
@@ -3701,6 +3783,94 @@ mod tests {
         assert_eq!(tab_position(&tabs, 3), Some(2));
         // A closed tab's late result is dropped, not misapplied.
         assert_eq!(tab_position(&tabs, 9), None);
+    }
+
+    /// The wake flow the shell relies on: a threaded script fetch
+    /// completes on a worker, the wake hook fires (that is the
+    /// FetchReady event), and `pump_scripts_network` settles the
+    /// promise into the page — file-backed so no real network runs.
+    /// The fetch is fired from a click handler AFTER the wake hook is
+    /// registered, so the completion always signals (the pending
+    /// window itself is covered deterministically in lumen-browser).
+    #[test]
+    fn fetch_ready_wakes_and_pumps_the_tab_scripts() {
+        use super::pump_scripts_network;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let dir = std::env::temp_dir().join(format!("lumen-fetch-ready-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let page_path = dir.join("page.html");
+        std::fs::write(
+            &page_path,
+            "<button id='btn'>x</button><p id='out'>-</p><script>\
+             document.getElementById('btn').addEventListener('click', () => {\
+               fetch('data.txt')\
+                 .then(r => r.text())\
+                 .then(t => { document.getElementById('out').textContent = t; });\
+             });\
+             </script>",
+        )
+        .unwrap();
+        std::fs::write(dir.join("data.txt"), "uyandi").unwrap();
+        let url = Url::from_file_path(&page_path).unwrap();
+        let mut session = Session::new(
+            DefaultLoader,
+            lumen_engine::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        session.load(url).unwrap();
+        let scripts = lumen_browser::PageScripts::new_with_network(
+            &mut session,
+            lumen_browser::NetworkQueue::threaded(),
+        )
+        .expect("page has scripts");
+        let wakes = std::sync::Arc::new(AtomicUsize::new(0));
+        {
+            let wakes = wakes.clone();
+            scripts.set_network_wake(move || {
+                wakes.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+        let mut page_scripts = Some(scripts);
+        let mut state = SessionState::Ready(Box::new(session));
+        // Fire the fetch: the click dispatch submits it to a worker.
+        let button = {
+            let SessionState::Ready(session) = &state else {
+                panic!("session ready");
+            };
+            session
+                .page()
+                .unwrap()
+                .document
+                .get_element_by_id("btn")
+                .unwrap()
+        };
+        {
+            let SessionState::Ready(session) = &mut state else {
+                panic!("session ready");
+            };
+            page_scripts
+                .as_mut()
+                .unwrap()
+                .dispatch(session, button, "click");
+        }
+        // Wait for the worker completion (the FetchReady signal).
+        for _ in 0..50 {
+            if wakes.load(Ordering::SeqCst) > 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(wakes.load(Ordering::SeqCst) >= 1, "wake hook never fired");
+        pump_scripts_network(&mut state, &mut page_scripts);
+        let SessionState::Ready(session) = &state else {
+            panic!("session stays ready");
+        };
+        assert_eq!(out_text(session), "uyandi");
+        assert!(!page_scripts.as_ref().unwrap().has_pending_network());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

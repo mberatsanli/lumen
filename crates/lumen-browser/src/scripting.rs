@@ -13,7 +13,17 @@
 //! Element wrappers carry their engine node id in a hidden `__node`
 //! property; `textContent`/`value` are accessor properties reading and
 //! writing the live page.
+//!
+//! Script-initiated network (fetch, XHR, runtime `import()`) never
+//! blocks the caller: requests are PREPARED against read-only session
+//! state (URL resolution, the `file://` gate, the Cookie header),
+//! EXECUTED by the page's [`NetworkQueue`] (worker threads, or inline
+//! for deterministic embedders), and APPLIED back on this thread
+//! (Set-Cookie into the jar, promise/XHR settlement) by the pump —
+//! which the shell re-enters through [`PageScripts::pump_network`]
+//! when the queue's wake hook fires.
 
+use crate::network::{ModuleSlot, NetworkQueue};
 use crate::{Page, ResourceLoader, Session, resolve as resolve_url};
 use boa_engine::builtins::promise::PromiseState;
 use boa_engine::context::time::JsInstant;
@@ -29,11 +39,14 @@ use boa_engine::{
 use futures_concurrency::future::FutureGroup;
 use futures_lite::{StreamExt, future};
 use lumen_html::NodeId;
-use lumen_platform::Url;
-use std::cell::RefCell;
+use lumen_platform::{ResourceRequest, Url};
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 /// The page state scripts operate on while a call is in flight.
 #[derive(Default)]
@@ -52,7 +65,8 @@ struct Bridge {
     prevented: bool,
     /// `event.stopPropagation()` was called (stops the bubble walk).
     stopped: bool,
-    /// fetch() calls made during the entry, resolved between entries.
+    /// fetch() calls made during the entry, submitted to the network
+    /// queue at the next pump.
     pending_fetches: Vec<(String, JsObject, JsObject)>,
     /// XMLHttpRequest.send() calls made during the entry.
     pending_xhrs: Vec<XhrRequest>,
@@ -174,10 +188,18 @@ pub struct PageScripts {
     /// attribute recompiles on the next dispatch.
     inline_handlers: HashMap<(NodeId, String), (String, JsObject)>,
     timers: Vec<Timer>,
-    /// fetch() calls awaiting their network round-trip.
+    /// fetch() calls queued by scripts, not yet submitted to the network.
     pending_fetches: Vec<(String, JsObject, JsObject)>,
-    /// XMLHttpRequests awaiting their network round-trip.
+    /// fetch() calls submitted to the network queue, by request id.
+    in_flight_fetches: HashMap<u64, (JsObject, JsObject)>,
+    /// XMLHttpRequests queued by scripts, not yet submitted.
     pending_xhrs: Vec<XhrRequest>,
+    /// XMLHttpRequests submitted to the network queue, by request id.
+    in_flight_xhrs: HashMap<u64, JsObject>,
+    /// The page's network queue: script-initiated loads execute here
+    /// (worker threads, or inline for deterministic embedders), so a
+    /// slow server never blocks the shell's thread.
+    network: Rc<NetworkQueue>,
     /// sessionStorage of this page (lives and dies with the world).
     session_storage: BTreeMap<String, String>,
     /// A navigation requested by a script, for the shell to perform.
@@ -192,21 +214,43 @@ impl PageScripts {
     /// `<script>` elements (inline text and `src=` fetched against the
     /// page URL) in document order. `None` when the page has no scripts.
     ///
+    /// Script-initiated network loads (fetch, XHR, runtime `import()`)
+    /// execute INLINE on the caller's thread — the legacy, deterministic
+    /// behavior. Embedders with an event loop should use
+    /// [`Self::new_with_network`] with [`NetworkQueue::threaded`] so a
+    /// slow server never blocks the UI.
+    ///
     /// Classic scripts (including `async` — the pipeline is synchronous
     /// and everything already runs after parsing, so keeping document
     /// order is the most deterministic interpretation) run first; then
     /// the post-parse queue: `defer` scripts and `type="module"` scripts
     /// in document order, per spec. Modules share this context's global
     /// with the classic scripts.
-    pub fn new<L: ResourceLoader>(session: &mut Session<L>) -> Option<Self> {
+    pub fn new<L: ResourceLoader + Send + Sync + 'static>(
+        session: &mut Session<L>,
+    ) -> Option<Self> {
+        Self::new_with_network(session, NetworkQueue::inline())
+    }
+
+    /// [`Self::new`] with an explicit network execution strategy for
+    /// script-initiated loads. The loader itself stays the session's;
+    /// only prepared requests cross to workers.
+    pub fn new_with_network<L: ResourceLoader + Send + Sync + 'static>(
+        session: &mut Session<L>,
+        network: NetworkQueue,
+    ) -> Option<Self> {
         let entries = collect_scripts(session);
         if entries.is_empty() && !has_inline_handlers(session) {
             return None;
         }
-        let loader = Rc::new(PageModuleLoader::default());
+        let network = Rc::new(network);
+        network.set_loader(session.shared_loader());
+        let loader = Rc::new(PageModuleLoader::new(network.clone()));
         let mut context = Context::builder()
             .module_loader(loader.clone())
-            .job_executor(Rc::new(BoundedJobExecutor::new()))
+            .job_executor(Rc::new(BoundedJobExecutor::with_activity(
+                network.module_activity(),
+            )))
             .build()
             .expect("fresh context");
         // A runaway loop (while(true){}) becomes a JS error instead of
@@ -222,7 +266,10 @@ impl PageScripts {
             inline_handlers: HashMap::new(),
             timers: Vec::new(),
             pending_fetches: Vec::new(),
+            in_flight_fetches: HashMap::new(),
             pending_xhrs: Vec::new(),
+            in_flight_xhrs: HashMap::new(),
+            network,
             session_storage: BTreeMap::new(),
             navigation: None,
             focus_request: None,
@@ -252,6 +299,10 @@ impl PageScripts {
                 ScriptEntry::Now(_) => unreachable!("Now entries ran above"),
             }
         }
+        // From here on the static module graph is settled: a runtime
+        // dynamic import() of a never-fetched URL goes through the
+        // network queue instead of rejecting.
+        loader.enable_queue_fetch();
         scripts.pump_fetches(session);
         // The document is ready: fire the lifecycle events on the root.
         scripts.dispatch(session, 0, "DOMContentLoaded");
@@ -267,7 +318,7 @@ impl PageScripts {
     /// Runs one classic script, reporting errors without aborting the
     /// page. The source carries the page path so a dynamic `import()`
     /// inside it resolves relative to the page URL.
-    fn eval_classic<L: ResourceLoader>(
+    fn eval_classic<L: ResourceLoader + Send + Sync + 'static>(
         &mut self,
         session: &mut Session<L>,
         source: &str,
@@ -287,7 +338,7 @@ impl PageScripts {
     /// get fetched through the session (the file:// gate included), and
     /// the next round resolves one more level of the import graph.
     /// A failure is reported and the page moves on to the next script.
-    fn run_module<L: ResourceLoader>(
+    fn run_module<L: ResourceLoader + Send + Sync + 'static>(
         &mut self,
         session: &mut Session<L>,
         loader: &Rc<PageModuleLoader>,
@@ -367,7 +418,7 @@ impl PageScripts {
     }
 
     /// Dispatches an event at `node`, bubbling to its ancestors.
-    pub fn dispatch<L: ResourceLoader>(
+    pub fn dispatch<L: ResourceLoader + Send + Sync + 'static>(
         &mut self,
         session: &mut Session<L>,
         node: NodeId,
@@ -383,7 +434,7 @@ impl PageScripts {
     /// runs first — the attribute was set when the HTML was parsed,
     /// before any `addEventListener` call — with `this` bound to that
     /// element; registered listeners follow in registration order.
-    pub fn dispatch_with_key<L: ResourceLoader>(
+    pub fn dispatch_with_key<L: ResourceLoader + Send + Sync + 'static>(
         &mut self,
         session: &mut Session<L>,
         node: NodeId,
@@ -554,7 +605,7 @@ impl PageScripts {
     /// wait for the next tick, so a `setTimeout(f, 0)` chain cannot spin
     /// this call forever. A callback can still clearTimeout a later
     /// sibling of the same snapshot — that one is then skipped.
-    pub fn tick<L: ResourceLoader>(&mut self, session: &mut Session<L>, now_ms: f64) -> bool {
+    pub fn tick<L: ResourceLoader + Send + Sync + 'static>(&mut self, session: &mut Session<L>, now_ms: f64) -> bool {
         self.now_ms = now_ms;
         let due: Vec<u64> = self
             .timers
@@ -601,57 +652,91 @@ impl PageScripts {
         self.focus_request.take()
     }
 
-    /// Performs queued fetch()/XHR round-trips and resolves them,
-    /// looping because continuations may fetch again.
-    fn pump_fetches<L: ResourceLoader>(&mut self, session: &mut Session<L>) {
+    /// Drains completed network results and settles their promises and
+    /// XHRs. The shell calls this when the network queue's wake hook
+    /// fires (a threaded completion landed); entry points call it
+    /// through `pump_fetches` after running scripts.
+    pub fn pump_network<L: ResourceLoader + Send + Sync + 'static>(
+        &mut self,
+        session: &mut Session<L>,
+    ) {
+        self.pump_fetches(session);
+    }
+
+    /// Registers the hook the network queue calls (from a worker
+    /// thread) when a threaded load completes — typically an event-loop
+    /// proxy that schedules a [`Self::pump_network`] on the UI thread.
+    pub fn set_network_wake(&self, wake: impl Fn() + Send + Sync + 'static) {
+        self.network.set_wake_hook(wake);
+    }
+
+    /// Submits queued fetch()/XHR round-trips to the network queue and
+    /// settles completed ones, looping because continuations may fetch
+    /// again. Never blocks: with a threaded queue the loop returns with
+    /// promises pending and the completion wake re-enters through
+    /// [`Self::pump_network`]; with an inline queue the results are
+    /// already waiting at the next drain, preserving the legacy
+    /// resolve-within-the-entry behavior.
+    fn pump_fetches<L: ResourceLoader + Send + Sync + 'static>(
+        &mut self,
+        session: &mut Session<L>,
+    ) {
+        // The session's loader never changes, but (re)publishing it is
+        // cheap and keeps the invariant obvious: submits always execute
+        // against the current session's loader.
+        self.network.set_loader(session.shared_loader());
         for _ in 0..8 {
+            let mut settled_fetches: Vec<(Result<String, String>, JsObject, JsObject)> = Vec::new();
+            let mut settled_xhrs: Vec<(Result<String, String>, JsObject)> = Vec::new();
+
+            // Submit what scripts queued since the last pump. A
+            // preparation failure (bad URL, the file:// gate) settles
+            // synchronously, like the legacy synchronous pump.
             let requests = std::mem::take(&mut self.pending_fetches);
             let xhrs = std::mem::take(&mut self.pending_xhrs);
-            if requests.is_empty() && xhrs.is_empty() {
+            for (target, resolve, reject) in requests {
+                match prepare_fetch(session, &target, None) {
+                    Ok(request) => {
+                        let id = self.network.submit(request);
+                        self.in_flight_fetches.insert(id, (resolve, reject));
+                    }
+                    Err(error) => settled_fetches.push((Err(error), resolve, reject)),
+                }
+            }
+            for request in xhrs {
+                let xhr = request.xhr.clone();
+                match prepare_fetch(session, &request.url, xhr_body(&request)) {
+                    Ok(prepared) => {
+                        let id = self.network.submit(prepared);
+                        self.in_flight_xhrs.insert(id, xhr);
+                    }
+                    Err(error) => settled_xhrs.push((Err(error), xhr)),
+                }
+            }
+
+            // Drain completions: cookies land in the jar here, on the
+            // session's thread, before the result reaches JS.
+            for (id, result) in self.network.drain() {
+                let result = result
+                    .map(|response| {
+                        session.store_response_cookies(&response);
+                        response.text()
+                    })
+                    .map_err(|error| error.to_string());
+                if let Some((resolve, reject)) = self.in_flight_fetches.remove(&id) {
+                    settled_fetches.push((result, resolve, reject));
+                } else if let Some(xhr) = self.in_flight_xhrs.remove(&id) {
+                    settled_xhrs.push((result, xhr));
+                }
+            }
+
+            if settled_fetches.is_empty() && settled_xhrs.is_empty() {
+                // Nothing to settle: either quiescent, or requests are
+                // in flight on workers and the wake hook will re-enter.
                 return;
             }
-            let results: Vec<(Result<String, String>, JsObject, JsObject)> = requests
-                .into_iter()
-                .map(|(target, resolve, reject)| {
-                    let response = session
-                        .current_url()
-                        .cloned()
-                        .ok_or_else(|| "no page".to_string())
-                        .and_then(|base| {
-                            resolve_url(&base, &target).map_err(|error| error.to_string())
-                        })
-                        .and_then(|url| {
-                            session
-                                .fetch_resource(url, None)
-                                .map(|response| response.text())
-                                .map_err(|error| error.to_string())
-                        });
-                    (response, resolve, reject)
-                })
-                .collect();
-            let xhr_results: Vec<(Result<String, String>, JsObject)> = xhrs
-                .into_iter()
-                .map(|request| {
-                    let outcome = session
-                        .current_url()
-                        .cloned()
-                        .ok_or_else(|| "no page".to_string())
-                        .and_then(|base| {
-                            resolve_url(&base, &request.url).map_err(|error| error.to_string())
-                        })
-                        .and_then(|url| {
-                            // Cookies and the file:// gate come free:
-                            // XHR rides the same fetch_resource as fetch.
-                            session
-                                .fetch_resource(url, xhr_body(&request))
-                                .map(|response| response.text())
-                                .map_err(|error| error.to_string())
-                        });
-                    (outcome, request.xhr)
-                })
-                .collect();
             self.enter(session, |context| {
-                for (result, resolve, reject) in results {
+                for (result, resolve, reject) in settled_fetches {
                     let call = match result {
                         Ok(body) => {
                             let response = response_object(&body, context);
@@ -667,7 +752,7 @@ impl PageScripts {
                         eprintln!("[js] script error: {error}");
                     }
                 }
-                for (result, xhr) in xhr_results {
+                for (result, xhr) in settled_xhrs {
                     settle_xhr(result, &xhr, context);
                 }
             });
@@ -675,6 +760,12 @@ impl PageScripts {
         eprintln!("[js] fetch chain ran too deep; dropping the rest");
         self.pending_fetches.clear();
         self.pending_xhrs.clear();
+    }
+
+    /// Whether any script-initiated network load is still in flight.
+    #[must_use]
+    pub fn has_pending_network(&self) -> bool {
+        !self.in_flight_fetches.is_empty() || !self.in_flight_xhrs.is_empty()
     }
 
     /// Whether timers are pending (the shell keeps frames coming).
@@ -939,13 +1030,14 @@ fn has_inline_handlers<L: ResourceLoader>(session: &Session<L>) -> bool {
 const MAX_MODULE_ROUNDS: u32 = 64;
 
 /// Serves `import` specifiers from pre-fetched sources — never from
-/// the filesystem. [`PageScripts::run_module`] drives it in a
-/// fetch-retry loop: the loader records the URLs it was asked for but
-/// has no source for (`misses`), the caller fetches them through the
-/// session and retries. Dynamic `import()` goes through the same
-/// loader, so it resolves anything already fetched (the static graph);
-/// a never-fetched URL rejects the promise instead of hanging.
-#[derive(Default)]
+/// the filesystem. During page load [`PageScripts::run_module`] drives
+/// it in a fetch-retry loop: the loader records the URLs it was asked
+/// for but has no source for (`misses`), the caller fetches them
+/// through the session and retries. Once the static graph is settled
+/// (`enable_queue_fetch`), a runtime dynamic `import()` of a
+/// never-fetched URL instead goes through the page's network queue:
+/// the load runs on a worker and the loader future awaits the result,
+/// so the `import()` promise stays pending instead of rejecting.
 struct PageModuleLoader {
     /// Resolved URL -> fetched source text.
     sources: RefCell<HashMap<String, String>>,
@@ -954,9 +1046,28 @@ struct PageModuleLoader {
     cache: RefCell<HashMap<String, Module>>,
     /// URLs requested without a known source since the last drain.
     misses: RefCell<Vec<String>>,
+    /// The page's network queue, for runtime dynamic-import fetches.
+    network: Rc<NetworkQueue>,
+    /// Runtime mode: misses are fetched through the queue instead of
+    /// being reported for the page-load retry loop.
+    queue_fetch: Cell<bool>,
 }
 
 impl PageModuleLoader {
+    fn new(network: Rc<NetworkQueue>) -> Self {
+        Self {
+            sources: RefCell::new(HashMap::new()),
+            cache: RefCell::new(HashMap::new()),
+            misses: RefCell::new(Vec::new()),
+            network,
+            queue_fetch: Cell::new(false),
+        }
+    }
+
+    fn enable_queue_fetch(&self) {
+        self.queue_fetch.set(true);
+    }
+
     fn give_source(&self, url: &str, source: &str) {
         self.sources
             .borrow_mut()
@@ -966,6 +1077,69 @@ impl PageModuleLoader {
     fn take_misses(&self) -> Vec<String> {
         std::mem::take(&mut *self.misses.borrow_mut())
     }
+
+    /// Runtime fetch of a module the static graph never loaded:
+    /// submits a prepared request to the network queue and awaits the
+    /// worker's slot. The job executor keeps polling the future (the
+    /// queue's module-activity counter tells it progress is coming),
+    /// so this resolves the import without blocking the shell thread
+    /// when the queue is threaded.
+    async fn load_over_network(
+        self: &Rc<Self>,
+        key: &str,
+        context: &RefCell<&mut Context>,
+    ) -> JsResult<Module> {
+        let url = Url::parse(key).map_err(|error| {
+            JsNativeError::typ().with_message(format!("bad module URL '{key}': {error}"))
+        })?;
+        let request = prepare_module_request(&url)?;
+        let slot: ModuleSlot = self.network.submit_module(request);
+        let source = loop {
+            if let Some(outcome) = slot.lock().expect("module slot").take() {
+                break outcome;
+            }
+            future::yield_now().await;
+        };
+        let source = source.map_err(|error| {
+            JsNativeError::typ().with_message(format!("module fetch failed ({key}): {error}"))
+        })?;
+        let module = Module::parse(
+            Source::from_bytes(source.as_bytes()).with_path(Path::new(key)),
+            None,
+            &mut context.borrow_mut(),
+        )?;
+        self.give_source(key, &source);
+        self.cache.borrow_mut().insert(key.to_string(), module.clone());
+        Ok(module)
+    }
+}
+
+/// The PREPARE phase of a runtime module fetch. The loader runs inside
+/// the script job executor — no session is reachable there — so it
+/// prepares from the bridge snapshot instead: the file:// gate mirrors
+/// the session's, and the Cookie header rides only to same-origin URLs
+/// (the full per-URL jar lookup that fetch/XHR get on the UI thread is
+/// unavailable here; `Set-Cookie` on module responses is dropped).
+fn prepare_module_request(url: &Url) -> JsResult<ResourceRequest> {
+    let (page_url, cookie) = with_bridge(|bridge| {
+        (bridge.url.clone(), bridge.cookie_header.clone())
+    });
+    let page = Url::parse(&page_url).ok();
+    if url.scheme() == "file"
+        && page
+            .as_ref()
+            .is_some_and(|page| matches!(page.scheme(), "http" | "https"))
+    {
+        return Err(JsNativeError::typ()
+            .with_message(format!("module fetch blocked (file from a remote page): {url}"))
+            .into());
+    }
+    let same_origin = page.as_ref().is_some_and(|page| page.origin() == url.origin());
+    Ok(ResourceRequest {
+        cookie: (same_origin && !cookie.is_empty()).then_some(cookie),
+        url: url.clone(),
+        body: None,
+    })
 }
 
 impl ModuleLoader for PageModuleLoader {
@@ -993,7 +1167,16 @@ impl ModuleLoader for PageModuleLoader {
         if let Some(module) = self.cache.borrow().get(&key) {
             return Ok(module.clone());
         }
-        let Some(source) = self.sources.borrow().get(&key).cloned() else {
+        // Bound the immutable borrow to this statement: the else path
+        // may fetch over the network and re-enter `sources` mutably.
+        let known = self.sources.borrow().get(&key).cloned();
+        let Some(source) = known else {
+            // Runtime dynamic import() of a URL the static graph never
+            // fetched: load it through the network queue and await the
+            // worker — the import() promise stays pending meanwhile.
+            if self.queue_fetch.get() {
+                return self.load_over_network(&key, context).await;
+            }
             let mut misses = self.misses.borrow_mut();
             if !misses.contains(&key) {
                 misses.push(key.clone());
@@ -1026,17 +1209,33 @@ const MAX_JOBS_PER_TICK: usize = 10_000;
 /// executor mirrors boa's drain loop (boe_engine 0.21 `src/job.rs`,
 /// MIT/Apache-2.0) but caps the jobs per call: whatever is left stays
 /// queued and continues on the next script entry.
-#[derive(Default)]
+///
+/// Async jobs that park (a dynamic `import()` awaiting its network
+/// fetch) cannot just spin: while the network queue reports a module
+/// load in flight the loop naps (1 ms) and keeps polling — progress
+/// arrives from the worker thread. A parked job with no network
+/// activity (a top-level await on the page's own fetch pump, which
+/// only runs between script entries) cannot progress inside this call;
+/// the executor breaks instead of spinning forever, and the parked
+/// future is dropped — its module evaluation never completes.
 struct BoundedJobExecutor {
     promise_jobs: RefCell<VecDeque<PromiseJob>>,
     async_jobs: RefCell<VecDeque<NativeAsyncJob>>,
     timeout_jobs: RefCell<BTreeMap<JsInstant, TimeoutJob>>,
     generic_jobs: RefCell<VecDeque<GenericJob>>,
+    /// Module loads in flight on the network queue (shared counter).
+    network_activity: Arc<AtomicUsize>,
 }
 
 impl BoundedJobExecutor {
-    fn new() -> Self {
-        Self::default()
+    fn with_activity(network_activity: Arc<AtomicUsize>) -> Self {
+        Self {
+            promise_jobs: RefCell::new(VecDeque::new()),
+            async_jobs: RefCell::new(VecDeque::new()),
+            timeout_jobs: RefCell::new(BTreeMap::new()),
+            generic_jobs: RefCell::new(VecDeque::new()),
+            network_activity,
+        }
     }
 
     fn clear(&self) {
@@ -1078,7 +1277,9 @@ impl JobExecutor for BoundedJobExecutor {
         let mut group = FutureGroup::new();
         let mut budget = MAX_JOBS_PER_TICK;
         loop {
-            for job in std::mem::take(&mut *self.async_jobs.borrow_mut()) {
+            let drained = std::mem::take(&mut *self.async_jobs.borrow_mut());
+            let mut progressed = !drained.is_empty();
+            for job in drained {
                 group.insert(job.call(context));
             }
 
@@ -1098,9 +1299,13 @@ impl JobExecutor for BoundedJobExecutor {
                 break;
             }
 
-            if let Some(Err(error)) = future::poll_once(group.next()).await.flatten() {
-                self.clear();
-                return Err(error);
+            match future::poll_once(group.next()).await {
+                Some(Some(Err(error))) => {
+                    self.clear();
+                    return Err(error);
+                }
+                Some(Some(Ok(_))) => progressed = true,
+                Some(None) | None => {}
             }
 
             {
@@ -1113,6 +1318,7 @@ impl JobExecutor for BoundedJobExecutor {
 
                 for job in jobs_to_run.into_values() {
                     budget = budget.saturating_sub(1);
+                    progressed = true;
                     if let Err(error) = job.call(&mut context.borrow_mut()) {
                         self.clear();
                         return Err(error);
@@ -1123,6 +1329,7 @@ impl JobExecutor for BoundedJobExecutor {
             let jobs = std::mem::take(&mut *self.promise_jobs.borrow_mut());
             for job in jobs {
                 budget = budget.saturating_sub(1);
+                progressed = true;
                 if let Err(error) = job.call(&mut context.borrow_mut()) {
                     self.clear();
                     return Err(error);
@@ -1132,12 +1339,25 @@ impl JobExecutor for BoundedJobExecutor {
             let jobs = std::mem::take(&mut *self.generic_jobs.borrow_mut());
             for job in jobs {
                 budget = budget.saturating_sub(1);
+                progressed = true;
                 if let Err(error) = job.call(&mut context.borrow_mut()) {
                     self.clear();
                     return Err(error);
                 }
             }
             context.borrow_mut().clear_kept_objects();
+            if !progressed {
+                // Only parked async jobs remain. With a module load in
+                // flight the worker's result is what unblocks them —
+                // nap and poll again. Otherwise nothing can progress
+                // inside this call (a top-level await on the page's own
+                // fetch pump settles between entries); break rather
+                // than spin forever.
+                if self.network_activity.load(Ordering::Relaxed) == 0 {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
             future::yield_now().await;
         }
 
@@ -1462,6 +1682,24 @@ fn install_stubs(context: &mut Context) {
 
 // ---- fetch ----
 
+/// The PREPARE phase of a script fetch, on the caller's thread:
+/// resolves the target against the page URL, applies the file:// gate
+/// and attaches the Cookie header (see [`Session::prepare_request`]).
+fn prepare_fetch<L: ResourceLoader>(
+    session: &Session<L>,
+    target: &str,
+    body: Option<(String, Vec<u8>)>,
+) -> Result<ResourceRequest, String> {
+    let base = session
+        .current_url()
+        .cloned()
+        .ok_or_else(|| "no page".to_string())?;
+    let url = resolve_url(&base, target).map_err(|error| error.to_string())?;
+    session
+        .prepare_request(url, body)
+        .map_err(|error| error.to_string())
+}
+
 fn fetch_(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     let target = string_arg(args, 0, context);
     let (promise, resolvers) = JsPromise::new_pending(context);
@@ -1575,8 +1813,9 @@ fn xhr_open(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult
     };
     let method = string_arg(args, 0, context).to_ascii_uppercase();
     let url = string_arg(args, 1, context);
-    // The async flag (arg 2) is accepted but the pipeline is
-    // synchronous: every request completes in the next pump either way.
+    // The async flag (arg 2) is accepted: every request completes in a
+    // later pump either way (inline queue: the pump right after this
+    // entry; threaded queue: the pump the completion wake triggers).
     object.set(js_string!("__method"), js_string!(method.as_str()), false, context)?;
     object.set(js_string!("__url"), js_string!(url.as_str()), false, context)?;
     object.set(
@@ -3174,15 +3413,20 @@ fn set_attribute(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsR
 mod tests {
     use super::*;
     use lumen_platform::{LoadError, ResourceRequest, ResourceResponse, Url};
-    use std::cell::RefCell;
     use std::collections::HashMap;
 
+    /// A canned-response loader. Mutex-based (not RefCell) so the
+    /// loader is `Send + Sync`: `PageScripts` shares it with network
+    /// workers behind an `Arc`.
     struct FakeLoader {
         pages: HashMap<String, Vec<u8>>,
         /// Requested URLs, in order (a reload shows up here).
-        loads: RefCell<Vec<String>>,
+        loads: std::sync::Mutex<Vec<String>>,
         /// POST bodies per load (None for GETs).
-        bodies: RefCell<Vec<Option<String>>>,
+        bodies: std::sync::Mutex<Vec<Option<String>>>,
+        /// Artificial per-load delay — a "slow server" for the
+        /// non-blocking tests.
+        delay: std::sync::Mutex<Option<Duration>>,
     }
 
     impl FakeLoader {
@@ -3192,16 +3436,20 @@ mod tests {
                     .iter()
                     .map(|(url, html)| ((*url).to_string(), html.as_bytes().to_vec()))
                     .collect(),
-                loads: RefCell::new(Vec::new()),
-                bodies: RefCell::new(Vec::new()),
+                loads: std::sync::Mutex::new(Vec::new()),
+                bodies: std::sync::Mutex::new(Vec::new()),
+                delay: std::sync::Mutex::new(None),
             }
         }
     }
 
     impl ResourceLoader for FakeLoader {
         fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
-            self.loads.borrow_mut().push(request.url.to_string());
-            self.bodies.borrow_mut().push(
+            if let Some(delay) = *self.delay.lock().unwrap() {
+                std::thread::sleep(delay);
+            }
+            self.loads.lock().unwrap().push(request.url.to_string());
+            self.bodies.lock().unwrap().push(
                 request
                     .body
                     .as_ref()
@@ -3593,7 +3841,7 @@ mod tests {
         assert_eq!(out_text(&session), "ok");
         // Page load GET (None) then the XHR POST with its body.
         assert_eq!(
-            *session.loader.bodies.borrow(),
+            *session.loader.bodies.lock().unwrap(),
             vec![None, Some("payload".to_string())]
         );
     }
@@ -3611,7 +3859,7 @@ mod tests {
         assert_eq!(out_text(&session), "https://a.test/yeni|2|1");
         assert_eq!(session.current_url().unwrap().as_str(), "https://a.test/yeni");
         // No reload: the loader only ever saw the initial page fetch.
-        assert_eq!(*session.loader.loads.borrow(), vec!["https://a.test/"]);
+        assert_eq!(*session.loader.loads.lock().unwrap(), vec!["https://a.test/"]);
     }
 
     #[test]
@@ -3763,5 +4011,180 @@ mod tests {
         let _scripts = PageScripts::new(&mut session).expect("page has scripts");
         assert_eq!(out_text(&session), "null");
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn fetch_settles_within_the_entry_with_the_inline_queue() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     fetch('/data.txt')\
+                       .then(r => r.text())\
+                       .then(t => { document.getElementById('out').textContent = t; });\
+                     </script>",
+                ),
+                ("https://a.test/data.txt", "inline-ok"),
+            ],
+            "https://a.test/",
+        );
+        // PageScripts::new uses the inline queue: the legacy
+        // resolve-within-the-entry behavior is preserved.
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "inline-ok");
+    }
+
+    #[test]
+    fn fetch_stays_pending_until_the_network_is_driven() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     fetch('/data.txt')\
+                       .then(r => r.text())\
+                       .then(t => { document.getElementById('out').textContent = t; });\
+                     </script>",
+                ),
+                ("https://a.test/data.txt", "async-ok"),
+            ],
+            "https://a.test/",
+        );
+        let mut scripts = PageScripts::new_with_network(&mut session, NetworkQueue::manual())
+            .expect("page has scripts");
+        // Submitted but parked on the queue: the promise is pending
+        // across whole entries — the async behavior the threaded
+        // shell sees, made deterministic.
+        assert_eq!(out_text(&session), "-");
+        assert!(scripts.has_pending_network());
+        scripts.network.drive();
+        // Driven, but settlement still needs a pump on this thread.
+        assert_eq!(out_text(&session), "-");
+        scripts.pump_network(&mut session);
+        assert_eq!(out_text(&session), "async-ok");
+        assert!(!scripts.has_pending_network());
+    }
+
+    #[test]
+    fn fetch_rejection_reaches_catch_after_the_drive() {
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             fetch('/missing')\
+               .then(() => { document.getElementById('out').textContent = 'unexpected'; })\
+               .catch(() => { document.getElementById('out').textContent = 'caught'; });\
+             </script>",
+        );
+        let mut scripts = PageScripts::new_with_network(&mut session, NetworkQueue::manual())
+            .expect("page has scripts");
+        assert_eq!(out_text(&session), "-");
+        scripts.network.drive();
+        scripts.pump_network(&mut session);
+        assert_eq!(out_text(&session), "caught");
+    }
+
+    #[test]
+    fn xhr_waits_for_the_network_like_fetch() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     const xhr = new XMLHttpRequest();\
+                     xhr.open('GET', '/data.txt');\
+                     xhr.onload = () => {\
+                       document.getElementById('out').textContent = xhr.responseText;\
+                     };\
+                     xhr.send();\
+                     </script>",
+                ),
+                ("https://a.test/data.txt", "xhr-async"),
+            ],
+            "https://a.test/",
+        );
+        let mut scripts = PageScripts::new_with_network(&mut session, NetworkQueue::manual())
+            .expect("page has scripts");
+        assert_eq!(out_text(&session), "-");
+        scripts.network.drive();
+        scripts.pump_network(&mut session);
+        assert_eq!(out_text(&session), "xhr-async");
+    }
+
+    #[test]
+    fn dynamic_import_fetches_new_urls_at_runtime() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<button id='btn'>x</button><p id='out'>-</p><script>\
+                     document.getElementById('btn').addEventListener('click', () => {\
+                       import('/lazy.js').then(m => {\
+                         document.getElementById('out').textContent = m.value;\
+                       });\
+                     });\
+                     </script>",
+                ),
+                ("https://a.test/lazy.js", "export const value = 'lazy-ok';"),
+            ],
+            "https://a.test/",
+        );
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let button = session
+            .page()
+            .unwrap()
+            .document
+            .get_element_by_id("btn")
+            .unwrap();
+        scripts.dispatch(&mut session, button, "click");
+        // The old limitation — runtime import() of a never-fetched URL
+        // rejects — is gone: the module came over the network queue.
+        assert_eq!(out_text(&session), "lazy-ok");
+    }
+
+    #[test]
+    fn a_slow_server_does_not_block_the_tick() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     fetch('/slow.txt')\
+                       .then(r => r.text())\
+                       .then(t => { document.getElementById('out').textContent = t; });\
+                     </script>",
+                ),
+                ("https://a.test/slow.txt", "slow-ok"),
+            ],
+            "https://a.test/",
+        );
+        // From here every load takes 600ms — a stalled server. The
+        // loader's 20s timeout lives on the worker, not the UI thread.
+        *session.loader.delay.lock().unwrap() = Some(Duration::from_millis(600));
+        let wakes = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let queue = NetworkQueue::threaded();
+        {
+            let wakes = wakes.clone();
+            queue.set_wake_hook(move || {
+                wakes.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+        let started = std::time::Instant::now();
+        let mut scripts = PageScripts::new_with_network(&mut session, queue)
+            .expect("page has scripts");
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(400),
+            "script setup blocked on the network: {elapsed:?}"
+        );
+        // The promise is pending; the tick that submitted never waited.
+        assert_eq!(out_text(&session), "-");
+        assert!(scripts.has_pending_network());
+        // The worker lands the result and the wake hook fires; the next
+        // pump (what the shell does on the wake event) settles it.
+        std::thread::sleep(Duration::from_millis(900));
+        assert!(wakes.load(Ordering::SeqCst) >= 1, "wake hook never fired");
+        scripts.pump_network(&mut session);
+        assert_eq!(out_text(&session), "slow-ok");
+        assert!(!scripts.has_pending_network());
     }
 }

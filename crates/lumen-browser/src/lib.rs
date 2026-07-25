@@ -14,12 +14,14 @@ use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, ResourceRespons
 
 pub use editor::{EditOp, EditOverlay, EditResult, Motion, TextBuffer};
 pub use forms::FormViolation;
+pub use network::NetworkQueue;
 pub use scripting::{DispatchOutcome, PageScripts};
 use std::sync::Arc;
 
 mod cookies;
 mod editor;
 mod forms;
+mod network;
 mod scripting;
 mod storage;
 
@@ -28,7 +30,10 @@ mod storage;
 /// History entries are re-fetched on `back`/`forward`/`refresh`; there is
 /// no document cache yet. All responses are treated as HTML.
 pub struct Session<L: ResourceLoader> {
-    loader: L,
+    /// Behind an `Arc` so script-initiated fetches can hand a shared,
+    /// read-only handle to network workers while the session itself
+    /// stays on its own thread.
+    loader: Arc<L>,
     viewport: Size,
     measurer: Box<dyn TextMeasurer + Send>,
     history: Vec<Url>,
@@ -142,7 +147,7 @@ impl<L: ResourceLoader> Session<L> {
     #[must_use]
     pub fn new(loader: L, viewport: Size) -> Self {
         Self {
-            loader,
+            loader: Arc::new(loader),
             viewport,
             measurer: Box::new(HeuristicMeasurer),
             history: Vec::new(),
@@ -820,6 +825,21 @@ impl<L: ResourceLoader> Session<L> {
         url: Url,
         body: Option<(String, Vec<u8>)>,
     ) -> Result<ResourceResponse, LoadError> {
+        let request = self.prepare_request(url, body)?;
+        let response = self.loader.load(&request)?;
+        self.store_response_cookies(&response);
+        Ok(response)
+    }
+
+    /// The PREPARE half of a fetch, read-only: applies the remote-page
+    /// `file:` gate and attaches the jar's Cookie header. The prepared
+    /// request is `Send`, so script-initiated loads can cross to a
+    /// network worker without the session leaving its thread.
+    pub(crate) fn prepare_request(
+        &self,
+        url: Url,
+        body: Option<(String, Vec<u8>)>,
+    ) -> Result<ResourceRequest, LoadError> {
         if url.scheme() == "file"
             && self
                 .page_origin()
@@ -829,16 +849,25 @@ impl<L: ResourceLoader> Session<L> {
                 "file (blocked from a remote page)".to_string(),
             ));
         }
-        let request = ResourceRequest {
+        Ok(ResourceRequest {
             cookie: self.cookies.header_for_http(&url),
             url,
             body,
-        };
-        let response = self.loader.load(&request)?;
+        })
+    }
+
+    /// The APPLY half of a fetch: stores a response's `Set-Cookie`
+    /// headers in the jar. Runs on the session's own thread once a
+    /// (possibly worker-executed) load lands.
+    pub(crate) fn store_response_cookies(&mut self, response: &ResourceResponse) {
         for header in &response.set_cookies {
             self.cookies.store(&response.final_url, header);
         }
-        Ok(response)
+    }
+
+    /// A shared handle to the session's loader for network workers.
+    pub(crate) fn shared_loader(&self) -> Arc<L> {
+        self.loader.clone()
     }
 
     /// The scheme of the page being shown or loaded, if any.
@@ -1126,16 +1155,15 @@ impl<L: ResourceLoader> Session<L> {
 mod tests {
     use super::*;
     use lumen_platform::ResourceResponse;
-    use std::cell::RefCell;
     use std::collections::HashMap;
 
     struct FakeLoader {
         pages: HashMap<String, Vec<u8>>,
-        loads: RefCell<Vec<String>>,
+        loads: std::sync::Mutex<Vec<String>>,
         /// POST bodies per load (None for GETs).
-        bodies: RefCell<Vec<Option<String>>>,
+        bodies: std::sync::Mutex<Vec<Option<String>>>,
         /// Cookie headers per load.
-        cookies_sent: RefCell<Vec<Option<String>>>,
+        cookies_sent: std::sync::Mutex<Vec<Option<String>>>,
         /// Set-Cookie headers served per URL.
         serve_cookies: HashMap<String, Vec<String>>,
     }
@@ -1147,9 +1175,9 @@ mod tests {
                     .iter()
                     .map(|(url, html)| ((*url).to_string(), html.as_bytes().to_vec()))
                     .collect(),
-                loads: RefCell::new(Vec::new()),
-                bodies: RefCell::new(Vec::new()),
-                cookies_sent: RefCell::new(Vec::new()),
+                loads: std::sync::Mutex::new(Vec::new()),
+                bodies: std::sync::Mutex::new(Vec::new()),
+                cookies_sent: std::sync::Mutex::new(Vec::new()),
                 serve_cookies: HashMap::new(),
             }
         }
@@ -1170,14 +1198,17 @@ mod tests {
 
     impl ResourceLoader for FakeLoader {
         fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
-            self.loads.borrow_mut().push(request.url.to_string());
-            self.bodies.borrow_mut().push(
+            self.loads.lock().unwrap().push(request.url.to_string());
+            self.bodies.lock().unwrap().push(
                 request
                     .body
                     .as_ref()
                     .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned()),
             );
-            self.cookies_sent.borrow_mut().push(request.cookie.clone());
+            self.cookies_sent
+                .lock()
+                .unwrap()
+                .push(request.cookie.clone());
             let body = self
                 .pages
                 .get(request.url.as_str())
@@ -1271,7 +1302,7 @@ mod tests {
         session.load(url("https://a.test/")).unwrap();
         session.refresh().unwrap();
         assert_eq!(
-            *session.loader.loads.borrow(),
+            *session.loader.loads.lock().unwrap(),
             vec!["https://a.test/", "https://a.test/"]
         );
     }
@@ -1325,7 +1356,7 @@ mod tests {
         assert_eq!(hovered_style.color, lumen_css::Color::rgb(255, 0, 0));
         assert!(session.set_hovered(None));
         // Initial load only; hover never touched the network.
-        assert_eq!(session.loader.loads.borrow().len(), 1);
+        assert_eq!(session.loader.loads.lock().unwrap().len(), 1);
     }
 
     #[test]
@@ -1392,7 +1423,7 @@ mod tests {
         assert_eq!(style.color, lumen_css::Color::rgb(255, 0, 0));
         assert_eq!(style.font_size, 20.0);
         // Page + 2 stylesheets; the icon link was not fetched.
-        assert_eq!(session.loader.loads.borrow().len(), 3);
+        assert_eq!(session.loader.loads.lock().unwrap().len(), 3);
     }
 
     #[test]
@@ -1445,7 +1476,7 @@ mod tests {
             height: 400.0,
         });
         session.set_hovered(Some(1));
-        assert_eq!(session.loader.loads.borrow().len(), 2);
+        assert_eq!(session.loader.loads.lock().unwrap().len(), 2);
     }
 
     #[test]
@@ -1921,7 +1952,7 @@ mod tests {
             session.current_url().unwrap().as_str(),
             "https://a.test/giris"
         );
-        let bodies = session.loader.bodies.borrow();
+        let bodies = session.loader.bodies.lock().unwrap();
         assert_eq!(bodies.last().unwrap().as_deref(), Some("ad=lumen&k=1"));
     }
 
@@ -1937,7 +1968,7 @@ mod tests {
         );
         session.load(url("https://a.test/")).unwrap();
         session.follow("/ic").unwrap();
-        let cookies = session.loader.cookies_sent.borrow();
+        let cookies = session.loader.cookies_sent.lock().unwrap();
         // First request: no cookie yet; second carries the session id.
         assert_eq!(cookies[0], None);
         assert_eq!(cookies[1].as_deref(), Some("sid=gizli"));
@@ -2015,7 +2046,7 @@ mod tests {
         );
         session.load(url("http://a.test/")).unwrap();
         session.follow("/iki").unwrap();
-        let cookies = session.loader.cookies_sent.borrow();
+        let cookies = session.loader.cookies_sent.lock().unwrap();
         // The insecure origin's Secure cookie was never stored.
         assert_eq!(cookies[1], None);
     }
@@ -2051,7 +2082,7 @@ mod tests {
         session.load(url("https://a.test/")).unwrap();
         // The page still renders; the file: stylesheet never reached the loader.
         assert!(session.page().is_some());
-        assert_eq!(*session.loader.loads.borrow(), vec!["https://a.test/"]);
+        assert_eq!(*session.loader.loads.lock().unwrap(), vec!["https://a.test/"]);
     }
 
     #[test]
@@ -2922,6 +2953,6 @@ mod tests {
         });
         assert_eq!(session.page().unwrap().viewport.width, 400.0);
         // Only the initial load hit the loader.
-        assert_eq!(session.loader.loads.borrow().len(), 1);
+        assert_eq!(session.loader.loads.lock().unwrap().len(), 1);
     }
 }
