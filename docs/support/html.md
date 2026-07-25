@@ -37,7 +37,7 @@ simplifications.
 | `<title>` | ✅ | ✅ | ✅ | ✅ | shown as the desktop window title |
 | `<style>` | ✅ | ✅ | ✅ | ✅ | document-order extraction |
 | `<link rel="stylesheet">` | ✅ | ✅ | ✅ | ✅ | document order; relative hrefs vs final URL; failures skip the sheet |
-| `<meta>` | ⚠️ | ✅ | ✅ | ✅ | hidden; viewport/charset ignored |
+| `<meta>` | ⚠️ | ✅ | ✅ | ✅ | hidden; charset drives decoding, viewport ignored |
 | `<base>` | ❌ | ✅ | ✅ | ✅ | href not used |
 
 ## Sections & grouping

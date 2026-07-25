@@ -9,5 +9,6 @@ workspace = true
 
 [dependencies]
 cookie = "0.18.1"
+encoding_rs = "0.8.35"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 url = "2.5.8"

@@ -58,10 +58,12 @@ pub struct ResourceResponse {
 }
 
 impl ResourceResponse {
-    /// Body decoded as UTF-8, lossily.
+    /// Body decoded to text, sniffing the encoding from the BOM, the
+    /// Content-Type header and `<meta>` declarations (falling back to
+    /// lossy UTF-8). See [`crate::encoding`].
     #[must_use]
     pub fn text(&self) -> String {
-        String::from_utf8_lossy(&self.body).into_owned()
+        crate::encoding::decode_text(&self.body, self.content_type.as_deref())
     }
 }
 

@@ -2,6 +2,7 @@
 //! surfaces. Engine crates never depend on this; orchestration code wires
 //! platform services and the engine together.
 
+pub mod encoding;
 pub mod loader;
 
 pub use loader::{

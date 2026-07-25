@@ -51,6 +51,7 @@ Maintaining hand-written HTML/CSS parsers costs more than it returns.
 and `lumen-css` to [lightningcss](https://crates.io/crates/lightningcss),
 both behind the existing crate APIs, so the engine keeps working unchanged.
 
-Known limitation: html5ever is fed Rust `&str`, so input is assumed to be
-UTF-8. Byte-level encoding detection (BOM, `<meta charset>`, Encoding
-Standard) is future work.
+Encoding detection is handled in `lumen-platform::encoding` (BOM,
+Content-Type charset, `<meta>` prescan, UTF-8 fallback) via
+[encoding_rs](https://crates.io/crates/encoding_rs), so byte streams
+reach html5ever already decoded.
