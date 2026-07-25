@@ -109,6 +109,56 @@ enum SessionState {
     Loading { target: String },
 }
 
+/// Routing for a navigation request: hands `nav` back when the session
+/// is ready to start it now, or queues it in the single pending slot
+/// and returns `None` while a load is running on the loader thread.
+/// Queuing replaces the old behaviour of silently dropping the request
+/// (link clicks and Back used to vanish mid-load). One slot with
+/// last-intent-wins is the deliberate model: the in-flight load cannot
+/// be cancelled, and only the user's latest request matters anyway.
+/// `NavDone` drains the slot onto the session the loader returns, so a
+/// queued Back/Forward applies to the fresh history.
+fn start_or_queue(state: &SessionState, pending: &mut Option<Nav>, nav: Nav) -> Option<Nav> {
+    if matches!(state, SessionState::Loading { .. }) {
+        *pending = Some(nav);
+        None
+    } else {
+        Some(nav)
+    }
+}
+
+/// Moves `session` onto a loader thread to perform `nav`, reporting the
+/// outcome back as a [`NavDone`] user event tagged with `tab`.
+fn spawn_loader(
+    proxy: &winit::event_loop::EventLoopProxy<ShellEvent>,
+    mut session: Box<Session<DefaultLoader>>,
+    viewport: Size,
+    tab: u64,
+    nav: Nav,
+) {
+    let proxy = proxy.clone();
+    std::thread::spawn(move || {
+        session.set_viewport(viewport);
+        let result = match nav {
+            Nav::Submit(node) => session.submit_form(node).map(|_| ()),
+            Nav::Load(url) => session.load(url).map(|_| ()),
+            Nav::Follow(href) => session.follow(&href).map(|_| ()),
+            Nav::Back => session.back().map(|_| ()),
+            Nav::Forward => session.forward().map(|_| ()),
+            Nav::Refresh => session.refresh().map(|_| ()),
+        };
+        // Failure means the event loop is gone (window closed while
+        // loading); the navigation result has nowhere to go.
+        if let Err(error) = proxy.send_event(ShellEvent::NavDone(Box::new(NavDone {
+            tab,
+            session,
+            error: result.err().map(|error| error.to_string()),
+        }))) {
+            eprintln!("note: navigation finished after shutdown: {error}");
+        }
+    });
+}
+
 /// One browser tab's swappable state. The active tab's copy lives in the
 /// `App` fields directly (`state`, `scroll_y`, `input`, `page_scripts`);
 /// this holds the parked state of every other tab. Loader results carry
@@ -121,6 +171,9 @@ struct Tab {
     scroll_y: f32,
     input: String,
     page_scripts: Option<lumen_browser::PageScripts>,
+    /// Navigation queued while this tab was loading (see
+    /// [`start_or_queue`]); parked per tab like the rest of the state.
+    pending_nav: Option<Nav>,
 }
 
 /// A saved page.
@@ -148,7 +201,13 @@ impl Bookmarks {
         let Some(path) = Self::path() else {
             return Self::default();
         };
-        std::fs::read(&path)
+        Self::load_from(&path)
+    }
+
+    /// Loads the saved bookmarks from `path`, or an empty list when the
+    /// file is missing or unreadable.
+    fn load_from(path: &std::path::Path) -> Self {
+        std::fs::read(path)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default()
@@ -157,20 +216,33 @@ impl Bookmarks {
     /// Writes the list back to disk, creating the directory as needed.
     fn save(&self) {
         let Some(path) = Self::path() else { return };
-        if let Some(parent) = path.parent()
-            && let Err(error) = std::fs::create_dir_all(parent)
-        {
+        if let Err(error) = self.save_to(&path) {
             eprintln!("bookmarks: {error}");
-            return;
         }
-        match serde_json::to_vec_pretty(self) {
-            Ok(bytes) => {
-                if let Err(error) = std::fs::write(&path, bytes) {
-                    eprintln!("bookmarks: {error}");
-                }
-            }
-            Err(error) => eprintln!("bookmarks: {error}"),
+    }
+
+    /// Atomically writes the list to `path`: the JSON lands in a temp
+    /// file in the same directory, is fsynced, then renamed over the
+    /// target, so a crash mid-write can never leave a half-written
+    /// bookmarks.json behind (which `load` would silently reset).
+    fn save_to(&self, path: &std::path::Path) -> std::io::Result<()> {
+        use std::io::Write;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
         }
+        let bytes = serde_json::to_vec_pretty(self)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        let temp = path.with_extension("json.tmp");
+        let result = (|| {
+            let mut file = std::fs::File::create(&temp)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            std::fs::rename(&temp, path)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temp);
+        }
+        result
     }
 
     fn contains(&self, url: &str) -> bool {
@@ -544,6 +616,9 @@ struct App {
     /// The current page's JavaScript world (main-thread only: Boa's GC
     /// handles cannot cross the loader thread).
     page_scripts: Option<lumen_browser::PageScripts>,
+    /// Navigation queued while the active tab was loading (see
+    /// [`start_or_queue`]); parked into the tab on switching.
+    pending_nav: Option<Nav>,
     /// Range input being dragged, while the button is held.
     range_drag: Option<usize>,
     find_matches: Vec<Selection>,
@@ -629,6 +704,7 @@ impl App {
             color_popup: None,
             violation_popup: None,
             page_scripts: None,
+            pending_nav: None,
             range_drag: None,
             find_matches: Vec::new(),
             find_index: 0,
@@ -654,6 +730,7 @@ impl App {
                 scroll_y: 0.0,
                 input: String::new(),
                 page_scripts: None,
+                pending_nav: None,
             }],
             active: 0,
             next_tab_id: 1,
@@ -682,6 +759,7 @@ impl App {
         tab.scroll_y = self.scroll_y;
         tab.input = std::mem::take(&mut self.input);
         tab.page_scripts = self.page_scripts.take();
+        tab.pending_nav = self.pending_nav.take();
     }
 
     /// Pulls the parked state at `self.active` into the live fields.
@@ -694,6 +772,7 @@ impl App {
         self.scroll_y = tab.scroll_y;
         self.input = std::mem::take(&mut tab.input);
         self.page_scripts = tab.page_scripts.take();
+        self.pending_nav = tab.pending_nav.take();
     }
 
     /// Clears per-page transient UI when switching tabs (selection, find,
@@ -737,6 +816,7 @@ impl App {
             scroll_y: 0.0,
             input: String::new(),
             page_scripts: None,
+            pending_nav: None,
         });
         self.active = self.tabs.len() - 1;
         self.unpark_active();
@@ -888,11 +968,12 @@ impl App {
     }
 
     /// Runs a navigation on a background thread; the session comes back
-    /// through a user event. Ignored while another navigation is running.
+    /// through a user event. While a navigation is already running the
+    /// request is queued instead of dropped — see [`start_or_queue`].
     fn start_nav(&mut self, nav: Nav) {
-        if matches!(self.state, SessionState::Loading { .. }) {
+        let Some(nav) = start_or_queue(&self.state, &mut self.pending_nav, nav) else {
             return;
-        }
+        };
         let target = nav.label();
         self.end_page_edit();
         self.selection = None;
@@ -901,7 +982,7 @@ impl App {
         self.color_popup = None;
         self.violation_popup = None;
         self.range_drag = None;
-        let SessionState::Ready(mut session) =
+        let SessionState::Ready(session) =
             std::mem::replace(&mut self.state, SessionState::Loading { target })
         else {
             return;
@@ -909,26 +990,7 @@ impl App {
         let viewport = self.viewport();
         let proxy = self.proxy.clone();
         let tab = self.tabs[self.active].id;
-        std::thread::spawn(move || {
-            session.set_viewport(viewport);
-            let result = match nav {
-                Nav::Submit(node) => session.submit_form(node).map(|_| ()),
-                Nav::Load(url) => session.load(url).map(|_| ()),
-                Nav::Follow(href) => session.follow(&href).map(|_| ()),
-                Nav::Back => session.back().map(|_| ()),
-                Nav::Forward => session.forward().map(|_| ()),
-                Nav::Refresh => session.refresh().map(|_| ()),
-            };
-            // Failure means the event loop is gone (window closed while
-            // loading); the navigation result has nowhere to go.
-            if let Err(error) = proxy.send_event(ShellEvent::NavDone(Box::new(NavDone {
-                tab,
-                session,
-                error: result.err().map(|error| error.to_string()),
-            }))) {
-                eprintln!("note: navigation finished after shutdown: {error}");
-            }
-        });
+        spawn_loader(&proxy, session, viewport, tab, nav);
         self.invalidate_page();
         self.update_title();
         self.request_redraw();
@@ -1548,12 +1610,15 @@ impl App {
         let delta = ((self.scroll_y - old_scroll) * scale).round() as i64;
         let top = i64::from(((CHROME_HEIGHT * scale).ceil() as u32).min(height));
         let page_rows = i64::from(height) - top;
-        if delta == 0 || page_rows <= 0 || delta.abs() >= page_rows {
+        // checked_abs: i64::MIN has no positive counterpart; a delta that
+        // extreme means "repaint everything" anyway.
+        let distance = delta.checked_abs()?;
+        if delta == 0 || page_rows <= 0 || distance >= page_rows {
             return None;
         }
         let page = self.session().and_then(Session::page)?;
         let row = width as usize;
-        let kept = (page_rows - delta.abs()) as usize;
+        let kept = (page_rows - distance) as usize;
         let exposed = if delta > 0 {
             // Scrolled down: page rows move up; the bottom strip is new.
             let source = (top + delta) as usize * row;
@@ -2148,6 +2213,11 @@ impl App {
             // A blocked submit reports its violation on the session:
             // show the bubble next to the offending control.
             self.open_violation_popup();
+            // A navigation was queued while this load ran: start it on
+            // the session that just landed.
+            if let Some(nav) = self.pending_nav.take() {
+                self.start_nav(nav);
+            }
         } else {
             // The user switched away while this tab was loading: the
             // result parks in its own slot instead of clobbering the
@@ -2157,11 +2227,26 @@ impl App {
                 let scripts = self.new_page_scripts(&mut session, done.tab);
                 self.tabs[index].page_scripts = scripts;
             }
+            let queued = self.tabs[index].pending_nav.take();
             let tab = &mut self.tabs[index];
             if !failed {
                 tab.scroll_y = 0.0;
             }
             tab.state = SessionState::Ready(session);
+            // A queued navigation starts right away, tagged with this
+            // tab's id so its result parks here again.
+            if let Some(nav) = queued {
+                let placeholder = SessionState::Loading {
+                    target: nav.label(),
+                };
+                let SessionState::Ready(session) =
+                    std::mem::replace(&mut self.tabs[index].state, placeholder)
+                else {
+                    unreachable!("state was just set to Ready");
+                };
+                let proxy = self.proxy.clone();
+                spawn_loader(&proxy, session, self.viewport(), done.tab, nav);
+            }
         }
         self.update_title();
         self.request_redraw();
@@ -3766,6 +3851,7 @@ mod tests {
             scroll_y: 0.0,
             input: String::new(),
             page_scripts: None,
+            pending_nav: None,
         }
     }
 
@@ -3878,6 +3964,77 @@ mod tests {
         // Single-line inputs flatten newlines; textareas keep them.
         assert_eq!(paste_text("a\nb\rc".to_string(), false), "a b c");
         assert_eq!(paste_text("a\nb".to_string(), true), "a\nb");
+    }
+
+    use super::{Bookmark, Bookmarks};
+
+    #[test]
+    fn bookmarks_save_is_atomic_and_round_trips() {
+        let dir = std::env::temp_dir().join(format!("lumen-bookmarks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("bookmarks.json");
+        let mut bookmarks = Bookmarks::default();
+        bookmarks.items.push(Bookmark {
+            title: "Lumen".to_string(),
+            url: "https://example.com".to_string(),
+        });
+        // The directory is created on demand and the list round-trips.
+        bookmarks.save_to(&path).unwrap();
+        let loaded = Bookmarks::load_from(&path);
+        assert_eq!(loaded.items.len(), 1);
+        assert_eq!(loaded.items[0].title, "Lumen");
+        assert_eq!(loaded.items[0].url, "https://example.com");
+        // The atomic write (temp file + rename) left no temp file behind.
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(
+            leftovers,
+            vec![std::ffi::OsString::from("bookmarks.json")],
+            "temp file left behind"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    use super::{Nav, start_or_queue};
+
+    fn ready_state() -> SessionState {
+        SessionState::Ready(Box::new(Session::new(
+            DefaultLoader,
+            lumen_engine::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        )))
+    }
+
+    /// The pending-nav state machine: while a load runs, requests queue
+    /// into a single slot (latest intent wins) instead of vanishing, and
+    /// the queued request starts once the session is ready again.
+    #[test]
+    fn navigation_queues_during_load_latest_wins() {
+        let mut pending = None;
+        // Ready: the navigation starts immediately, nothing queues.
+        let state = ready_state();
+        let nav = start_or_queue(&state, &mut pending, Nav::Back);
+        assert!(matches!(nav, Some(Nav::Back)));
+        assert!(pending.is_none());
+        // Loading: the request queues instead of being dropped.
+        let loading = SessionState::Loading {
+            target: "https://example.com".to_string(),
+        };
+        assert!(start_or_queue(&loading, &mut pending, Nav::Back).is_none());
+        assert!(matches!(pending, Some(Nav::Back)));
+        // A newer request replaces the queued one: latest intent wins.
+        assert!(start_or_queue(&loading, &mut pending, Nav::Refresh).is_none());
+        assert!(matches!(pending, Some(Nav::Refresh)));
+        // NavDone drains the slot; the queued nav runs on the fresh session.
+        let queued = pending.take().unwrap();
+        let state = ready_state();
+        let nav = start_or_queue(&state, &mut pending, queued);
+        assert!(matches!(nav, Some(Nav::Refresh)));
+        assert!(pending.is_none());
     }
 
     use super::{FindRun, cached, clip_with_ellipsis, find_matches_in_runs};
