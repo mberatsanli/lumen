@@ -717,6 +717,7 @@ mod tests {
                 content_type: None,
                 body: body.clone(),
                 set_cookies: Vec::new(),
+                access_control_allow_origin: None,
             })
         }
     }

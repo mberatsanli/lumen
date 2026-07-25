@@ -16,15 +16,19 @@
 //!
 //! Script-initiated network (fetch, XHR, runtime `import()`) never
 //! blocks the caller: requests are PREPARED against read-only session
-//! state (URL resolution, the `file://` gate, the Cookie header),
-//! EXECUTED by the page's [`NetworkQueue`] (worker threads, or inline
-//! for deterministic embedders), and APPLIED back on this thread
-//! (Set-Cookie into the jar, promise/XHR settlement) by the pump —
+//! state (URL resolution, the `file://` gate, the same-origin policy,
+//! the Cookie header), EXECUTED by the page's [`NetworkQueue`] (worker
+//! threads, or inline for deterministic embedders), and APPLIED back on
+//! this thread (Set-Cookie into the jar, the CORS read gate,
+//! promise/XHR settlement) by the pump —
 //! which the shell re-enters through [`PageScripts::pump_network`]
 //! when the queue's wake hook fires.
 
 use crate::network::{ModuleSlot, NetworkQueue};
-use crate::{Page, ResourceLoader, Session, resolve as resolve_url};
+use crate::{
+    CorsCheck, Page, ResourceLoader, ScriptCredentials, Session, resolve as resolve_url,
+    same_origin,
+};
 use boa_engine::builtins::promise::PromiseState;
 use boa_engine::context::time::JsInstant;
 use boa_engine::job::{GenericJob, Job, JobExecutor, NativeAsyncJob, PromiseJob, TimeoutJob};
@@ -66,8 +70,9 @@ struct Bridge {
     /// `event.stopPropagation()` was called (stops the bubble walk).
     stopped: bool,
     /// fetch() calls made during the entry, submitted to the network
-    /// queue at the next pump.
-    pending_fetches: Vec<(String, JsObject, JsObject)>,
+    /// queue at the next pump (target, credentials-include, resolve,
+    /// reject).
+    pending_fetches: Vec<(String, bool, JsObject, JsObject)>,
     /// XMLHttpRequest.send() calls made during the entry.
     pending_xhrs: Vec<XhrRequest>,
     /// The page URL (feeds location.href reads).
@@ -189,9 +194,13 @@ pub struct PageScripts {
     inline_handlers: HashMap<(NodeId, String), (String, JsObject)>,
     timers: Vec<Timer>,
     /// fetch() calls queued by scripts, not yet submitted to the network.
-    pending_fetches: Vec<(String, JsObject, JsObject)>,
+    pending_fetches: Vec<(String, bool, JsObject, JsObject)>,
     /// fetch() calls submitted to the network queue, by request id.
     in_flight_fetches: HashMap<u64, (JsObject, JsObject)>,
+    /// CORS gate per in-flight cross-origin script read, by request id
+    /// (same-origin reads never land here — their responses stay
+    /// readable unconditionally).
+    cors_checks: HashMap<u64, CorsCheck>,
     /// XMLHttpRequests queued by scripts, not yet submitted.
     pending_xhrs: Vec<XhrRequest>,
     /// XMLHttpRequests submitted to the network queue, by request id.
@@ -267,6 +276,7 @@ impl PageScripts {
             timers: Vec::new(),
             pending_fetches: Vec::new(),
             in_flight_fetches: HashMap::new(),
+            cors_checks: HashMap::new(),
             pending_xhrs: Vec::new(),
             in_flight_xhrs: HashMap::new(),
             network,
@@ -694,10 +704,18 @@ impl PageScripts {
             // synchronously, like the legacy synchronous pump.
             let requests = std::mem::take(&mut self.pending_fetches);
             let xhrs = std::mem::take(&mut self.pending_xhrs);
-            for (target, resolve, reject) in requests {
-                match prepare_fetch(session, &target, None) {
-                    Ok(request) => {
+            for (target, include, resolve, reject) in requests {
+                let credentials = if include {
+                    ScriptCredentials::Include
+                } else {
+                    ScriptCredentials::SameOrigin
+                };
+                match prepare_fetch(session, &target, None, credentials) {
+                    Ok((request, check)) => {
                         let id = self.network.submit(request);
+                        if let Some(check) = check {
+                            self.cors_checks.insert(id, check);
+                        }
                         self.in_flight_fetches.insert(id, (resolve, reject));
                     }
                     Err(error) => settled_fetches.push((Err(error), resolve, reject)),
@@ -705,9 +723,20 @@ impl PageScripts {
             }
             for request in xhrs {
                 let xhr = request.xhr.clone();
-                match prepare_fetch(session, &request.url, xhr_body(&request)) {
-                    Ok(prepared) => {
+                // XHR defaults to same-origin credentials (no
+                // withCredentials support yet), so it shares the fetch
+                // policy with credentials: same-origin.
+                match prepare_fetch(
+                    session,
+                    &request.url,
+                    xhr_body(&request),
+                    ScriptCredentials::SameOrigin,
+                ) {
+                    Ok((prepared, check)) => {
                         let id = self.network.submit(prepared);
+                        if let Some(check) = check {
+                            self.cors_checks.insert(id, check);
+                        }
                         self.in_flight_xhrs.insert(id, xhr);
                     }
                     Err(error) => settled_xhrs.push((Err(error), xhr)),
@@ -715,14 +744,24 @@ impl PageScripts {
             }
 
             // Drain completions: cookies land in the jar here, on the
-            // session's thread, before the result reaches JS.
+            // session's thread, before the result reaches JS. A
+            // cross-origin read only reaches JS when its CORS grant
+            // allows it; otherwise the promise/XHR settles as a
+            // network error, like a real browser.
             for (id, result) in self.network.drain() {
-                let result = result
-                    .map(|response| {
+                let check = self.cors_checks.remove(&id);
+                let result = match result {
+                    Ok(response) => {
                         session.store_response_cookies(&response);
-                        response.text()
-                    })
-                    .map_err(|error| error.to_string());
+                        if check.is_some_and(|check| check.blocks(&response)) {
+                            Err("CORS: cross-origin response is not readable by this page"
+                                .to_string())
+                        } else {
+                            Ok(response.text())
+                        }
+                    }
+                    Err(error) => Err(error.to_string()),
+                };
                 if let Some((resolve, reject)) = self.in_flight_fetches.remove(&id) {
                     settled_fetches.push((result, resolve, reject));
                 } else if let Some(xhr) = self.in_flight_xhrs.remove(&id) {
@@ -1683,30 +1722,41 @@ fn install_stubs(context: &mut Context) {
 // ---- fetch ----
 
 /// The PREPARE phase of a script fetch, on the caller's thread:
-/// resolves the target against the page URL, applies the file:// gate
-/// and attaches the Cookie header (see [`Session::prepare_request`]).
+/// resolves the target against the page URL, applies the file:// gate,
+/// the same-origin policy and the credentials mode (see
+/// [`Session::prepare_script_read`]). The returned [`CorsCheck`] (Some
+/// for cross-origin reads only) gates the response at drain time.
 fn prepare_fetch<L: ResourceLoader>(
     session: &Session<L>,
     target: &str,
     body: Option<(String, Vec<u8>)>,
-) -> Result<ResourceRequest, String> {
+    credentials: ScriptCredentials,
+) -> Result<(ResourceRequest, Option<CorsCheck>), String> {
     let base = session
         .current_url()
         .cloned()
         .ok_or_else(|| "no page".to_string())?;
     let url = resolve_url(&base, target).map_err(|error| error.to_string())?;
     session
-        .prepare_request(url, body)
+        .prepare_script_read(url, body, credentials)
         .map_err(|error| error.to_string())
 }
 
 fn fetch_(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     let target = string_arg(args, 0, context);
+    // fetch(url, { credentials: 'include' }) — the only read option;
+    // the default (and 'same-origin'/'omit') keeps cookies same-origin.
+    let include = args
+        .get(1)
+        .and_then(JsValue::as_object)
+        .and_then(|options| options.get(js_string!("credentials"), context).ok())
+        .and_then(|value| value.to_string(context).ok())
+        .is_some_and(|value| value.to_std_string_escaped() == "include");
     let (promise, resolvers) = JsPromise::new_pending(context);
     with_bridge(|bridge| {
         bridge
             .pending_fetches
-            .push((target, resolvers.resolve.into(), resolvers.reject.into()));
+            .push((target, include, resolvers.resolve.into(), resolvers.reject.into()));
     });
     Ok(promise.into())
 }
@@ -2006,14 +2056,6 @@ fn history_update(args: &[JsValue], replace: bool, context: &mut Context) -> JsR
             .with_message("SecurityError: history URL must be same-origin with the page")
             .into())
     }
-}
-
-/// Scheme/host/port equality (url's opaque `Origin` would make every
-/// file: page cross-origin with itself).
-fn same_origin(a: &Url, b: &Url) -> bool {
-    a.scheme() == b.scheme()
-        && a.host_str() == b.host_str()
-        && a.port_or_known_default() == b.port_or_known_default()
 }
 
 fn history_push_state(
@@ -3424,6 +3466,10 @@ mod tests {
         loads: std::sync::Mutex<Vec<String>>,
         /// POST bodies per load (None for GETs).
         bodies: std::sync::Mutex<Vec<Option<String>>>,
+        /// Cookie header seen per load (None = no Cookie header).
+        cookies: std::sync::Mutex<Vec<Option<String>>>,
+        /// Access-Control-Allow-Origin value served per URL.
+        acao: HashMap<String, String>,
         /// Artificial per-load delay — a "slow server" for the
         /// non-blocking tests.
         delay: std::sync::Mutex<Option<Duration>>,
@@ -3438,8 +3484,15 @@ mod tests {
                     .collect(),
                 loads: std::sync::Mutex::new(Vec::new()),
                 bodies: std::sync::Mutex::new(Vec::new()),
+                cookies: std::sync::Mutex::new(Vec::new()),
+                acao: HashMap::new(),
                 delay: std::sync::Mutex::new(None),
             }
+        }
+
+        fn with_acao(mut self, url: &str, value: &str) -> Self {
+            self.acao.insert(url.to_string(), value.to_string());
+            self
         }
     }
 
@@ -3455,6 +3508,7 @@ mod tests {
                     .as_ref()
                     .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned()),
             );
+            self.cookies.lock().unwrap().push(request.cookie.clone());
             let body = self
                 .pages
                 .get(request.url.as_str())
@@ -3464,6 +3518,7 @@ mod tests {
                 content_type: None,
                 body: body.clone(),
                 set_cookies: Vec::new(),
+                access_control_allow_origin: self.acao.get(request.url.as_str()).cloned(),
             })
         }
     }
@@ -4081,6 +4136,235 @@ mod tests {
         scripts.network.drive();
         scripts.pump_network(&mut session);
         assert_eq!(out_text(&session), "caught");
+    }
+
+    /// A session on https://a.test/ whose loader also answers the given
+    /// cross-origin URLs with Access-Control-Allow-Origin values.
+    fn session_with_acao(files: &[(&str, &str)], acao: &[(&str, &str)]) -> Session<FakeLoader> {
+        let mut loader = FakeLoader::new(files);
+        for (url, value) in acao {
+            loader = loader.with_acao(url, value);
+        }
+        let mut session = Session::new(
+            loader,
+            lumen_engine::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        session.load(Url::parse("https://a.test/").unwrap()).unwrap();
+        session
+    }
+
+    #[test]
+    fn same_origin_fetch_sends_cookies_and_reads() {
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     document.cookie = 'sid=1';\
+                     fetch('/data.txt')\
+                       .then(r => r.text())\
+                       .then(t => { document.getElementById('out').textContent = t; });\
+                     </script>",
+                ),
+                ("https://a.test/data.txt", "same-origin-ok"),
+            ],
+            "https://a.test/",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "same-origin-ok");
+        // The page load had no cookie yet; the fetch carried the jar's.
+        let cookies = session.loader.cookies.lock().unwrap();
+        assert_eq!(cookies.len(), 2);
+        assert_eq!(cookies[1].as_deref(), Some("sid=1"));
+    }
+
+    #[test]
+    fn cross_origin_fetch_goes_cookieless_and_rejects_without_a_grant() {
+        // Same host but another scheme+port: cross-origin, yet the
+        // jar's cookie WOULD domain-match — so an observed None proves
+        // the policy stripped it, not the jar.
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     document.cookie = 'sid=1';\
+                     fetch('http://a.test:8080/data')\
+                       .then(() => { document.getElementById('out').textContent = 'unexpected'; })\
+                       .catch(() => { document.getElementById('out').textContent = 'caught'; });\
+                     </script>",
+                ),
+                ("http://a.test:8080/data", "secret"),
+            ],
+            "https://a.test/",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // No Access-Control-Allow-Origin on the response: a network
+        // error for JS, even though the load did go out.
+        assert_eq!(out_text(&session), "caught");
+        let cookies = session.loader.cookies.lock().unwrap();
+        assert_eq!(cookies.len(), 2);
+        assert_eq!(cookies[1], None);
+    }
+
+    #[test]
+    fn cross_origin_fetch_resolves_with_a_wildcard_grant() {
+        let mut session = session_with_acao(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     document.cookie = 'sid=1';\
+                     fetch('http://a.test:8080/data')\
+                       .then(r => r.text())\
+                       .then(t => { document.getElementById('out').textContent = t; });\
+                     </script>",
+                ),
+                ("http://a.test:8080/data", "wild-ok"),
+            ],
+            &[("http://a.test:8080/data", "*")],
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "wild-ok");
+        let cookies = session.loader.cookies.lock().unwrap();
+        assert_eq!(cookies[1], None);
+    }
+
+    #[test]
+    fn cross_origin_fetch_resolves_only_with_the_pages_exact_origin() {
+        let mut session = session_with_acao(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     const out = document.getElementById('out');\
+                     fetch('http://a.test:8080/exact')\
+                       .then(r => r.text())\
+                       .then(t => { out.textContent += '|' + t; })\
+                       .catch(() => { out.textContent += '|exact-caught'; });\
+                     fetch('http://a.test:8080/foreign')\
+                       .then(() => { out.textContent += '|foreign-ok'; })\
+                       .catch(() => { out.textContent += '|foreign-caught'; });\
+                     </script>",
+                ),
+                ("http://a.test:8080/exact", "exact-ok"),
+                ("http://a.test:8080/foreign", "foreign-body"),
+            ],
+            &[
+                ("http://a.test:8080/exact", "https://a.test"),
+                ("http://a.test:8080/foreign", "https://evil.test"),
+            ],
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // The exact-origin grant resolves; the foreign one rejects
+        // (settlement order varies with the promise-chain lengths).
+        let text = out_text(&session);
+        assert!(text.contains("exact-ok"), "{text}");
+        assert!(text.contains("foreign-caught"), "{text}");
+        assert!(!text.contains("exact-caught"), "{text}");
+        assert!(!text.contains("foreign-ok"), "{text}");
+    }
+
+    #[test]
+    fn credentials_include_sends_cookies_but_rejects_a_wildcard_grant() {
+        let mut session = session_with_acao(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     document.cookie = 'sid=1';\
+                     const out = document.getElementById('out');\
+                     fetch('http://a.test:8080/star', { credentials: 'include' })\
+                       .then(() => { out.textContent += '|star-ok'; })\
+                       .catch(() => { out.textContent += '|star-caught'; });\
+                     fetch('http://a.test:8080/exact', { credentials: 'include' })\
+                       .then(r => r.text())\
+                       .then(t => { out.textContent += '|' + t; })\
+                       .catch(() => { out.textContent += '|exact-caught'; });\
+                     </script>",
+                ),
+                ("http://a.test:8080/star", "star-body"),
+                ("http://a.test:8080/exact", "inc-ok"),
+            ],
+            &[
+                ("http://a.test:8080/star", "*"),
+                ("http://a.test:8080/exact", "https://a.test"),
+            ],
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // '*' + credentials is an invalid grant (spec): rejected. The
+        // exact-origin grant lets the credentialed read through.
+        let text = out_text(&session);
+        assert!(text.contains("star-caught"), "{text}");
+        assert!(text.contains("inc-ok"), "{text}");
+        assert!(!text.contains("star-ok"), "{text}");
+        assert!(!text.contains("exact-caught"), "{text}");
+        // credentials: include DID send the cookie cross-origin, on both.
+        let cookies = session.loader.cookies.lock().unwrap();
+        assert_eq!(cookies.len(), 3);
+        assert_eq!(cookies[1].as_deref(), Some("sid=1"));
+        assert_eq!(cookies[2].as_deref(), Some("sid=1"));
+    }
+
+    #[test]
+    fn cross_origin_xhr_follows_the_same_policy() {
+        let mut session = session_with_acao(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     document.cookie = 'sid=1';\
+                     const out = document.getElementById('out');\
+                     const blocked = new XMLHttpRequest();\
+                     blocked.open('GET', 'http://a.test:8080/blocked');\
+                     blocked.onload = () => { out.textContent += '|blocked-ok'; };\
+                     blocked.onerror = () => { out.textContent += '|blocked-err'; };\
+                     blocked.send();\
+                     const granted = new XMLHttpRequest();\
+                     granted.open('GET', 'http://a.test:8080/granted');\
+                     granted.onload = () => { out.textContent += '|' + granted.responseText; };\
+                     granted.onerror = () => { out.textContent += '|granted-err'; };\
+                     granted.send();\
+                     </script>",
+                ),
+                ("http://a.test:8080/blocked", "blocked-body"),
+                ("http://a.test:8080/granted", "xhr-ok"),
+            ],
+            &[("http://a.test:8080/granted", "*")],
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // No grant: onerror (status 0, like a network error). Wildcard
+        // grant: onload with the body.
+        assert_eq!(out_text(&session), "-|blocked-err|xhr-ok");
+        // Both requests went out without the jar's cookie.
+        let cookies = session.loader.cookies.lock().unwrap();
+        assert_eq!(cookies.len(), 3);
+        assert_eq!(cookies[1], None);
+        assert_eq!(cookies[2], None);
+    }
+
+    #[test]
+    fn cross_origin_script_src_still_loads() {
+        // Subresource loads are no-cors: a cross-origin <script src>
+        // fetches and runs without any Access-Control-Allow-Origin.
+        let mut session = session_with_files(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script src='https://b.test/x.js'></script>",
+                ),
+                (
+                    "https://b.test/x.js",
+                    "document.getElementById('out').textContent = 'cross-script-ok';",
+                ),
+            ],
+            "https://a.test/",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "cross-script-ok");
     }
 
     #[test]

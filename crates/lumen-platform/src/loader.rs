@@ -55,6 +55,10 @@ pub struct ResourceResponse {
     pub body: Vec<u8>,
     /// Raw `Set-Cookie` header values, in response order.
     pub set_cookies: Vec<String>,
+    /// Raw `Access-Control-Allow-Origin` header value, when present —
+    /// the CORS grant a session checks before letting a page's script
+    /// read a cross-origin response.
+    pub access_control_allow_origin: Option<String>,
 }
 
 impl ResourceResponse {
@@ -124,6 +128,7 @@ impl ResourceLoader for FileLoader {
             content_type: guess_content_type(&path).map(str::to_string),
             body,
             set_cookies: Vec::new(),
+            access_control_allow_origin: None,
         })
     }
 }
@@ -268,11 +273,17 @@ impl ResourceLoader for HttpLoader {
                 .map(str::to_string);
             let bytes = read_body_capped(response.body_mut().as_reader(), MAX_BODY_BYTES)
                 .map_err(|error| LoadError::Http(error.to_string()))?;
+            let access_control_allow_origin = response
+                .headers()
+                .get("access-control-allow-origin")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
             return Ok(ResourceResponse {
                 final_url,
                 content_type,
                 body: bytes,
                 set_cookies: all_set_cookies,
+                access_control_allow_origin,
             });
         }
         Err(LoadError::Http(format!(
@@ -457,6 +468,20 @@ mod tests {
         // does its own domain matching).
         assert_eq!(response.set_cookies, vec!["hop=1"]);
         seen(rx_a);
+    }
+
+    #[test]
+    fn http_loader_captures_the_acao_header() {
+        let (base, rx) = serve(vec![
+            "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_string(),
+        ]);
+        let request = ResourceRequest::get(Url::parse(&format!("{base}/data")).unwrap());
+        let response = HttpLoader.load(&request).unwrap();
+        assert_eq!(
+            response.access_control_allow_origin.as_deref(),
+            Some("*")
+        );
+        seen(rx);
     }
 
     #[test]

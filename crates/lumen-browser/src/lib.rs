@@ -143,6 +143,54 @@ fn lerp_color(from: lumen_css::Color, to: lumen_css::Color, t: f32) -> lumen_css
     }
 }
 
+/// How a script read (fetch/XHR) treats cookies on a cross-origin
+/// request — the fetch API's `credentials` option.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScriptCredentials {
+    /// The default (`credentials: "same-origin"`): cookies ride only
+    /// same-origin requests.
+    SameOrigin,
+    /// `credentials: "include"` (or XHR `withCredentials`): cookies
+    /// ride cross-origin requests too — and the CORS grant must then
+    /// name the page origin exactly (`*` is not enough, per spec).
+    Include,
+}
+
+/// The same-origin-policy state of a prepared cross-origin script
+/// read. Same-origin reads never produce one. It is `Send`, so it can
+/// travel with the prepared request to a network worker and back.
+#[derive(Debug, Clone)]
+pub(crate) struct CorsCheck {
+    /// The page's serialized origin ("scheme://host[:port]"), matched
+    /// against the response's `Access-Control-Allow-Origin` header.
+    page_origin: String,
+    /// Cookies rode the request (`credentials: include`).
+    credentialed: bool,
+}
+
+impl CorsCheck {
+    /// Whether CORS forbids the page's script from reading `response`:
+    /// the response needs an `Access-Control-Allow-Origin` of `*` (only
+    /// for non-credentialed reads — `*` + credentials is an invalid
+    /// combination per spec) or of the page's exact origin. Anything
+    /// else (header missing, different origin) blocks.
+    pub(crate) fn blocks(&self, response: &ResourceResponse) -> bool {
+        let Some(grant) = response.access_control_allow_origin.as_deref() else {
+            return true;
+        };
+        let grant = grant.trim();
+        grant != self.page_origin && (grant != "*" || self.credentialed)
+    }
+}
+
+/// Scheme/host/port equality (url's opaque `Origin` would make every
+/// file: page cross-origin with itself).
+pub(crate) fn same_origin(a: &Url, b: &Url) -> bool {
+    a.scheme() == b.scheme()
+        && a.host_str() == b.host_str()
+        && a.port_or_known_default() == b.port_or_known_default()
+}
+
 impl<L: ResourceLoader> Session<L> {
     #[must_use]
     pub fn new(loader: L, viewport: Size) -> Self {
@@ -835,6 +883,10 @@ impl<L: ResourceLoader> Session<L> {
     /// `file:` gate and attaches the jar's Cookie header. The prepared
     /// request is `Send`, so script-initiated loads can cross to a
     /// network worker without the session leaving its thread.
+    ///
+    /// This is the no-cors subresource policy; a script READ (fetch/XHR)
+    /// must go through [`Self::prepare_script_read`] instead, which
+    /// layers the same-origin policy on top.
     pub(crate) fn prepare_request(
         &self,
         url: Url,
@@ -863,6 +915,49 @@ impl<L: ResourceLoader> Session<L> {
         for header in &response.set_cookies {
             self.cookies.store(&response.final_url, header);
         }
+    }
+
+    /// [`Self::prepare_request`] for a script READ (fetch/XHR) — a
+    /// request whose response body the page's own JavaScript wants to
+    /// see. Unlike subresource loads (scripts, CSS, images — no-cors
+    /// mode, unchanged behavior), these follow the same-origin policy:
+    ///
+    /// - Same-origin with the page: the jar's Cookie header rides and
+    ///   the response is readable (no [`CorsCheck`] comes back).
+    /// - Cross-origin: the request still goes out, but WITHOUT the
+    ///   Cookie header unless `credentials` is
+    ///   [`ScriptCredentials::Include`], and the returned [`CorsCheck`]
+    ///   must gate the response before any byte reaches JS
+    ///   ([`CorsCheck::blocks`]).
+    ///
+    /// There is no preflight (OPTIONS) pass: every method/body goes
+    /// out directly, like a simple request.
+    pub(crate) fn prepare_script_read(
+        &self,
+        url: Url,
+        body: Option<(String, Vec<u8>)>,
+        credentials: ScriptCredentials,
+    ) -> Result<(ResourceRequest, Option<CorsCheck>), LoadError> {
+        let mut request = self.prepare_request(url, body)?;
+        let page = self.loading_page.as_ref().or_else(|| self.current_url());
+        let Some(page) = page else {
+            return Ok((request, None));
+        };
+        if same_origin(page, &request.url) {
+            return Ok((request, None));
+        }
+        if credentials == ScriptCredentials::SameOrigin {
+            // `credentials: same-origin` (the fetch default): the jar's
+            // cookies must not leak across origins.
+            request.cookie = None;
+        }
+        Ok((
+            request,
+            Some(CorsCheck {
+                page_origin: page.origin().unicode_serialization(),
+                credentialed: credentials == ScriptCredentials::Include,
+            }),
+        ))
     }
 
     /// A shared handle to the session's loader for network workers.
@@ -1222,6 +1317,7 @@ mod tests {
                     .get(request.url.as_str())
                     .cloned()
                     .unwrap_or_default(),
+                access_control_allow_origin: None,
             })
         }
     }
@@ -1257,6 +1353,72 @@ mod tests {
 
     fn heading(page: &Page) -> String {
         page.document.text_content(page.document.root())
+    }
+
+    #[test]
+    fn script_read_same_origin_keeps_cookies_cross_origin_drops_them() {
+        let mut session = session();
+        session.load(url("https://a.test/")).unwrap();
+        session.cookies.store(&url("https://a.test/"), "sid=1");
+        // Same-origin read: the jar's cookie rides, no CORS check.
+        let (request, check) = session
+            .prepare_script_read(
+                url("https://a.test/data"),
+                None,
+                ScriptCredentials::SameOrigin,
+            )
+            .unwrap();
+        assert_eq!(request.cookie.as_deref(), Some("sid=1"));
+        assert!(check.is_none());
+        // Cross-origin read (same host, another scheme+port — the jar's
+        // cookie WOULD domain-match): the cookie stays home, a check
+        // comes back.
+        let (request, check) = session
+            .prepare_script_read(
+                url("http://a.test:8080/data"),
+                None,
+                ScriptCredentials::SameOrigin,
+            )
+            .unwrap();
+        assert_eq!(request.cookie, None);
+        let check = check.expect("cross-origin read carries a CORS check");
+        assert!(!check.credentialed);
+        // credentials: include sends the cookie cross-origin too.
+        let (request, check) = session
+            .prepare_script_read(
+                url("http://a.test:8080/data"),
+                None,
+                ScriptCredentials::Include,
+            )
+            .unwrap();
+        assert_eq!(request.cookie.as_deref(), Some("sid=1"));
+        assert!(check.expect("cross-origin read").credentialed);
+    }
+
+    #[test]
+    fn cors_check_blocks_missing_wildcard_and_foreign_grants() {
+        let response = |acao: Option<&str>| ResourceResponse {
+            final_url: url("http://a.test:8080/data"),
+            content_type: None,
+            body: Vec::new(),
+            set_cookies: Vec::new(),
+            access_control_allow_origin: acao.map(str::to_string),
+        };
+        let check = CorsCheck {
+            page_origin: "https://a.test".to_string(),
+            credentialed: false,
+        };
+        assert!(check.blocks(&response(None)));
+        assert!(!check.blocks(&response(Some("*"))));
+        assert!(!check.blocks(&response(Some("https://a.test"))));
+        assert!(check.blocks(&response(Some("https://evil.test"))));
+        // ACAO '*' is not a valid grant for a credentialed read (spec).
+        let credentialed = CorsCheck {
+            credentialed: true,
+            ..check.clone()
+        };
+        assert!(credentialed.blocks(&response(Some("*"))));
+        assert!(!credentialed.blocks(&response(Some("https://a.test"))));
     }
 
     #[test]
