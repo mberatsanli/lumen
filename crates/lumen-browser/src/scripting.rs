@@ -101,21 +101,46 @@ struct Bridge {
 
 /// One `xhr.send()` queued for the between-entries pump. Custom
 /// headers are recorded but only Content-Type reaches the wire —
-/// [`crate::Session::fetch_resource`] has no header channel.
+/// [`crate::Session::fetch_resource`] has no header channel; they DO
+/// drive the CORS preflight decision. `with_credentials` is read at
+/// send() time, so a script may set `xhr.withCredentials` any time
+/// after open().
 struct XhrRequest {
     method: String,
     url: String,
     headers: Vec<(String, String)>,
     body: Option<String>,
+    with_credentials: bool,
     xhr: JsObject,
+}
+
+/// Who a finished (or refused) script read settles: a fetch promise's
+/// resolvers or an XHR object.
+enum SettleTarget {
+    Fetch(JsObject, JsObject),
+    Xhr(JsObject),
+}
+
+/// A script read waiting on its CORS preflight probe: the actual
+/// request only goes out once the grant passes.
+struct PendingPreflight {
+    request: ResourceRequest,
+    check: CorsCheck,
+    target: SettleTarget,
 }
 
 /// A `history.*` call made during an entry, applied at checkout.
 enum HistoryOp {
     /// pushState: new entry, no reload (url is already resolved).
-    Push { url: String, state: Option<String> },
+    Push {
+        url: String,
+        state: Option<String>,
+    },
     /// replaceState: rewrite the current entry.
-    Replace { url: String, state: Option<String> },
+    Replace {
+        url: String,
+        state: Option<String>,
+    },
     /// back()/forward(): handed to the shell as a navigation.
     Back,
     Forward,
@@ -205,6 +230,8 @@ pub struct PageScripts {
     pending_xhrs: Vec<XhrRequest>,
     /// XMLHttpRequests submitted to the network queue, by request id.
     in_flight_xhrs: HashMap<u64, JsObject>,
+    /// Script reads waiting on their CORS preflight probe, by probe id.
+    in_flight_preflights: HashMap<u64, PendingPreflight>,
     /// The page's network queue: script-initiated loads execute here
     /// (worker threads, or inline for deterministic embedders), so a
     /// slow server never blocks the shell's thread.
@@ -279,6 +306,7 @@ impl PageScripts {
             cors_checks: HashMap::new(),
             pending_xhrs: Vec::new(),
             in_flight_xhrs: HashMap::new(),
+            in_flight_preflights: HashMap::new(),
             network,
             session_storage: BTreeMap::new(),
             navigation: None,
@@ -411,8 +439,10 @@ impl PageScripts {
                     eprintln!("[js] module error ({key}): {message}");
                 });
             }
-            // Pending is fine: a top-level await on fetch() settles via
-            // the regular fetch pump on a later entry.
+            // Pending is usually fine (the import graph settled), but
+            // a top-level await on the page's own fetch() never
+            // resolves: the parked future cannot outlive this entry
+            // (see BoundedJobExecutor's DOCUMENTED LIMIT).
             return;
         }
         eprintln!("[js] module graph too deep ({key}); giving up");
@@ -615,7 +645,11 @@ impl PageScripts {
     /// wait for the next tick, so a `setTimeout(f, 0)` chain cannot spin
     /// this call forever. A callback can still clearTimeout a later
     /// sibling of the same snapshot — that one is then skipped.
-    pub fn tick<L: ResourceLoader + Send + Sync + 'static>(&mut self, session: &mut Session<L>, now_ms: f64) -> bool {
+    pub fn tick<L: ResourceLoader + Send + Sync + 'static>(
+        &mut self,
+        session: &mut Session<L>,
+        now_ms: f64,
+    ) -> bool {
         self.now_ms = now_ms;
         let due: Vec<u64> = self
             .timers
@@ -696,6 +730,15 @@ impl PageScripts {
         // against the current session's loader.
         self.network.set_loader(session.shared_loader());
         for _ in 0..8 {
+            // APPLY for module loads: their Set-Cookie headers (parked
+            // on the queue by the loader future, which resolves inside
+            // the job executor beyond the session's reach) land in the
+            // jar here, on the session's thread.
+            for (url, headers) in self.network.take_module_cookies() {
+                for header in headers {
+                    session.cookies.store(&url, &header);
+                }
+            }
             let mut settled_fetches: Vec<(Result<String, String>, JsObject, JsObject)> = Vec::new();
             let mut settled_xhrs: Vec<(Result<String, String>, JsObject)> = Vec::new();
 
@@ -710,36 +753,68 @@ impl PageScripts {
                 } else {
                     ScriptCredentials::SameOrigin
                 };
-                match prepare_fetch(session, &target, None, credentials) {
+                // fetch() is always a plain GET without custom headers
+                // here — a CORS "simple request", so no preflight.
+                match prepare_fetch(session, &target, None, credentials, "GET", &[]) {
                     Ok((request, check)) => {
-                        let id = self.network.submit(request);
-                        if let Some(check) = check {
-                            self.cors_checks.insert(id, check);
-                        }
-                        self.in_flight_fetches.insert(id, (resolve, reject));
+                        self.submit_read(request, check, SettleTarget::Fetch(resolve, reject));
                     }
                     Err(error) => settled_fetches.push((Err(error), resolve, reject)),
                 }
             }
             for request in xhrs {
                 let xhr = request.xhr.clone();
-                // XHR defaults to same-origin credentials (no
-                // withCredentials support yet), so it shares the fetch
-                // policy with credentials: same-origin.
+                let credentials = if request.with_credentials {
+                    // xhr.withCredentials = true: the fetch API's
+                    // credentials: "include" flow — cookies ride
+                    // cross-origin, and ACAO '*' no longer grants.
+                    ScriptCredentials::Include
+                } else {
+                    ScriptCredentials::SameOrigin
+                };
                 match prepare_fetch(
                     session,
                     &request.url,
                     xhr_body(&request),
-                    ScriptCredentials::SameOrigin,
+                    credentials,
+                    &request.method,
+                    &request.headers,
                 ) {
                     Ok((prepared, check)) => {
-                        let id = self.network.submit(prepared);
-                        if let Some(check) = check {
-                            self.cors_checks.insert(id, check);
-                        }
-                        self.in_flight_xhrs.insert(id, xhr);
+                        self.submit_read(prepared, check, SettleTarget::Xhr(xhr));
                     }
                     Err(error) => settled_xhrs.push((Err(error), xhr)),
+                }
+            }
+
+            // Drain preflight probes: a passing grant is cached on the
+            // session and the actual request goes out (its response is
+            // still CORS-gated at drain); a refused probe fails the
+            // read like a network error, and the request never leaves.
+            for (id, result) in self.network.drain_preflights() {
+                let Some(pending) = self.in_flight_preflights.remove(&id) else {
+                    continue;
+                };
+                let granted =
+                    matches!(&result, Ok(grant) if !pending.check.preflight_blocks(grant));
+                if granted {
+                    session.cache_preflight(pending.check.page_origin(), &pending.request.url);
+                    let mut check = pending.check;
+                    // The grant answered the probe: the resubmitted
+                    // request must not probe again (it would loop).
+                    check.take_preflight();
+                    self.submit_read(pending.request, Some(check), pending.target);
+                    continue;
+                }
+                let error = match result {
+                    Err(error) => error.to_string(),
+                    Ok(_) => "CORS preflight refused the request".to_string(),
+                };
+                match pending.target {
+                    SettleTarget::Fetch(resolve, reject) => {
+                        settled_fetches.push((Err(error), resolve, reject));
+                    }
+                    SettleTarget::Xhr(xhr) => settled_xhrs.push((Err(error), xhr)),
                 }
             }
 
@@ -801,10 +876,47 @@ impl PageScripts {
         self.pending_xhrs.clear();
     }
 
+    /// Submits a prepared script read to the network queue — or, when
+    /// its CORS check still carries a preflight probe, submits the
+    /// PROBE and parks the read until the grant lands.
+    fn submit_read(
+        &mut self,
+        request: ResourceRequest,
+        check: Option<CorsCheck>,
+        target: SettleTarget,
+    ) {
+        if let Some(probe) = check.as_ref().and_then(CorsCheck::preflight).cloned() {
+            let id = self.network.submit_preflight(probe);
+            self.in_flight_preflights.insert(
+                id,
+                PendingPreflight {
+                    request,
+                    check: check.expect("a probe implies a check"),
+                    target,
+                },
+            );
+            return;
+        }
+        let id = self.network.submit(request);
+        if let Some(check) = check {
+            self.cors_checks.insert(id, check);
+        }
+        match target {
+            SettleTarget::Fetch(resolve, reject) => {
+                self.in_flight_fetches.insert(id, (resolve, reject));
+            }
+            SettleTarget::Xhr(xhr) => {
+                self.in_flight_xhrs.insert(id, xhr);
+            }
+        }
+    }
+
     /// Whether any script-initiated network load is still in flight.
     #[must_use]
     pub fn has_pending_network(&self) -> bool {
-        !self.in_flight_fetches.is_empty() || !self.in_flight_xhrs.is_empty()
+        !self.in_flight_fetches.is_empty()
+            || !self.in_flight_xhrs.is_empty()
+            || !self.in_flight_preflights.is_empty()
     }
 
     /// Whether timers are pending (the shell keeps frames coming).
@@ -1122,7 +1234,9 @@ impl PageModuleLoader {
     /// worker's slot. The job executor keeps polling the future (the
     /// queue's module-activity counter tells it progress is coming),
     /// so this resolves the import without blocking the shell thread
-    /// when the queue is threaded.
+    /// when the queue is threaded. The response's Set-Cookie headers
+    /// are parked on the queue — the next pump's APPLY phase stores
+    /// them in the session's jar.
     async fn load_over_network(
         self: &Rc<Self>,
         key: &str,
@@ -1133,22 +1247,27 @@ impl PageModuleLoader {
         })?;
         let request = prepare_module_request(&url)?;
         let slot: ModuleSlot = self.network.submit_module(request);
-        let source = loop {
+        let payload = loop {
             if let Some(outcome) = slot.lock().expect("module slot").take() {
                 break outcome;
             }
             future::yield_now().await;
         };
-        let source = source.map_err(|error| {
+        let payload = payload.map_err(|error| {
             JsNativeError::typ().with_message(format!("module fetch failed ({key}): {error}"))
         })?;
+        self.network
+            .note_module_cookies(payload.final_url, payload.set_cookies);
+        let source = payload.source;
         let module = Module::parse(
             Source::from_bytes(source.as_bytes()).with_path(Path::new(key)),
             None,
             &mut context.borrow_mut(),
         )?;
         self.give_source(key, &source);
-        self.cache.borrow_mut().insert(key.to_string(), module.clone());
+        self.cache
+            .borrow_mut()
+            .insert(key.to_string(), module.clone());
         Ok(module)
     }
 }
@@ -1158,11 +1277,11 @@ impl PageModuleLoader {
 /// prepares from the bridge snapshot instead: the file:// gate mirrors
 /// the session's, and the Cookie header rides only to same-origin URLs
 /// (the full per-URL jar lookup that fetch/XHR get on the UI thread is
-/// unavailable here; `Set-Cookie` on module responses is dropped).
+/// unavailable here; `Set-Cookie` on module responses still reaches
+/// the jar, one pump later, via the queue's APPLY detour).
 fn prepare_module_request(url: &Url) -> JsResult<ResourceRequest> {
-    let (page_url, cookie) = with_bridge(|bridge| {
-        (bridge.url.clone(), bridge.cookie_header.clone())
-    });
+    let (page_url, cookie) =
+        with_bridge(|bridge| (bridge.url.clone(), bridge.cookie_header.clone()));
     let page = Url::parse(&page_url).ok();
     if url.scheme() == "file"
         && page
@@ -1170,10 +1289,14 @@ fn prepare_module_request(url: &Url) -> JsResult<ResourceRequest> {
             .is_some_and(|page| matches!(page.scheme(), "http" | "https"))
     {
         return Err(JsNativeError::typ()
-            .with_message(format!("module fetch blocked (file from a remote page): {url}"))
+            .with_message(format!(
+                "module fetch blocked (file from a remote page): {url}"
+            ))
             .into());
     }
-    let same_origin = page.as_ref().is_some_and(|page| page.origin() == url.origin());
+    let same_origin = page
+        .as_ref()
+        .is_some_and(|page| page.origin() == url.origin());
     Ok(ResourceRequest {
         cookie: (same_origin && !cookie.is_empty()).then_some(cookie),
         url: url.clone(),
@@ -1257,6 +1380,17 @@ const MAX_JOBS_PER_TICK: usize = 10_000;
 /// only runs between script entries) cannot progress inside this call;
 /// the executor breaks instead of spinning forever, and the parked
 /// future is dropped — its module evaluation never completes.
+///
+/// DOCUMENTED LIMIT: that dropped future is why a module whose
+/// top-level await waits on the page's own `fetch()` promise never
+/// settles. In boa 0.21, `NativeAsyncJob::call` consumes the job and
+/// returns a future borrowing the `&RefCell<&mut Context>` of THIS
+/// `run_jobs` call, so the future can neither be re-created (the
+/// closure is `FnOnce` — calling again would restart the async fn)
+/// nor stored across script entries without a self-referential,
+/// unsafe structure. Top-level awaits on module-internal promises
+/// (imports, already-resolved values) DO settle; only awaits that
+/// depend on the between-entries fetch pump hit this limit.
 struct BoundedJobExecutor {
     promise_jobs: RefCell<VecDeque<PromiseJob>>,
     async_jobs: RefCell<VecDeque<NativeAsyncJob>>,
@@ -1597,7 +1731,11 @@ fn install_globals(context: &mut Context) {
             js_string!(USER_AGENT),
             Attribute::all(),
         )
-        .property(js_string!("language"), js_string!("tr-TR"), Attribute::all())
+        .property(
+            js_string!("language"),
+            js_string!("tr-TR"),
+            Attribute::all(),
+        )
         .property(js_string!("languages"), languages, Attribute::all())
         .property(
             js_string!("platform"),
@@ -1725,12 +1863,15 @@ fn install_stubs(context: &mut Context) {
 /// resolves the target against the page URL, applies the file:// gate,
 /// the same-origin policy and the credentials mode (see
 /// [`Session::prepare_script_read`]). The returned [`CorsCheck`] (Some
-/// for cross-origin reads only) gates the response at drain time.
+/// for cross-origin reads only) gates the response at drain time — and
+/// may still carry a preflight probe for non-simple requests.
 fn prepare_fetch<L: ResourceLoader>(
     session: &Session<L>,
     target: &str,
     body: Option<(String, Vec<u8>)>,
     credentials: ScriptCredentials,
+    method: &str,
+    headers: &[(String, String)],
 ) -> Result<(ResourceRequest, Option<CorsCheck>), String> {
     let base = session
         .current_url()
@@ -1738,7 +1879,7 @@ fn prepare_fetch<L: ResourceLoader>(
         .ok_or_else(|| "no page".to_string())?;
     let url = resolve_url(&base, target).map_err(|error| error.to_string())?;
     session
-        .prepare_script_read(url, body, credentials)
+        .prepare_script_read(url, body, credentials, method, headers)
         .map_err(|error| error.to_string())
 }
 
@@ -1754,9 +1895,12 @@ fn fetch_(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<
         .is_some_and(|value| value.to_std_string_escaped() == "include");
     let (promise, resolvers) = JsPromise::new_pending(context);
     with_bridge(|bridge| {
-        bridge
-            .pending_fetches
-            .push((target, include, resolvers.resolve.into(), resolvers.reject.into()));
+        bridge.pending_fetches.push((
+            target,
+            include,
+            resolvers.resolve.into(),
+            resolvers.reject.into(),
+        ));
     });
     Ok(promise.into())
 }
@@ -1814,33 +1958,31 @@ fn response_json(this: &JsValue, _args: &[JsValue], context: &mut Context) -> Js
 
 /// `new XMLHttpRequest()`: a plain object carrying readyState/status/
 /// responseText as data properties; the natives below mutate it.
-fn xml_http_request(_this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+fn xml_http_request(
+    _this: &JsValue,
+    _args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
     let headers = JsArray::new(context);
     Ok(ObjectInitializer::new(context)
         .property(js_string!("readyState"), 0, Attribute::all())
         .property(js_string!("status"), 0, Attribute::all())
         .property(js_string!("responseText"), js_string!(""), Attribute::all())
         .property(js_string!("response"), js_string!(""), Attribute::all())
+        // Settable any time after open(); read at send().
+        .property(js_string!("withCredentials"), false, Attribute::all())
         .property(
             js_string!("__headers"),
             JsValue::from(headers),
             Attribute::empty(),
         )
-        .function(
-            NativeFunction::from_fn_ptr(xhr_open),
-            js_string!("open"),
-            2,
-        )
+        .function(NativeFunction::from_fn_ptr(xhr_open), js_string!("open"), 2)
         .function(
             NativeFunction::from_fn_ptr(xhr_set_request_header),
             js_string!("setRequestHeader"),
             2,
         )
-        .function(
-            NativeFunction::from_fn_ptr(xhr_send),
-            js_string!("send"),
-            1,
-        )
+        .function(NativeFunction::from_fn_ptr(xhr_send), js_string!("send"), 1)
         .build()
         .into())
 }
@@ -1866,8 +2008,18 @@ fn xhr_open(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult
     // The async flag (arg 2) is accepted: every request completes in a
     // later pump either way (inline queue: the pump right after this
     // entry; threaded queue: the pump the completion wake triggers).
-    object.set(js_string!("__method"), js_string!(method.as_str()), false, context)?;
-    object.set(js_string!("__url"), js_string!(url.as_str()), false, context)?;
+    object.set(
+        js_string!("__method"),
+        js_string!(method.as_str()),
+        false,
+        context,
+    )?;
+    object.set(
+        js_string!("__url"),
+        js_string!(url.as_str()),
+        false,
+        context,
+    )?;
     object.set(
         js_string!("__headers"),
         JsValue::from(JsArray::new(context)),
@@ -1893,8 +2045,14 @@ fn xhr_set_request_header(
     let Ok(array) = JsArray::from_object(headers) else {
         return Ok(JsValue::undefined());
     };
-    array.push(JsValue::from(js_string!(string_arg(args, 0, context).as_str())), context)?;
-    array.push(JsValue::from(js_string!(string_arg(args, 1, context).as_str())), context)?;
+    array.push(
+        JsValue::from(js_string!(string_arg(args, 0, context).as_str())),
+        context,
+    )?;
+    array.push(
+        JsValue::from(js_string!(string_arg(args, 1, context).as_str())),
+        context,
+    )?;
     Ok(JsValue::undefined())
 }
 
@@ -1935,12 +2093,17 @@ fn xhr_send(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult
         .first()
         .filter(|value| !value.is_null_or_undefined())
         .map(|_| string_arg(args, 0, context));
+    let with_credentials = object
+        .get(js_string!("withCredentials"), context)
+        .ok()
+        .is_some_and(|value| value.to_boolean());
     with_bridge(|bridge| {
         bridge.pending_xhrs.push(XhrRequest {
             method,
             url,
             headers,
             body,
+            with_credentials,
             xhr: object.clone(),
         });
     });
@@ -1998,11 +2161,7 @@ fn xhr_fire(xhr: &JsObject, handler: &str, event_type: &str, context: &mut Conte
         return;
     };
     let event = ObjectInitializer::new(context)
-        .property(
-            js_string!("type"),
-            js_string!(event_type),
-            Attribute::all(),
-        )
+        .property(js_string!("type"), js_string!(event_type), Attribute::all())
         .property(js_string!("target"), xhr.clone(), Attribute::all())
         .build();
     if let Err(error) = callback.call(&xhr.clone().into(), &[event.into()], context) {
@@ -2109,7 +2268,7 @@ fn history_length_get_(
     _context: &mut Context,
 ) -> JsResult<JsValue> {
     Ok(JsValue::from(
-        with_bridge(|bridge| bridge.history_length) as f64,
+        with_bridge(|bridge| bridge.history_length) as f64
     ))
 }
 
@@ -2127,7 +2286,10 @@ fn history_state_get_(
 /// JSON.stringify through the engine's own JSON; `None` when the
 /// value does not serialize (functions, cycles).
 fn json_stringify(value: &JsValue, context: &mut Context) -> Option<String> {
-    let json = context.global_object().get(js_string!("JSON"), context).ok()?;
+    let json = context
+        .global_object()
+        .get(js_string!("JSON"), context)
+        .ok()?;
     let stringify = json
         .as_object()?
         .get(js_string!("stringify"), context)
@@ -2141,7 +2303,10 @@ fn json_stringify(value: &JsValue, context: &mut Context) -> Option<String> {
 
 /// JSON.parse through the engine's own JSON; `None` on bad input.
 fn json_parse(text: &str, context: &mut Context) -> Option<JsValue> {
-    let json = context.global_object().get(js_string!("JSON"), context).ok()?;
+    let json = context
+        .global_object()
+        .get(js_string!("JSON"), context)
+        .ok()?;
     let parse = json.as_object()?.get(js_string!("parse"), context).ok()?;
     parse
         .as_callable()?
@@ -2215,15 +2380,28 @@ fn storage_object(kind: StorageKind, context: &mut Context) -> JsObject {
     };
     let length_get = NativeFunction::from_fn_ptr(length).to_js_function(context.realm());
     let target = ObjectInitializer::new(context)
-        .function(NativeFunction::from_fn_ptr(get_item), js_string!("getItem"), 1)
-        .function(NativeFunction::from_fn_ptr(set_item), js_string!("setItem"), 2)
+        .function(
+            NativeFunction::from_fn_ptr(get_item),
+            js_string!("getItem"),
+            1,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(set_item),
+            js_string!("setItem"),
+            2,
+        )
         .function(
             NativeFunction::from_fn_ptr(remove_item),
             js_string!("removeItem"),
             1,
         )
         .function(NativeFunction::from_fn_ptr(clear), js_string!("clear"), 0)
-        .accessor(js_string!("length"), Some(length_get), None, Attribute::all())
+        .accessor(
+            js_string!("length"),
+            Some(length_get),
+            None,
+            Attribute::all(),
+        )
         .build();
     JsProxyBuilder::new(target)
         .get(get_trap)
@@ -2238,10 +2416,12 @@ fn storage_get_item_local(
     context: &mut Context,
 ) -> JsResult<JsValue> {
     let key = string_arg(args, 0, context);
-    Ok(with_bridge(|bridge| bridge.local_storage.get(&key).cloned()).map_or(
-        JsValue::null(),
-        |value| JsValue::from(js_string!(value.as_str())),
-    ))
+    Ok(
+        with_bridge(|bridge| bridge.local_storage.get(&key).cloned())
+            .map_or(JsValue::null(), |value| {
+                JsValue::from(js_string!(value.as_str()))
+            }),
+    )
 }
 
 fn storage_set_item_local(
@@ -2299,10 +2479,12 @@ fn storage_get_item_session(
     context: &mut Context,
 ) -> JsResult<JsValue> {
     let key = string_arg(args, 0, context);
-    Ok(with_bridge(|bridge| bridge.session_storage.get(&key).cloned()).map_or(
-        JsValue::null(),
-        |value| JsValue::from(js_string!(value.as_str())),
-    ))
+    Ok(
+        with_bridge(|bridge| bridge.session_storage.get(&key).cloned())
+            .map_or(JsValue::null(), |value| {
+                JsValue::from(js_string!(value.as_str()))
+            }),
+    )
 }
 
 fn storage_set_item_session(
@@ -2371,10 +2553,12 @@ fn storage_get(
     if target.has_property(property.clone(), context)? {
         return target.get(property, context);
     }
-    Ok(with_bridge(|bridge| map(bridge).get(&key).cloned()).map_or(
-        JsValue::undefined(),
-        |value| JsValue::from(js_string!(value.as_str())),
-    ))
+    Ok(
+        with_bridge(|bridge| map(bridge).get(&key).cloned())
+            .map_or(JsValue::undefined(), |value| {
+                JsValue::from(js_string!(value.as_str()))
+            }),
+    )
 }
 
 /// Proxy set trap: every named write goes into the map
@@ -3454,6 +3638,7 @@ fn set_attribute(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsR
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lumen_platform::loader::{CorsGrant, CorsPreflight};
     use lumen_platform::{LoadError, ResourceRequest, ResourceResponse, Url};
     use std::collections::HashMap;
 
@@ -3470,6 +3655,12 @@ mod tests {
         cookies: std::sync::Mutex<Vec<Option<String>>>,
         /// Access-Control-Allow-Origin value served per URL.
         acao: HashMap<String, String>,
+        /// CORS preflight probes seen: (url, method, headers).
+        probes: std::sync::Mutex<Vec<(String, String, Vec<String>)>>,
+        /// Canned preflight grants per URL (absent = refused probe).
+        grants: HashMap<String, CorsGrant>,
+        /// Set-Cookie values served per URL.
+        serve_cookies: HashMap<String, Vec<String>>,
         /// Artificial per-load delay — a "slow server" for the
         /// non-blocking tests.
         delay: std::sync::Mutex<Option<Duration>>,
@@ -3486,12 +3677,28 @@ mod tests {
                 bodies: std::sync::Mutex::new(Vec::new()),
                 cookies: std::sync::Mutex::new(Vec::new()),
                 acao: HashMap::new(),
+                probes: std::sync::Mutex::new(Vec::new()),
+                grants: HashMap::new(),
+                serve_cookies: HashMap::new(),
                 delay: std::sync::Mutex::new(None),
             }
         }
 
         fn with_acao(mut self, url: &str, value: &str) -> Self {
             self.acao.insert(url.to_string(), value.to_string());
+            self
+        }
+
+        fn with_grant(mut self, url: &str, grant: CorsGrant) -> Self {
+            self.grants.insert(url.to_string(), grant);
+            self
+        }
+
+        fn with_cookies(mut self, url: &str, cookies: &[&str]) -> Self {
+            self.serve_cookies.insert(
+                url.to_string(),
+                cookies.iter().map(|c| (*c).to_string()).collect(),
+            );
             self
         }
     }
@@ -3517,9 +3724,25 @@ mod tests {
                 final_url: request.url.clone(),
                 content_type: None,
                 body: body.clone(),
-                set_cookies: Vec::new(),
+                set_cookies: self
+                    .serve_cookies
+                    .get(request.url.as_str())
+                    .cloned()
+                    .unwrap_or_default(),
                 access_control_allow_origin: self.acao.get(request.url.as_str()).cloned(),
             })
+        }
+
+        fn preflight(&self, probe: &CorsPreflight) -> Result<CorsGrant, LoadError> {
+            self.probes.lock().unwrap().push((
+                probe.url.to_string(),
+                probe.method.clone(),
+                probe.headers.clone(),
+            ));
+            self.grants
+                .get(probe.url.as_str())
+                .cloned()
+                .ok_or_else(|| LoadError::Http(format!("no canned grant: {}", probe.url)))
         }
     }
 
@@ -3912,9 +4135,15 @@ mod tests {
         );
         let _scripts = PageScripts::new(&mut session).expect("page has scripts");
         assert_eq!(out_text(&session), "https://a.test/yeni|2|1");
-        assert_eq!(session.current_url().unwrap().as_str(), "https://a.test/yeni");
+        assert_eq!(
+            session.current_url().unwrap().as_str(),
+            "https://a.test/yeni"
+        );
         // No reload: the loader only ever saw the initial page fetch.
-        assert_eq!(*session.loader.loads.lock().unwrap(), vec!["https://a.test/"]);
+        assert_eq!(
+            *session.loader.loads.lock().unwrap(),
+            vec!["https://a.test/"]
+        );
     }
 
     #[test]
@@ -3927,7 +4156,10 @@ mod tests {
         );
         let _scripts = PageScripts::new(&mut session).expect("page has scripts");
         assert_eq!(out_text(&session), "https://a.test/rep|1");
-        assert_eq!(session.current_url().unwrap().as_str(), "https://a.test/rep");
+        assert_eq!(
+            session.current_url().unwrap().as_str(),
+            "https://a.test/rep"
+        );
     }
 
     #[test]
@@ -3967,7 +4199,9 @@ mod tests {
             "https://a.test/",
         );
         let _first = PageScripts::new(&mut session).expect("page has scripts");
-        session.load(Url::parse("https://a.test/iki").unwrap()).unwrap();
+        session
+            .load(Url::parse("https://a.test/iki").unwrap())
+            .unwrap();
         let mut second = PageScripts::new(&mut session).expect("page has scripts");
         // history.back() surfaces as a traversal request for the shell.
         assert_eq!(second.take_navigation().as_deref(), Some("::back"));
@@ -4020,9 +4254,7 @@ mod tests {
     fn local_storage_persists_between_sessions() {
         let root = crate::storage::temp_root("persist");
         {
-            let mut session = session_with(
-                "<script>localStorage.setItem('k', 'kalıcı');</script>",
-            );
+            let mut session = session_with("<script>localStorage.setItem('k', 'kalıcı');</script>");
             session.set_storage_root(root.clone());
             let _scripts = PageScripts::new(&mut session).expect("page has scripts");
         }
@@ -4152,7 +4384,9 @@ mod tests {
                 height: 600.0,
             },
         );
-        session.load(Url::parse("https://a.test/").unwrap()).unwrap();
+        session
+            .load(Url::parse("https://a.test/").unwrap())
+            .unwrap();
         session
     }
 
@@ -4347,6 +4581,241 @@ mod tests {
     }
 
     #[test]
+    fn xhr_with_credentials_sends_cookies_and_rejects_a_wildcard_grant() {
+        let mut session = session_with_acao(
+            &[
+                (
+                    "https://a.test/",
+                    "<p id='out'>-</p><script>\
+                     document.cookie = 'sid=1';\
+                     const out = document.getElementById('out');\
+                     const star = new XMLHttpRequest();\
+                     star.open('GET', 'http://a.test:8080/star');\
+                     star.withCredentials = true;\
+                     star.onload = () => { out.textContent += '|star-ok'; };\
+                     star.onerror = () => { out.textContent += '|star-err'; };\
+                     star.send();\
+                     const exact = new XMLHttpRequest();\
+                     exact.open('GET', 'http://a.test:8080/exact');\
+                     exact.withCredentials = true;\
+                     exact.onload = () => { out.textContent += '|' + exact.responseText; };\
+                     exact.onerror = () => { out.textContent += '|exact-err'; };\
+                     exact.send();\
+                     </script>",
+                ),
+                ("http://a.test:8080/star", "star-body"),
+                ("http://a.test:8080/exact", "wc-ok"),
+            ],
+            &[
+                ("http://a.test:8080/star", "*"),
+                ("http://a.test:8080/exact", "https://a.test"),
+            ],
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // '*' + withCredentials is an invalid grant (spec): onerror.
+        // The exact-origin grant lets the credentialed read through.
+        assert_eq!(out_text(&session), "-|star-err|wc-ok");
+        // withCredentials DID send the jar's cookie cross-origin, on both.
+        let cookies = session.loader.cookies.lock().unwrap();
+        assert_eq!(cookies.len(), 3);
+        assert_eq!(cookies[1].as_deref(), Some("sid=1"));
+        assert_eq!(cookies[2].as_deref(), Some("sid=1"));
+    }
+
+    #[test]
+    fn preflight_probes_a_non_simple_request_then_sends_it() {
+        let grant = CorsGrant {
+            allow_origin: Some("*".to_string()),
+            allow_methods: vec!["get".to_string()],
+            allow_headers: vec!["x-token".to_string()],
+        };
+        let mut loader = FakeLoader::new(&[
+            (
+                "https://a.test/",
+                "<p id='out'>-</p><script>\
+                 const out = document.getElementById('out');\
+                 const ask = (label, next) => {\
+                   const xhr = new XMLHttpRequest();\
+                   xhr.open('GET', 'http://a.test:8080/data');\
+                   xhr.setRequestHeader('X-Token', 'abc');\
+                   xhr.onload = () => {\
+                     out.textContent += '|' + label + ':' + xhr.responseText;\
+                     if (next) { next(); }\
+                   };\
+                   xhr.onerror = () => { out.textContent += '|' + label + ':err'; };\
+                   xhr.send();\
+                 };\
+                 ask('bir', () => ask('iki', null));\
+                 </script>",
+            ),
+            ("http://a.test:8080/data", "pre-ok"),
+        ]);
+        loader = loader.with_acao("http://a.test:8080/data", "*");
+        loader = loader.with_grant("http://a.test:8080/data", grant);
+        let mut session = Session::new(
+            loader,
+            lumen_engine::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        session
+            .load(Url::parse("https://a.test/").unwrap())
+            .unwrap();
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // The custom header made both reads non-simple: OPTIONS probe,
+        // grant, then the actual request. The second read starts in the
+        // first one's onload — a later entry, so the session cache
+        // answers it: ONE probe for two requests.
+        assert_eq!(out_text(&session), "-|bir:pre-ok|iki:pre-ok");
+        let probes = session.loader.probes.lock().unwrap();
+        assert_eq!(
+            *probes,
+            vec![(
+                "http://a.test:8080/data".to_string(),
+                "GET".to_string(),
+                vec!["x-token".to_string()]
+            )]
+        );
+        let loads = session.loader.loads.lock().unwrap();
+        assert_eq!(
+            *loads,
+            vec![
+                "https://a.test/",
+                "http://a.test:8080/data",
+                "http://a.test:8080/data"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_refused_preflight_keeps_the_request_from_going_out() {
+        // The grant names the page origin but does NOT cover the custom
+        // header: the read must fail without the request ever leaving.
+        let grant = CorsGrant {
+            allow_origin: Some("https://a.test".to_string()),
+            allow_methods: vec!["get".to_string()],
+            allow_headers: Vec::new(),
+        };
+        let mut loader = FakeLoader::new(&[
+            (
+                "https://a.test/",
+                "<p id='out'>-</p><script>\
+                 const xhr = new XMLHttpRequest();\
+                 xhr.open('GET', 'http://a.test:8080/data');\
+                 xhr.setRequestHeader('X-Token', 'abc');\
+                 xhr.onload = () => { document.getElementById('out').textContent = 'unexpected'; };\
+                 xhr.onerror = () => { document.getElementById('out').textContent = 'refused'; };\
+                 xhr.send();\
+                 </script>",
+            ),
+            ("http://a.test:8080/data", "secret"),
+        ]);
+        loader = loader.with_grant("http://a.test:8080/data", grant);
+        let mut session = Session::new(
+            loader,
+            lumen_engine::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        session
+            .load(Url::parse("https://a.test/").unwrap())
+            .unwrap();
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "refused");
+        // The probe went out; the actual request never did.
+        assert_eq!(session.loader.probes.lock().unwrap().len(), 1);
+        assert_eq!(
+            *session.loader.loads.lock().unwrap(),
+            vec!["https://a.test/"]
+        );
+    }
+
+    #[test]
+    fn runtime_module_fetch_stores_set_cookie_in_the_jar() {
+        let loader = FakeLoader::new(&[
+            (
+                "https://a.test/",
+                "<button id='btn'>x</button><p id='out'>-</p><script>\
+                 document.getElementById('btn').addEventListener('click', () => {\
+                   import('/lazy.js').then(m => {\
+                     document.getElementById('out').textContent = m.value;\
+                   });\
+                 });\
+                 </script>",
+            ),
+            ("https://a.test/lazy.js", "export const value = 'lazy-ok';"),
+        ])
+        .with_cookies("https://a.test/lazy.js", &["mod=1"]);
+        let mut session = Session::new(
+            loader,
+            lumen_engine::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        session
+            .load(Url::parse("https://a.test/").unwrap())
+            .unwrap();
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let button = session
+            .page()
+            .unwrap()
+            .document
+            .get_element_by_id("btn")
+            .unwrap();
+        scripts.dispatch(&mut session, button, "click");
+        assert_eq!(out_text(&session), "lazy-ok");
+        // The runtime queue fetch's Set-Cookie reached the session jar
+        // (the APPLY detour — the loader future itself never sees the
+        // session).
+        assert_eq!(
+            session
+                .cookies
+                .header_for(&Url::parse("https://a.test/lazy.js").unwrap())
+                .as_deref(),
+            Some("mod=1")
+        );
+    }
+
+    #[test]
+    fn static_module_fetch_stores_set_cookie_in_the_jar() {
+        // The static graph fetches through the session directly, so its
+        // Set-Cookie handling was never broken — pinned here.
+        let loader = FakeLoader::new(&[
+            (
+                "https://a.test/",
+                "<p id='out'>-</p><script type='module' src='/m.js'></script>",
+            ),
+            (
+                "https://a.test/m.js",
+                "document.getElementById('out').textContent = 'm-ok';",
+            ),
+        ])
+        .with_cookies("https://a.test/m.js", &["stat=1"]);
+        let mut session = Session::new(
+            loader,
+            lumen_engine::Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        session
+            .load(Url::parse("https://a.test/").unwrap())
+            .unwrap();
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "m-ok");
+        assert_eq!(
+            session
+                .cookies
+                .header_for(&Url::parse("https://a.test/m.js").unwrap())
+                .as_deref(),
+            Some("stat=1")
+        );
+    }
+
+    #[test]
     fn cross_origin_script_src_still_loads() {
         // Subresource loads are no-cors: a cross-origin <script src>
         // fetches and runs without any Access-Control-Allow-Origin.
@@ -4453,8 +4922,8 @@ mod tests {
             });
         }
         let started = std::time::Instant::now();
-        let mut scripts = PageScripts::new_with_network(&mut session, queue)
-            .expect("page has scripts");
+        let mut scripts =
+            PageScripts::new_with_network(&mut session, queue).expect("page has scripts");
         let elapsed = started.elapsed();
         assert!(
             elapsed < Duration::from_millis(400),

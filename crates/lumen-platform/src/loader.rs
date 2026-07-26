@@ -110,6 +110,58 @@ impl From<std::io::Error> for LoadError {
 /// Loads resources by URL.
 pub trait ResourceLoader {
     fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError>;
+
+    /// Answers a CORS preflight probe (HTTP OPTIONS). The default
+    /// refuses: a loader without HTTP semantics cannot grant a
+    /// non-simple cross-origin read, and a refused preflight fails the
+    /// request like a network error.
+    fn preflight(&self, _probe: &CorsPreflight) -> Result<CorsGrant, LoadError> {
+        Err(LoadError::Http(
+            "CORS preflight not supported by this loader".to_string(),
+        ))
+    }
+}
+
+/// A CORS preflight probe: may a non-simple cross-origin script read
+/// (a method beyond GET/HEAD/POST, or custom request headers) go out?
+/// HTTP loaders answer it with an OPTIONS request.
+#[derive(Debug, Clone)]
+pub struct CorsPreflight {
+    /// URL of the actual request.
+    pub url: Url,
+    /// Method of the actual request (`Access-Control-Request-Method`).
+    pub method: String,
+    /// Custom (non-safelisted) header names of the actual request
+    /// (`Access-Control-Request-Headers`), lowercase.
+    pub headers: Vec<String>,
+}
+
+/// What an answered preflight grants, parsed from its response headers.
+#[derive(Debug, Clone, Default)]
+pub struct CorsGrant {
+    /// Raw `Access-Control-Allow-Origin` value.
+    pub allow_origin: Option<String>,
+    /// `Access-Control-Allow-Methods` entries, lowercase.
+    pub allow_methods: Vec<String>,
+    /// `Access-Control-Allow-Headers` entries, lowercase.
+    pub allow_headers: Vec<String>,
+}
+
+impl CorsGrant {
+    /// Whether the grant covers `method` and every one of `headers`.
+    /// A `*` entry covers anything only for non-credentialed reads —
+    /// with credentials the spec reads it as a literal name.
+    #[must_use]
+    pub fn covers(&self, method: &str, headers: &[String], credentialed: bool) -> bool {
+        let listed = |list: &[String], name: &str| {
+            list.iter().any(|entry| entry == name)
+                || (!credentialed && list.iter().any(|entry| entry == "*"))
+        };
+        listed(&self.allow_methods, &method.to_ascii_lowercase())
+            && headers
+                .iter()
+                .all(|header| listed(&self.allow_headers, header))
+    }
 }
 
 /// Serves `file://` URLs from the local filesystem.
@@ -290,6 +342,49 @@ impl ResourceLoader for HttpLoader {
             "too many redirects (>{MAX_REDIRECTS})"
         )))
     }
+
+    fn preflight(&self, probe: &CorsPreflight) -> Result<CorsGrant, LoadError> {
+        // The preflight itself is never credentialed and never
+        // redirected: it asks a question, it does not carry state.
+        let mut builder = agent()
+            .options(probe.url.as_str())
+            .header("Access-Control-Request-Method", &probe.method);
+        if !probe.headers.is_empty() {
+            builder = builder.header("Access-Control-Request-Headers", &probe.headers.join(", "));
+        }
+        let response = builder
+            .call()
+            .map_err(|error| LoadError::Http(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(LoadError::Http(format!(
+                "CORS preflight answered {}",
+                response.status()
+            )));
+        }
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string)
+        };
+        let list = |name: &str| {
+            header(name)
+                .map(|value| {
+                    value
+                        .split(',')
+                        .map(|entry| entry.trim().to_ascii_lowercase())
+                        .filter(|entry| !entry.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        Ok(CorsGrant {
+            allow_origin: header("access-control-allow-origin"),
+            allow_methods: list("access-control-allow-methods"),
+            allow_headers: list("access-control-allow-headers"),
+        })
+    }
 }
 
 /// Dispatches to [`FileLoader`] or [`HttpLoader`] by scheme.
@@ -301,6 +396,13 @@ impl ResourceLoader for DefaultLoader {
         match request.url.scheme() {
             "file" => FileLoader.load(request),
             "http" | "https" => HttpLoader.load(request),
+            scheme => Err(LoadError::UnsupportedScheme(scheme.to_string())),
+        }
+    }
+
+    fn preflight(&self, probe: &CorsPreflight) -> Result<CorsGrant, LoadError> {
+        match probe.url.scheme() {
+            "http" | "https" => HttpLoader.preflight(probe),
             scheme => Err(LoadError::UnsupportedScheme(scheme.to_string())),
         }
     }
@@ -439,7 +541,9 @@ mod tests {
         assert_eq!(response.set_cookies, vec!["hop=1"]);
         let seen = seen(rx);
         assert!(
-            seen[1].to_ascii_lowercase().contains("cookie: base=1; hop=1"),
+            seen[1]
+                .to_ascii_lowercase()
+                .contains("cookie: base=1; hop=1"),
             "second hop must carry base + chain cookies: {}",
             seen[1]
         );
@@ -477,10 +581,75 @@ mod tests {
         ]);
         let request = ResourceRequest::get(Url::parse(&format!("{base}/data")).unwrap());
         let response = HttpLoader.load(&request).unwrap();
-        assert_eq!(
-            response.access_control_allow_origin.as_deref(),
-            Some("*")
+        assert_eq!(response.access_control_allow_origin.as_deref(), Some("*"));
+        seen(rx);
+    }
+
+    #[test]
+    fn preflight_sends_options_and_parses_the_grant() {
+        let (base, rx) = serve(vec![
+            "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: https://a.test\r\nAccess-Control-Allow-Methods: GET, PUT\r\nAccess-Control-Allow-Headers: X-Token, Content-Type\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string(),
+        ]);
+        let probe = CorsPreflight {
+            url: Url::parse(&format!("{base}/data")).unwrap(),
+            method: "PUT".to_string(),
+            headers: vec!["x-token".to_string()],
+        };
+        let grant = HttpLoader.preflight(&probe).unwrap();
+        assert_eq!(grant.allow_origin.as_deref(), Some("https://a.test"));
+        assert_eq!(grant.allow_methods, vec!["get", "put"]);
+        assert_eq!(grant.allow_headers, vec!["x-token", "content-type"]);
+        assert!(grant.covers("PUT", &["x-token".to_string()], true));
+        assert!(!grant.covers("DELETE", &[], false));
+        let seen = seen(rx);
+        let head = seen[0].to_ascii_lowercase();
+        assert!(
+            head.starts_with("options /data "),
+            "probe method: {}",
+            seen[0]
         );
+        assert!(
+            head.contains("access-control-request-method: put"),
+            "{head}"
+        );
+        assert!(
+            head.contains("access-control-request-headers: x-token"),
+            "{head}"
+        );
+        assert!(
+            !head.contains("cookie:"),
+            "preflight is never credentialed: {head}"
+        );
+    }
+
+    #[test]
+    fn preflight_without_cors_headers_grants_nothing() {
+        let (base, rx) = serve(vec![
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string(),
+        ]);
+        let probe = CorsPreflight {
+            url: Url::parse(&format!("{base}/data")).unwrap(),
+            method: "PUT".to_string(),
+            headers: Vec::new(),
+        };
+        let grant = HttpLoader.preflight(&probe).unwrap();
+        assert_eq!(grant.allow_origin, None);
+        assert!(!grant.covers("PUT", &[], false));
+        seen(rx);
+    }
+
+    #[test]
+    fn preflight_error_status_refuses() {
+        let (base, rx) = serve(vec![
+            "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_string(),
+        ]);
+        let probe = CorsPreflight {
+            url: Url::parse(&format!("{base}/data")).unwrap(),
+            method: "PUT".to_string(),
+            headers: Vec::new(),
+        };
+        assert!(HttpLoader.preflight(&probe).is_err());
         seen(rx);
     }
 
@@ -488,6 +657,9 @@ mod tests {
     fn bodies_are_capped() {
         let data = vec![b'x'; 1024];
         assert_eq!(read_body_capped(&data[..], 10).unwrap().len(), 10);
-        assert_eq!(read_body_capped(&data[..], MAX_BODY_BYTES).unwrap().len(), 1024);
+        assert_eq!(
+            read_body_capped(&data[..], MAX_BODY_BYTES).unwrap().len(),
+            1024
+        );
     }
 }

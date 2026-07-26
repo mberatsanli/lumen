@@ -19,7 +19,8 @@
 //! fires (on the worker) when a threaded completion lands, so the
 //! shell can schedule the drain instead of polling.
 
-use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, ResourceResponse};
+use lumen_platform::loader::{CorsGrant, CorsPreflight};
+use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, ResourceResponse, Url};
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -52,6 +53,11 @@ enum Parked {
         request: ResourceRequest,
         loader: Arc<dyn ResourceLoader + Send + Sync>,
     },
+    Preflight {
+        id: u64,
+        probe: CorsPreflight,
+        loader: Arc<dyn ResourceLoader + Send + Sync>,
+    },
     Module {
         request: ResourceRequest,
         loader: Arc<dyn ResourceLoader + Send + Sync>,
@@ -59,9 +65,25 @@ enum Parked {
     },
 }
 
+/// A finished module load: the source text plus the response metadata
+/// the APPLY phase still owes the session (Set-Cookie into the jar —
+/// the loader future resolves inside the script job executor, where no
+/// session is reachable, so the cookies take this detour).
+pub(crate) struct ModulePayload {
+    pub(crate) source: String,
+    pub(crate) final_url: Url,
+    pub(crate) set_cookies: Vec<String>,
+}
+
 /// Shared cell a module-load future polls until the worker delivers
-/// the source text (or the error).
-pub(crate) type ModuleSlot = Arc<Mutex<Option<Result<String, String>>>>;
+/// the payload (or the error).
+pub(crate) type ModuleSlot = Arc<Mutex<Option<Result<ModulePayload, String>>>>;
+
+/// A CORS preflight probe that finished executing.
+struct PreflightCompletion {
+    id: u64,
+    result: Result<CorsGrant, LoadError>,
+}
 
 /// Runs the blocking load, turning a loader panic into an error so a
 /// completion (or module slot) is always delivered — a panicking
@@ -74,13 +96,25 @@ fn run_load(
         .unwrap_or_else(|_| Err(LoadError::Http("loader panicked".to_string())))
 }
 
-/// Maps a finished load to the module-source form: body text, error
-/// string. `Set-Cookie` headers of module responses are dropped — the
-/// jar lives on the caller's thread and module loads complete inside
-/// the script job executor, where no session is reachable.
-fn module_outcome(result: Result<ResourceResponse, LoadError>) -> Result<String, String> {
+/// Runs a preflight probe with the same panic guard as [`run_load`].
+fn run_preflight(
+    loader: &Arc<dyn ResourceLoader + Send + Sync>,
+    probe: &CorsPreflight,
+) -> Result<CorsGrant, LoadError> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| loader.preflight(probe)))
+        .unwrap_or_else(|_| Err(LoadError::Http("loader panicked".to_string())))
+}
+
+/// Maps a finished load to the module-source form: body text plus the
+/// Set-Cookie headers the APPLY phase stores once the payload lands on
+/// the caller's thread.
+fn module_outcome(result: Result<ResourceResponse, LoadError>) -> Result<ModulePayload, String> {
     result
-        .map(|response| response.text())
+        .map(|response| ModulePayload {
+            source: response.text(),
+            final_url: response.final_url,
+            set_cookies: response.set_cookies,
+        })
         .map_err(|error| error.to_string())
 }
 
@@ -107,6 +141,8 @@ pub struct NetworkQueue {
     executor: Executor,
     tx: mpsc::Sender<Completion>,
     rx: mpsc::Receiver<Completion>,
+    preflight_tx: mpsc::Sender<PreflightCompletion>,
+    preflight_rx: mpsc::Receiver<PreflightCompletion>,
     parked: RefCell<Vec<Parked>>,
     loader: RefCell<Option<Arc<dyn ResourceLoader + Send + Sync>>>,
     wake: WakeHook,
@@ -118,6 +154,9 @@ pub struct NetworkQueue {
     /// because a parked dynamic-`import()` future can only make
     /// progress once the worker lands the source.
     module_in_flight: Arc<AtomicUsize>,
+    /// Set-Cookie headers of completed module loads, waiting for the
+    /// APPLY phase (the pump) to store them in the session's jar.
+    module_cookies: RefCell<Vec<(Url, Vec<String>)>>,
 }
 
 impl NetworkQueue {
@@ -141,16 +180,20 @@ impl NetworkQueue {
 
     fn new(executor: Executor) -> Self {
         let (tx, rx) = mpsc::channel();
+        let (preflight_tx, preflight_rx) = mpsc::channel();
         Self {
             next_id: Cell::new(0),
             executor,
             tx,
             rx,
+            preflight_tx,
+            preflight_rx,
             parked: RefCell::new(Vec::new()),
             loader: RefCell::new(None),
             wake: Arc::new(Mutex::new(None)),
             undrained: Arc::new(AtomicUsize::new(0)),
             module_in_flight: Arc::new(AtomicUsize::new(0)),
+            module_cookies: RefCell::new(Vec::new()),
         }
     }
 
@@ -211,12 +254,74 @@ impl NetworkQueue {
                     wake_now(&wake);
                 });
             }
-            Executor::Manual => self
-                .parked
-                .borrow_mut()
-                .push(Parked::Fetch { id, request, loader }),
+            Executor::Manual => self.parked.borrow_mut().push(Parked::Fetch {
+                id,
+                request,
+                loader,
+            }),
         }
         id
+    }
+
+    /// Submits a CORS preflight probe; the id pairs the eventual
+    /// [`Self::drain_preflights`] completion with its waiting request.
+    /// Like [`Self::submit`], never blocks the caller with a threaded
+    /// executor.
+    pub(crate) fn submit_preflight(&self, probe: CorsPreflight) -> u64 {
+        let id = self.next_id.get();
+        self.next_id.set(id + 1);
+        let loader = self.loader();
+        match self.executor {
+            Executor::Inline => {
+                let result = run_preflight(&loader, &probe);
+                let _ = self.preflight_tx.send(PreflightCompletion { id, result });
+                self.undrained.fetch_add(1, Ordering::SeqCst);
+            }
+            Executor::Threads => {
+                let tx = self.preflight_tx.clone();
+                let wake = self.wake.clone();
+                let undrained = self.undrained.clone();
+                std::thread::spawn(move || {
+                    let result = run_preflight(&loader, &probe);
+                    let _ = tx.send(PreflightCompletion { id, result });
+                    undrained.fetch_add(1, Ordering::SeqCst);
+                    wake_now(&wake);
+                });
+            }
+            Executor::Manual => {
+                self.parked
+                    .borrow_mut()
+                    .push(Parked::Preflight { id, probe, loader })
+            }
+        }
+        id
+    }
+
+    /// Drains every finished preflight completion (non-blocking).
+    pub(crate) fn drain_preflights(&self) -> Vec<(u64, Result<CorsGrant, LoadError>)> {
+        let mut completions = Vec::new();
+        while let Ok(completion) = self.preflight_rx.try_recv() {
+            completions.push((completion.id, completion.result));
+        }
+        self.undrained
+            .fetch_sub(completions.len(), Ordering::SeqCst);
+        completions
+    }
+
+    /// The module loader records a completed module response's cookies
+    /// here (its future resolves inside the job executor, off the
+    /// session's reach); the pump stores them in the jar.
+    pub(crate) fn note_module_cookies(&self, final_url: Url, set_cookies: Vec<String>) {
+        if !set_cookies.is_empty() {
+            self.module_cookies
+                .borrow_mut()
+                .push((final_url, set_cookies));
+        }
+    }
+
+    /// Takes the recorded module cookies for the APPLY phase.
+    pub(crate) fn take_module_cookies(&self) -> Vec<(Url, Vec<String>)> {
+        std::mem::take(&mut *self.module_cookies.borrow_mut())
     }
 
     /// Submits a prepared module-source request; the returned slot
@@ -228,7 +333,8 @@ impl NetworkQueue {
         self.module_in_flight.fetch_add(1, Ordering::SeqCst);
         match self.executor {
             Executor::Inline => {
-                *slot.lock().expect("fresh slot") = Some(module_outcome(run_load(&loader, &request)));
+                *slot.lock().expect("fresh slot") =
+                    Some(module_outcome(run_load(&loader, &request)));
                 self.module_in_flight.fetch_sub(1, Ordering::SeqCst);
             }
             Executor::Threads => {
@@ -276,6 +382,13 @@ impl NetworkQueue {
                     let _ = self.tx.send(Completion {
                         id,
                         result: run_load(&loader, &request),
+                    });
+                    self.undrained.fetch_add(1, Ordering::SeqCst);
+                }
+                Parked::Preflight { id, probe, loader } => {
+                    let _ = self.preflight_tx.send(PreflightCompletion {
+                        id,
+                        result: run_preflight(&loader, &probe),
                     });
                     self.undrained.fetch_add(1, Ordering::SeqCst);
                 }

@@ -10,6 +10,7 @@ use lumen_engine::{
     collect_image_sources,
 };
 use lumen_html::NodeId;
+use lumen_platform::loader::{CorsGrant, CorsPreflight};
 use lumen_platform::{LoadError, ResourceLoader, ResourceRequest, ResourceResponse, Url, resolve};
 
 pub use editor::{EditOp, EditOverlay, EditResult, Motion, TextBuffer};
@@ -114,6 +115,10 @@ pub struct Session<L: ResourceLoader> {
     pub(crate) editor: Option<editor::TextEdit>,
     /// Session cookies (Set-Cookie in, Cookie header out).
     pub(crate) cookies: cookies::CookieJar,
+    /// CORS preflight grants received this session, keyed by
+    /// (page origin, request URL): a cached grant skips the OPTIONS
+    /// probe for the next identical non-simple cross-origin read.
+    preflight_cache: std::cell::RefCell<std::collections::HashSet<(String, String)>>,
     /// Persistent per-origin localStorage maps.
     pub(crate) storage: storage::WebStorage,
     /// Set by `back`/`forward` so the next script world can fire
@@ -137,7 +142,8 @@ pub struct Session<L: ResourceLoader> {
 
 /// A property transition in flight.
 #[derive(Debug, Clone)]
-struct ActiveTransition {    node: NodeId,
+struct ActiveTransition {
+    node: NodeId,
     property: &'static str,
     from: AnimatedValue,
     to: AnimatedValue,
@@ -205,6 +211,10 @@ pub(crate) struct CorsCheck {
     page_origin: String,
     /// Cookies rode the request (`credentials: include`).
     credentialed: bool,
+    /// Set when the request is not a CORS "simple request" and no
+    /// preflight grant for it is cached yet: the probe must be answered
+    /// (and pass [`Self::preflight_blocks`]) before the request goes out.
+    preflight: Option<CorsPreflight>,
 }
 
 impl CorsCheck {
@@ -217,8 +227,46 @@ impl CorsCheck {
         let Some(grant) = response.access_control_allow_origin.as_deref() else {
             return true;
         };
+        !self.origin_granted(grant)
+    }
+
+    /// The ACAO rule shared by the response check and the preflight
+    /// check: the grant must name the page's exact origin, or be `*`
+    /// for a non-credentialed read.
+    fn origin_granted(&self, grant: &str) -> bool {
         let grant = grant.trim();
-        grant != self.page_origin && (grant != "*" || self.credentialed)
+        grant == self.page_origin || (grant == "*" && !self.credentialed)
+    }
+
+    /// The preflight probe this check still needs answered, if any.
+    pub(crate) fn preflight(&self) -> Option<&CorsPreflight> {
+        self.preflight.as_ref()
+    }
+
+    /// The page origin this check grants against (preflight cache key).
+    pub(crate) fn page_origin(&self) -> &str {
+        &self.page_origin
+    }
+
+    /// Takes the preflight probe out of the check, when one is needed:
+    /// the caller submits the probe and, once granted, resubmits the
+    /// request with the probe-less check gating the actual response.
+    pub(crate) fn take_preflight(&mut self) -> Option<CorsPreflight> {
+        self.preflight.take()
+    }
+
+    /// Whether an answered preflight still forbids the read: its grant
+    /// must pass the ACAO rule AND cover the request's method and
+    /// custom headers.
+    pub(crate) fn preflight_blocks(&self, grant: &CorsGrant) -> bool {
+        let Some(probe) = &self.preflight else {
+            return false;
+        };
+        !grant
+            .allow_origin
+            .as_deref()
+            .is_some_and(|origin| self.origin_granted(origin))
+            || !grant.covers(&probe.method, &probe.headers, self.credentialed)
     }
 }
 
@@ -228,6 +276,39 @@ pub(crate) fn same_origin(a: &Url, b: &Url) -> bool {
     a.scheme() == b.scheme()
         && a.host_str() == b.host_str()
         && a.port_or_known_default() == b.port_or_known_default()
+}
+
+/// A CORS-safelisted ("simple") Content-Type value, parameters ignored.
+fn simple_content_type(value: &str) -> bool {
+    let mime = value.split(';').next().unwrap_or("").trim();
+    mime.eq_ignore_ascii_case("text/plain")
+        || mime.eq_ignore_ascii_case("application/x-www-form-urlencoded")
+        || mime.eq_ignore_ascii_case("multipart/form-data")
+}
+
+/// A CORS-safelisted request header: Accept, Accept-Language,
+/// Content-Language, Range, or Content-Type with a simple value.
+fn safelisted_header(name: &str, value: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "accept" | "accept-language" | "content-language" | "range"
+    ) || (name.eq_ignore_ascii_case("content-type") && simple_content_type(value))
+}
+
+/// The CORS "simple request" test: only these may cross origins
+/// without a preflight probe.
+fn needs_preflight(
+    method: &str,
+    body: &Option<(String, Vec<u8>)>,
+    headers: &[(String, String)],
+) -> bool {
+    !matches!(method, "GET" | "HEAD" | "POST")
+        || !headers
+            .iter()
+            .all(|(name, value)| safelisted_header(name, value))
+        || body
+            .as_ref()
+            .is_some_and(|(content_type, _)| !simple_content_type(content_type))
 }
 
 impl<L: ResourceLoader> Session<L> {
@@ -257,6 +338,7 @@ impl<L: ResourceLoader> Session<L> {
             scroll_offsets: std::collections::HashMap::new(),
             editor: None,
             cookies: cookies::CookieJar::default(),
+            preflight_cache: std::cell::RefCell::new(std::collections::HashSet::new()),
             storage: storage::WebStorage::for_config_dir(),
             traversed: false,
             loading_page: None,
@@ -982,14 +1064,19 @@ impl<L: ResourceLoader> Session<L> {
     ///   [`ScriptCredentials::Include`], and the returned [`CorsCheck`]
     ///   must gate the response before any byte reaches JS
     ///   ([`CorsCheck::blocks`]).
-    ///
-    /// There is no preflight (OPTIONS) pass: every method/body goes
-    /// out directly, like a simple request.
+    /// - Cross-origin AND not a CORS "simple request" (a method beyond
+    ///   GET/HEAD/POST, a custom header, or a non-simple Content-Type):
+    ///   the check also carries a [`CorsPreflight`] probe that must be
+    ///   answered first ([`CorsCheck::preflight_blocks`]) — unless a
+    ///   grant for this origin+URL is already cached
+    ///   ([`Self::cache_preflight`]).
     pub(crate) fn prepare_script_read(
         &self,
         url: Url,
         body: Option<(String, Vec<u8>)>,
         credentials: ScriptCredentials,
+        method: &str,
+        headers: &[(String, String)],
     ) -> Result<(ResourceRequest, Option<CorsCheck>), LoadError> {
         let mut request = self.prepare_request(url, body)?;
         let page = self.loading_page.as_ref().or_else(|| self.current_url());
@@ -1004,13 +1091,38 @@ impl<L: ResourceLoader> Session<L> {
             // cookies must not leak across origins.
             request.cookie = None;
         }
+        let page_origin = page.origin().unicode_serialization();
+        let preflight = (needs_preflight(method, &request.body, headers)
+            && !self
+                .preflight_cache
+                .borrow()
+                .contains(&(page_origin.clone(), request.url.to_string())))
+        .then(|| CorsPreflight {
+            url: request.url.clone(),
+            method: method.to_string(),
+            headers: headers
+                .iter()
+                .filter(|(name, value)| !safelisted_header(name, value))
+                .map(|(name, _)| name.to_ascii_lowercase())
+                .collect(),
+        });
         Ok((
             request,
             Some(CorsCheck {
-                page_origin: page.origin().unicode_serialization(),
+                page_origin,
                 credentialed: credentials == ScriptCredentials::Include,
+                preflight,
             }),
         ))
+    }
+
+    /// Caches a preflight grant for (page origin, request URL): the
+    /// next identical non-simple read skips the OPTIONS probe. The
+    /// cache lives and dies with the session — no TTL.
+    pub(crate) fn cache_preflight(&self, page_origin: &str, url: &Url) {
+        self.preflight_cache
+            .borrow_mut()
+            .insert((page_origin.to_string(), url.to_string()));
     }
 
     /// A shared handle to the session's loader for network workers.
@@ -1442,6 +1554,8 @@ mod tests {
                 url("https://a.test/data"),
                 None,
                 ScriptCredentials::SameOrigin,
+                "GET",
+                &[],
             )
             .unwrap();
         assert_eq!(request.cookie.as_deref(), Some("sid=1"));
@@ -1454,21 +1568,132 @@ mod tests {
                 url("http://a.test:8080/data"),
                 None,
                 ScriptCredentials::SameOrigin,
+                "GET",
+                &[],
             )
             .unwrap();
         assert_eq!(request.cookie, None);
         let check = check.expect("cross-origin read carries a CORS check");
         assert!(!check.credentialed);
+        assert!(check.preflight.is_none(), "GET is a simple request");
         // credentials: include sends the cookie cross-origin too.
         let (request, check) = session
             .prepare_script_read(
                 url("http://a.test:8080/data"),
                 None,
                 ScriptCredentials::Include,
+                "GET",
+                &[],
             )
             .unwrap();
         assert_eq!(request.cookie.as_deref(), Some("sid=1"));
         assert!(check.expect("cross-origin read").credentialed);
+    }
+
+    #[test]
+    fn non_simple_reads_carry_a_preflight_until_cached() {
+        let mut session = session();
+        session.load(url("https://a.test/")).unwrap();
+        let custom = [("X-Token".to_string(), "abc".to_string())];
+        // A custom header makes the read non-simple: a probe comes back.
+        let (_, check) = session
+            .prepare_script_read(
+                url("http://a.test:8080/data"),
+                None,
+                ScriptCredentials::SameOrigin,
+                "GET",
+                &custom,
+            )
+            .unwrap();
+        let probe = check
+            .expect("cross-origin read")
+            .preflight
+            .expect("custom header needs a preflight");
+        assert_eq!(probe.method, "GET");
+        assert_eq!(probe.headers, vec!["x-token"]);
+        // A PUT without headers is non-simple too (the method).
+        let (_, check) = session
+            .prepare_script_read(
+                url("http://a.test:8080/data"),
+                Some(("text/plain".to_string(), b"hi".to_vec())),
+                ScriptCredentials::SameOrigin,
+                "PUT",
+                &[],
+            )
+            .unwrap();
+        let probe = check
+            .expect("cross-origin read")
+            .preflight
+            .expect("PUT probe");
+        assert_eq!(probe.method, "PUT");
+        assert!(probe.headers.is_empty());
+        // A POST with a simple Content-Type stays simple (no probe).
+        let (_, check) = session
+            .prepare_script_read(
+                url("http://a.test:8080/data"),
+                Some(("text/plain;charset=UTF-8".to_string(), b"hi".to_vec())),
+                ScriptCredentials::SameOrigin,
+                "POST",
+                &[],
+            )
+            .unwrap();
+        assert!(check.expect("cross-origin read").preflight.is_none());
+        // Once a grant is cached for the origin+URL, the probe is gone.
+        session.cache_preflight("https://a.test", &url("http://a.test:8080/data"));
+        let (_, check) = session
+            .prepare_script_read(
+                url("http://a.test:8080/data"),
+                None,
+                ScriptCredentials::SameOrigin,
+                "GET",
+                &custom,
+            )
+            .unwrap();
+        assert!(check.expect("cross-origin read").preflight.is_none());
+    }
+
+    #[test]
+    fn preflight_grants_are_checked_against_method_headers_and_origin() {
+        let probe = |headers: &[&str]| CorsPreflight {
+            url: url("http://a.test:8080/data"),
+            method: "PUT".to_string(),
+            headers: headers.iter().map(|h| (*h).to_string()).collect(),
+        };
+        let check = |preflight, credentialed| CorsCheck {
+            page_origin: "https://a.test".to_string(),
+            credentialed,
+            preflight,
+        };
+        let grant = |origin: Option<&str>, methods: &[&str], headers: &[&str]| CorsGrant {
+            allow_origin: origin.map(str::to_string),
+            allow_methods: methods.iter().map(|m| (*m).to_string()).collect(),
+            allow_headers: headers.iter().map(|h| (*h).to_string()).collect(),
+        };
+        let put_token = check(Some(probe(&["x-token"])), false);
+        // A full grant passes; each missing piece blocks on its own.
+        assert!(!put_token.preflight_blocks(&grant(
+            Some("https://a.test"),
+            &["get", "put"],
+            &["x-token"]
+        )));
+        assert!(put_token.preflight_blocks(&grant(None, &["put"], &["x-token"])));
+        assert!(put_token.preflight_blocks(&grant(
+            Some("https://evil.test"),
+            &["put"],
+            &["x-token"]
+        )));
+        assert!(put_token.preflight_blocks(&grant(Some("https://a.test"), &["get"], &["x-token"])));
+        assert!(put_token.preflight_blocks(&grant(Some("https://a.test"), &["put"], &[])));
+        // Wildcards cover a non-credentialed read...
+        assert!(!put_token.preflight_blocks(&grant(Some("*"), &["*"], &["*"])));
+        // ...but not a credentialed one (spec reads '*' literally).
+        let credentialed = check(Some(probe(&["x-token"])), true);
+        assert!(credentialed.preflight_blocks(&grant(Some("*"), &["*"], &["*"])));
+        assert!(!credentialed.preflight_blocks(&grant(
+            Some("https://a.test"),
+            &["put"],
+            &["x-token"]
+        )));
     }
 
     #[test]
@@ -1483,6 +1708,7 @@ mod tests {
         let check = CorsCheck {
             page_origin: "https://a.test".to_string(),
             credentialed: false,
+            preflight: None,
         };
         assert!(check.blocks(&response(None)));
         assert!(!check.blocks(&response(Some("*"))));
@@ -1634,17 +1860,11 @@ mod tests {
             .unwrap()
             .border_box();
         assert!(session.set_hovered(Some(p)));
-        assert_eq!(
-            session.repaint_damage(),
-            RepaintDamage::Region(Some(p_box))
-        );
+        assert_eq!(session.repaint_damage(), RepaintDamage::Region(Some(p_box)));
 
         // Hovering off unions with the pending damage (same rect here).
         assert!(session.set_hovered(None));
-        assert_eq!(
-            session.repaint_damage(),
-            RepaintDamage::Region(Some(p_box))
-        );
+        assert_eq!(session.repaint_damage(), RepaintDamage::Region(Some(p_box)));
     }
 
     #[test]
@@ -2412,7 +2632,10 @@ mod tests {
         session.load(url("https://a.test/")).unwrap();
         // The page still renders; the file: stylesheet never reached the loader.
         assert!(session.page().is_some());
-        assert_eq!(*session.loader.loads.lock().unwrap(), vec!["https://a.test/"]);
+        assert_eq!(
+            *session.loader.loads.lock().unwrap(),
+            vec!["https://a.test/"]
+        );
     }
 
     #[test]

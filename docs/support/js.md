@@ -39,17 +39,27 @@ loader thread); the whole world drops on navigation.
 | `el.focus()` / `el.blur()` + `focus`/`blur` events | ✅ | shell applies the change; Tab/Shift+Tab cycles focusable controls |
 | `keydown` / `keyup` | ⚠️ | dispatched to the focused control (else the document) with `event.key`; preventDefault skips shell defaults |
 | `fetch` | ⚠️ | GET only; blocking under the hood, resolved between script entries; `response.text()`/`.json()`; no headers/status detail |
-| `XMLHttpRequest` | ⚠️ | `open`/`setRequestHeader`/`send`, `readyState`/`status`/`responseText`, `onreadystatechange`/`onload`/`onerror`; rides the same fetch pump (cookies + file:// gate included), only Content-Type reaches the wire |
+| `XMLHttpRequest` | ⚠️ | `open`/`setRequestHeader`/`send`, `readyState`/`status`/`responseText`, `onreadystatechange`/`onload`/`onerror`; rides the same fetch pump (cookies + file:// gate + same-origin policy included); `withCredentials` sends cookies cross-origin (an ACAO `*` grant then no longer suffices, per spec); non-simple cross-origin requests (custom header, method beyond GET/HEAD/POST, non-simple Content-Type) run a CORS preflight (OPTIONS) first, cached per origin+URL for the session; only Content-Type reaches the wire |
 | `document.cookie` | ⚠️ | reads the jar for the page URL, writes store through it (Path/Domain/Max-Age honored); HttpOnly not hidden |
 | `window` / `location` | ⚠️ | `window` aliases the global object; `location.href` read/write (write navigates) and `location.reload()` |
 | `history` | ⚠️ | `pushState`/`replaceState` rewrite the URL without reloading (same-origin enforced), `back`/`forward`/`go` traverse via the shell and fire `popstate`; `state` is JSON-serializable values |
 
 `<script>` elements (inline or `src=`) run once after the page first
-renders, in document order, sharing one global scope. Only classic
-JavaScript executes — `type="application/ld+json"`, templates, import
-maps and `type="module"` (no import support) are skipped. Runtime errors
-abort the current script/handler with a `[js] script error: …` message
-and the page keeps working.
+renders, in document order, sharing one global scope. Classic scripts
+run; `defer` scripts and `type="module"` scripts (static imports are
+fetched level by level, runtime `import()` goes through the network
+queue) run after parsing in document order. `type="application/ld+json"`,
+templates and import maps are skipped. Runtime errors abort the current
+script/handler with a `[js] script error: …` message and the page keeps
+working.
+
+Known module limit: a **top-level `await` on the page's own `fetch()`
+promise never settles**. Boa's async-job future borrows the context for
+the duration of one job-drain call and cannot be stored across script
+entries (see the `BoundedJobExecutor` notes in `scripting.rs`), so the
+parked module evaluation is dropped. Top-level awaits on
+module-internal promises (imports, already-resolved values) do settle —
+put the fetch in a `.then()` chain instead.
 
 ## History
 
