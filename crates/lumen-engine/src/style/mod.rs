@@ -2051,6 +2051,163 @@ mod tests {
     }
 
     #[test]
+    fn has_nested_in_inner_selector() {
+        let (document, styles) = styles_for(
+            "<style>div:has(section:has(> img)) { color: rgb(1, 2, 3); }</style>\
+             <body><div><section><img></section></div>\
+             <div><section><p></p></section></div></body>",
+        );
+        let ids: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "div")
+            })
+            .collect();
+        assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
+        // The nested :has(> img) finds no img child: no match.
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+    }
+
+    #[test]
+    fn has_in_non_subject_compound() {
+        let (document, styles) = styles_for(
+            "<style>.wrap:has(.inner) p { color: rgb(1, 2, 3); }</style>\
+             <body><div class=\"wrap\"><span class=\"inner\"></span><p>hit</p></div>\
+             <div class=\"wrap\"><p>miss</p></div></body>",
+        );
+        let ids: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "p")
+            })
+            .collect();
+        assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+    }
+
+    #[test]
+    fn has_in_multiple_compounds() {
+        let (document, styles) = styles_for(
+            "<style>.x:has(.y) .z:has(.w) { color: rgb(1, 2, 3); }</style>\
+             <body>\
+             <div class=\"x\"><i class=\"y\"></i><div class=\"z\"><b class=\"w\"></b></div></div>\
+             <div class=\"x\"><div class=\"z\"><b class=\"w\"></b></div></div>\
+             <div class=\"x\"><i class=\"y\"></i><div class=\"z\"></div></div>\
+             </body>",
+        );
+        let ids: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.classes().any(|class| class == "z"))
+            })
+            .collect();
+        assert_eq!(ids.len(), 3);
+        // Both compounds' clauses hold: .x has a .y, .z has a .w.
+        assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
+        // No .y under this .x: the ancestor compound's clause fails.
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+        // No .w under this .z: the subject compound's clause fails.
+        assert_eq!(styles.by_node[&ids[2]].color, Color::rgb(17, 17, 17));
+    }
+
+    #[test]
+    fn has_with_pseudo_element_is_inert() {
+        // A pseudo-element inside :has() invalidates the selector per
+        // spec (it is not forgiven): the rule never matches.
+        let (document, styles) = styles_for(
+            "<style>div:has(::before) { color: rgb(1, 2, 3); }</style>\
+             <body><div><p>x</p></div></body>",
+        );
+        assert_eq!(
+            style_of(&document, &styles, "div").color,
+            Color::rgb(17, 17, 17)
+        );
+    }
+
+    #[test]
+    fn has_with_is_and_not_inside() {
+        let (document, styles) = styles_for(
+            "<style>\
+             section:has(:is(.a, .b)) { color: rgb(1, 2, 3); } \
+             article:has(p:not(.x)) { color: rgb(4, 5, 6); } \
+             </style>\
+             <body><section><i class=\"b\"></i></section><section><i class=\"c\"></i></section>\
+             <article><p>plain</p></article><article><p class=\"x\">only</p></article></body>",
+        );
+        let sections: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "section")
+            })
+            .collect();
+        assert_eq!(styles.by_node[&sections[0]].color, Color::rgb(1, 2, 3));
+        assert_eq!(styles.by_node[&sections[1]].color, Color::rgb(17, 17, 17));
+        let articles: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "article")
+            })
+            .collect();
+        assert_eq!(styles.by_node[&articles[0]].color, Color::rgb(4, 5, 6));
+        assert_eq!(styles.by_node[&articles[1]].color, Color::rgb(17, 17, 17));
+    }
+
+    #[test]
+    fn has_inner_selector_stays_in_subtree() {
+        let (document, styles) = styles_for(
+            "<style>div:has(.a .b) { color: rgb(1, 2, 3); }</style>\
+             <body class=\"a\">\
+             <div><i class=\"a\"><span class=\"b\"></span></i></div>\
+             <div><span class=\"b\"></span></div>\
+             </body>",
+        );
+        let ids: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "div")
+            })
+            .collect();
+        assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
+        // The only .a ancestor of this .b is <body>: outside the div's
+        // subtree, so the relative selector must not match.
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+    }
+
+    #[test]
+    fn has_child_combinator_with_compound_inner() {
+        // `:has(> .a .b)` is `:scope > .a .b`: the .a must be a child,
+        // with the .b anywhere below it.
+        let (document, styles) = styles_for(
+            "<style>div:has(> .a .b) { color: rgb(1, 2, 3); }</style>\
+             <body><div><span class=\"a\"><i class=\"b\"></i></span></div>\
+             <div><section><span class=\"a\"><i class=\"b\"></i></span></section></div></body>",
+        );
+        let ids: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "div")
+            })
+            .collect();
+        assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
+        // The .a is a grandchild here, not a child: no match.
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+    }
+
+    #[test]
     fn nested_is_and_not_match_at_full_depth() {
         let (document, styles) = styles_for(
             "<style>\

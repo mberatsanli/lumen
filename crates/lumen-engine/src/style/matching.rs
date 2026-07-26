@@ -2,14 +2,17 @@
 //! against a DOM wrapper ([`DomElement`] implements its `Element`
 //! trait). The one gap upstream is `:has()` — parcel parses it but its
 //! matcher leaves it `unreachable!()`, so selectors using `:has()` are
-//! *prepared* here: the `:has()` components are cut from the selector
-//! (via a serialize/re-parse round-trip) and evaluated as separate
-//! clauses over the element's descendants/children/siblings.
+//! *prepared* here: the selector is decomposed into compounds, each
+//! compound's `:has()` components are cut (via a serialize/re-parse
+//! round-trip) and evaluated as separate clauses against the element
+//! that compound matches.
 //!
-//! Supported `:has()` forms: top-level in the subject compound, whose
-//! inner relative selectors contain no nested `:has()` and no
-//! pseudo-elements. Anything richer never matches (the rule is kept but
-//! inert), matching how the engine treats other unsupported selectors.
+//! Supported `:has()` forms: top-level in any compound (so
+//! `.a:has(.b) .c:has(.d)` works), with inner relative selectors that
+//! may themselves contain `:has()` (handled by recursion). `:has()`
+//! nested in `:not()`/`:is()`/... is unsupported and never matches,
+//! as does any pseudo-element inside `:has()` — per spec that
+//! invalidates the selector, so the rule is kept but inert.
 
 use super::interaction::InteractionState;
 use lumen_css::selector::{PseudoClass, Selector, Selectors};
@@ -254,25 +257,35 @@ fn parcel_matches(
     matches_selector(selector, 0, None, &element, &mut context, &mut |_, _| {})
 }
 
-/// The relation a `:has()` clause's inner selector has to the element.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ClauseCombinator {
-    /// `:has(img)` — any descendant.
-    Descendant,
-    /// `:has(> img)` — direct children.
-    Child,
-    /// `:has(+ img)` — the immediately following element sibling.
-    NextSibling,
-    /// `:has(~ img)` — any following element sibling.
-    LaterSibling,
+/// One compound of a decomposed selector.
+#[derive(Debug, Clone)]
+struct PreparedCompound {
+    /// The combinator linking the previous compound (nearer the
+    /// subject) to this one; `None` on the subject compound.
+    combinator: Option<Combinator>,
+    /// The compound with its `:has()` components removed, matched by
+    /// parcel. `None` only for the anchor compound ending a `:has()`
+    /// clause chain: it matches exactly the scoped element.
+    selector: Option<Selector>,
+    /// `:has()` clauses attached to this compound, evaluated against
+    /// the element the compound matches.
+    clauses: Vec<HasClause>,
 }
 
-/// One `:has(...)` argument, reduced to a combinator plus a plain
-/// selector evaluated against candidate elements.
+/// A selector decomposed into compounds so each compound's `:has()`
+/// clauses run against the element that compound matches.
+#[derive(Debug, Clone)]
+pub(crate) struct PreparedChain {
+    /// Compounds in match order: the subject first, leftmost last.
+    compounds: Vec<PreparedCompound>,
+}
+
+/// One `:has(...)` argument: an inner selector chain whose last
+/// compound is the anchor (linked by the leading combinator, matching
+/// only the element `:has()` is evaluated on).
 #[derive(Debug, Clone)]
 pub(crate) struct HasClause {
-    combinator: ClauseCombinator,
-    inner: Selector,
+    inner: PreparedChain,
 }
 
 /// How to match a selector that may contain `:has()`.
@@ -280,12 +293,8 @@ pub(crate) struct HasClause {
 pub(crate) enum PreparedSelector {
     /// No `:has()` anywhere: match the selector as-is.
     Plain,
-    /// Supported `:has()` use: match `selector` (with the `:has()`
-    /// components removed), then every clause.
-    Pruned {
-        selector: Selector,
-        clauses: Vec<HasClause>,
-    },
+    /// Supported `:has()` use: walk the decomposed chain.
+    Chain(PreparedChain),
     /// An unsupported `:has()` form: never matches.
     Never,
 }
@@ -321,53 +330,81 @@ fn selector_to_css(selector: &Selector) -> String {
 /// Analyzes a selector for `:has()` support; see the module docs for
 /// the supported forms. Computed once per style pass, not per element.
 pub(crate) fn prepare_selector(selector: &Selector) -> PreparedSelector {
-    let mut in_subject = true;
-    let mut subject_has: Vec<&[Selector]> = Vec::new();
+    let mut top_level_has = false;
+    for component in selector.iter_raw_match_order() {
+        match component {
+            Component::Has(_) => top_level_has = true,
+            // A `:has()` nested in :not()/:is()/... is unsupported.
+            component if component_has_has(component) => {
+                return PreparedSelector::Never;
+            }
+            _ => {}
+        }
+    }
+    if !top_level_has {
+        return PreparedSelector::Plain;
+    }
+    match prepare_chain(selector) {
+        Some(chain) => PreparedSelector::Chain(chain),
+        None => PreparedSelector::Never,
+    }
+}
+
+/// Decomposes a selector into per-compound pruned selectors plus their
+/// `:has()` clauses. `None` for unsupported forms: `:has()` nested in
+/// `:not()`/`:is()`/... or a pseudo-element inside a `:has()` argument.
+fn prepare_chain(selector: &Selector) -> Option<PreparedChain> {
+    // Split into compounds in match order, collecting each compound's
+    // top-level `:has()` argument lists and the combinators between.
+    let mut has_lists: Vec<Vec<&[Selector]>> = vec![Vec::new()];
+    let mut combinators: Vec<Combinator> = Vec::new();
     for component in selector.iter_raw_match_order() {
         match component {
             // The dummy combinator between a pseudo-element and the rest
             // of its compound: not a compound boundary.
             Component::Combinator(Combinator::PseudoElement) => {}
-            Component::Combinator(_) => in_subject = false,
-            Component::Has(list) if in_subject => subject_has.push(list),
-            component => {
-                // A `:has()` nested in :not()/:is()/... or sitting in a
-                // non-subject compound is unsupported.
-                if component_has_has(component) {
-                    return PreparedSelector::Never;
-                }
+            Component::Combinator(combinator) => {
+                combinators.push(*combinator);
+                has_lists.push(Vec::new());
             }
+            Component::Has(list) => has_lists.last_mut()?.push(list),
+            component if component_has_has(component) => return None,
+            _ => {}
         }
     }
-    if subject_has.is_empty() {
-        return PreparedSelector::Plain;
+    // Serialize, split at top-level combinators, and strip each piece's
+    // top-level `:has(...)` spans; pieces come out in source order.
+    let mut pieces = split_compound_pieces(&selector_to_css(selector));
+    pieces.reverse();
+    if pieces.len() != has_lists.len() {
+        return None;
     }
-    // Cut the subject-level `:has(...)` spans and re-parse: the pruned
-    // selector is plain parcel-matched.
-    let pruned_text = strip_subject_has(&selector_to_css(selector));
-    let Some(pruned) = lumen_css::selector::parse_selector(&pruned_text) else {
-        return PreparedSelector::Never;
-    };
-    let mut clauses = Vec::new();
-    for list in subject_has {
-        for inner in list {
-            match extract_clause(inner) {
-                Some(clause) => clauses.push(clause),
-                None => return PreparedSelector::Never,
+    let mut compounds = Vec::with_capacity(pieces.len());
+    for (index, (piece, lists)) in pieces.into_iter().zip(has_lists).enumerate() {
+        // A compound that held only `:has(...)` spans prunes to `*`.
+        let pruned =
+            lumen_css::selector::parse_selector(if piece.is_empty() { "*" } else { &piece })?;
+        let mut clauses = Vec::new();
+        for list in lists {
+            for inner in list {
+                clauses.push(extract_clause(inner)?);
             }
         }
+        compounds.push(PreparedCompound {
+            combinator: (index > 0).then(|| combinators[index - 1]),
+            selector: Some(pruned),
+            clauses,
+        });
     }
-    PreparedSelector::Pruned {
-        selector: pruned,
-        clauses,
-    }
+    Some(PreparedChain { compounds })
 }
 
-/// Reduces one relative selector inside `:has(...)` to a clause.
-/// `:has(img)` is implicit-descendant; an explicit leading combinator is
-/// stored as a trailing `[Combinator, Scope]` pair in match order.
+/// Reduces one relative selector inside `:has(...)` to a clause: the
+/// recursively prepared inner chain plus a final anchor compound linked
+/// by the leading combinator (`:has(img)` is implicit-descendant).
 fn extract_clause(inner: &Selector) -> Option<HasClause> {
-    if inner.has_pseudo_element() || any_has(std::slice::from_ref(inner)) {
+    // Pseudo-elements inside `:has()` invalidate the selector per spec.
+    if inner.has_pseudo_element() {
         return None;
     }
     let text = selector_to_css(inner);
@@ -376,30 +413,77 @@ fn extract_clause(inner: &Selector) -> Option<HasClause> {
         rest = stripped.trim_start();
     }
     let (combinator, rest) = match rest.as_bytes().first() {
-        Some(b'>') => (ClauseCombinator::Child, rest[1..].trim_start()),
-        Some(b'+') => (ClauseCombinator::NextSibling, rest[1..].trim_start()),
-        Some(b'~') => (ClauseCombinator::LaterSibling, rest[1..].trim_start()),
-        _ => (ClauseCombinator::Descendant, rest),
+        Some(b'>') => (Combinator::Child, rest[1..].trim_start()),
+        Some(b'+') => (Combinator::NextSibling, rest[1..].trim_start()),
+        Some(b'~') => (Combinator::LaterSibling, rest[1..].trim_start()),
+        _ => (Combinator::Descendant, rest),
     };
     let inner = lumen_css::selector::parse_selector(rest)?;
-    if inner.has_pseudo_element() || any_has(std::slice::from_ref(&inner)) {
+    if inner.has_pseudo_element() {
         return None;
     }
-    Some(HasClause { combinator, inner })
+    let mut chain = prepare_chain(&inner)?;
+    chain.compounds.push(PreparedCompound {
+        combinator: Some(combinator),
+        selector: None,
+        clauses: Vec::new(),
+    });
+    Some(HasClause { inner: chain })
 }
 
-/// Removes top-level `:has(...)` spans that sit in the subject (last)
-/// compound of a canonically serialized selector. Quote- and
-/// bracket-aware so attribute values like `[title=":has("]` survive.
-fn strip_subject_has(text: &str) -> String {
-    // Find where the subject compound starts: after the last top-level
-    // combinator (whitespace, `>`, `+`, `~`) outside parens/brackets.
-    let mut subject_start = 0;
+/// Whether `character` ends a compound at the top level of a serialized
+/// selector (combinator glyphs and the whitespace around them).
+fn is_separator(character: char) -> bool {
+    matches!(
+        character,
+        ' ' | '\t' | '\n' | '\x0C' | '\r' | '>' | '+' | '~'
+    )
+}
+
+/// Consumes the rest of a balanced `(...)` span whose open paren was
+/// already consumed, quote- and escape-aware.
+fn skip_paren_span(chars: &mut std::iter::Peekable<std::str::CharIndices>) {
+    let mut depth = 1i32;
+    let mut in_string: Option<char> = None;
+    let mut escaped = false;
+    for (_, character) in chars.by_ref() {
+        if let Some(quote) = in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == quote {
+                in_string = None;
+            }
+            continue;
+        }
+        match character {
+            '"' | '\'' => in_string = Some(character),
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Splits canonically serialized selector text at top-level combinators
+/// into compound pieces in source order, cutting every top-level
+/// `:has(...)` span. Quote- and bracket-aware so attribute values like
+/// `[title=":has("]` survive.
+fn split_compound_pieces(text: &str) -> Vec<String> {
+    let mut pieces = Vec::new();
+    let mut current = String::with_capacity(text.len());
     let mut parens = 0i32;
     let mut brackets = 0i32;
     let mut in_string: Option<char> = None;
     let mut escaped = false;
-    for (index, character) in text.char_indices() {
+    let mut chars = text.char_indices().peekable();
+    while let Some((index, character)) = chars.next() {
         if let Some(quote) = in_string {
             if escaped {
                 escaped = false;
@@ -408,86 +492,48 @@ fn strip_subject_has(text: &str) -> String {
             } else if character == quote {
                 in_string = None;
             }
+            current.push(character);
             continue;
         }
         match character {
-            '"' | '\'' => in_string = Some(character),
-            '(' => parens += 1,
-            ')' => parens -= 1,
-            '[' => brackets += 1,
-            ']' => brackets -= 1,
-            '>' | '+' | '~' if parens == 0 && brackets == 0 => subject_start = index + 1,
-            character if character.is_whitespace() && parens == 0 && brackets == 0 => {
-                subject_start = index + 1;
+            '"' | '\'' => {
+                in_string = Some(character);
+                current.push(character);
             }
-            _ => {}
-        }
-    }
-    // Cut every top-level `:has(` span from the subject onward.
-    let mut out = String::with_capacity(text.len());
-    out.push_str(&text[..subject_start]);
-    let rest = &text[subject_start..];
-    let mut depth = 0i32;
-    let mut in_string: Option<char> = None;
-    let mut escaped = false;
-    let mut copied = 0;
-    for (index, character) in rest.char_indices() {
-        if let Some(quote) = in_string {
-            if escaped {
-                escaped = false;
-            } else if character == '\\' {
-                escaped = true;
-            } else if character == quote {
-                in_string = None;
+            '(' if parens == 0 && brackets == 0 && text[..index].ends_with(":has") => {
+                // Cut the whole top-level `:has(...)` span.
+                current.truncate(current.len() - ":has".len());
+                skip_paren_span(&mut chars);
             }
-            continue;
-        }
-        match character {
-            '"' | '\'' => in_string = Some(character),
-            '[' | ']' => {}
             '(' => {
-                if depth == 0 && index >= 4 && &rest[index - 4..index] == ":has" {
-                    // Skip to the matching close paren.
-                    out.push_str(&rest[copied..index - 4]);
-                    let mut inner_depth = 1i32;
-                    let mut end = index + ":has(".len();
-                    let mut inner_string: Option<char> = None;
-                    let mut inner_escaped = false;
-                    for (inner_index, inner_char) in rest[index + 5..].char_indices() {
-                        if let Some(quote) = inner_string {
-                            if inner_escaped {
-                                inner_escaped = false;
-                            } else if inner_char == '\\' {
-                                inner_escaped = true;
-                            } else if inner_char == quote {
-                                inner_string = None;
-                            }
-                            continue;
-                        }
-                        match inner_char {
-                            '"' | '\'' => inner_string = Some(inner_char),
-                            '(' => inner_depth += 1,
-                            ')' => {
-                                inner_depth -= 1;
-                                if inner_depth == 0 {
-                                    end = index + 5 + inner_index + 1;
-                                    break;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    copied = end;
-                    continue;
-                }
-                depth += 1;
+                parens += 1;
+                current.push(character);
             }
-            ')' => depth -= 1,
-            _ => {}
+            ')' => {
+                parens -= 1;
+                current.push(character);
+            }
+            '[' => {
+                brackets += 1;
+                current.push(character);
+            }
+            ']' => {
+                brackets -= 1;
+                current.push(character);
+            }
+            character if is_separator(character) && parens == 0 && brackets == 0 => {
+                // A combinator run (glyph plus surrounding whitespace)
+                // ends the current compound piece.
+                pieces.push(std::mem::take(&mut current));
+                while chars.peek().is_some_and(|&(_, next)| is_separator(next)) {
+                    chars.next();
+                }
+            }
+            _ => current.push(character),
         }
     }
-    out.push_str(&rest[copied..]);
-    out
+    pieces.push(current);
+    pieces
 }
 
 /// Element siblings following `node`.
@@ -506,30 +552,128 @@ fn following_element_siblings(document: &Document, node: NodeId) -> Vec<NodeId> 
         .collect()
 }
 
-/// Whether one `:has()` clause holds for `node`.
+/// The element parent of `node`, skipping non-element parents.
+fn parent_element(document: &Document, node: NodeId) -> Option<NodeId> {
+    document
+        .parent(node)
+        .filter(|parent| document.element(*parent).is_some())
+}
+
+/// Element siblings preceding `node`, nearest first.
+fn preceding_element_siblings(document: &Document, node: NodeId) -> Vec<NodeId> {
+    let Some(parent) = document.parent(node) else {
+        return Vec::new();
+    };
+    let siblings = document.children(parent);
+    let Some(position) = siblings.iter().position(|sibling| *sibling == node) else {
+        return Vec::new();
+    };
+    siblings[..position]
+        .iter()
+        .rev()
+        .copied()
+        .filter(|sibling| document.element(*sibling).is_some())
+        .collect()
+}
+
+/// Whether `chain`'s compound at `index` and everything left of it
+/// match, with `node` as the element for that compound. `scope` is the
+/// element a `:has()` clause is anchored to: the chain's final
+/// `selector: None` compound matches only that node, which keeps the
+/// ancestor walk inside the anchor's subtree.
+fn chain_matches(
+    document: &Document,
+    interaction: &InteractionState,
+    node: NodeId,
+    chain: &PreparedChain,
+    index: usize,
+    scope: Option<NodeId>,
+) -> bool {
+    let compound = &chain.compounds[index];
+    let matches = match &compound.selector {
+        Some(selector) => {
+            parcel_matches(document, interaction, node, selector)
+                && compound
+                    .clauses
+                    .iter()
+                    .all(|clause| clause_matches(document, interaction, node, clause))
+        }
+        None => scope == Some(node),
+    };
+    if !matches {
+        return false;
+    }
+    let Some(next) = chain.compounds.get(index + 1) else {
+        return true;
+    };
+    match next.combinator {
+        Some(Combinator::Child) => parent_element(document, node).is_some_and(|parent| {
+            chain_matches(document, interaction, parent, chain, index + 1, scope)
+        }),
+        Some(Combinator::Descendant) => {
+            let mut ancestor = parent_element(document, node);
+            while let Some(node) = ancestor {
+                if chain_matches(document, interaction, node, chain, index + 1, scope) {
+                    return true;
+                }
+                ancestor = parent_element(document, node);
+            }
+            false
+        }
+        Some(Combinator::NextSibling) => preceding_element_siblings(document, node)
+            .first()
+            .is_some_and(|first| {
+                chain_matches(document, interaction, *first, chain, index + 1, scope)
+            }),
+        Some(Combinator::LaterSibling) => preceding_element_siblings(document, node)
+            .into_iter()
+            .any(|sibling| chain_matches(document, interaction, sibling, chain, index + 1, scope)),
+        _ => false,
+    }
+}
+
+/// Whether one `:has()` clause holds for `node`: some element related
+/// to `node` the way the leading combinator describes must satisfy the
+/// inner chain anchored at `node`.
 fn clause_matches(
     document: &Document,
     interaction: &InteractionState,
     node: NodeId,
     clause: &HasClause,
 ) -> bool {
+    let anchor = clause
+        .inner
+        .compounds
+        .last()
+        .expect("clause chains end in an anchor compound");
     let candidate_matches = |candidate: NodeId| {
         document.element(candidate).is_some()
-            && parcel_matches(document, interaction, candidate, &clause.inner)
+            && chain_matches(
+                document,
+                interaction,
+                candidate,
+                &clause.inner,
+                0,
+                Some(node),
+            )
     };
-    match clause.combinator {
-        ClauseCombinator::Descendant => document.descendants(node).any(candidate_matches),
-        ClauseCombinator::Child => document
-            .children(node)
-            .iter()
-            .copied()
-            .any(candidate_matches),
-        ClauseCombinator::NextSibling => following_element_siblings(document, node)
-            .first()
-            .is_some_and(|first| candidate_matches(*first)),
-        ClauseCombinator::LaterSibling => following_element_siblings(document, node)
+    match anchor.combinator {
+        // The inner subject sits somewhere in `node`'s subtree; the
+        // anchor compound pins the walk to it.
+        Some(Combinator::Descendant) | Some(Combinator::Child) => {
+            document.descendants(node).any(candidate_matches)
+        }
+        Some(Combinator::NextSibling) => match following_element_siblings(document, node).first() {
+            Some(first) => std::iter::once(*first)
+                .chain(document.descendants(*first))
+                .any(candidate_matches),
+            None => false,
+        },
+        Some(Combinator::LaterSibling) => following_element_siblings(document, node)
             .into_iter()
+            .flat_map(|sibling| std::iter::once(sibling).chain(document.descendants(sibling)))
             .any(candidate_matches),
+        _ => false,
     }
 }
 
@@ -542,13 +686,11 @@ pub(crate) fn selector_matches(
     selector: &Selector,
     prepared: &PreparedSelector,
 ) -> bool {
-    let (selector, clauses) = match prepared {
-        PreparedSelector::Plain => (selector, &[][..]),
-        PreparedSelector::Pruned { selector, clauses } => (selector, &clauses[..]),
-        PreparedSelector::Never => return false,
-    };
-    parcel_matches(document, interaction, node, selector)
-        && clauses
-            .iter()
-            .all(|clause| clause_matches(document, interaction, node, clause))
+    match prepared {
+        PreparedSelector::Plain => parcel_matches(document, interaction, node, selector),
+        PreparedSelector::Chain(chain) => {
+            chain_matches(document, interaction, node, chain, 0, None)
+        }
+        PreparedSelector::Never => false,
+    }
 }
