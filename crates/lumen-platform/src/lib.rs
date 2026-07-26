@@ -7,7 +7,7 @@ pub mod loader;
 
 pub use loader::{
     DefaultLoader, FileLoader, HttpLoader, LoadError, ResourceLoader, ResourceRequest,
-    ResourceResponse, Url, resolve, url_from_user_input,
+    ResourceResponse, USER_AGENT, Url, resolve, url_from_user_input,
 };
 
 /// Window size in physical pixels.

@@ -210,6 +210,22 @@ fn agent() -> &'static ureq::Agent {
     })
 }
 
+/// The browser's identity on the wire, shared with
+/// `navigator.userAgent`. Mozilla-compatible prefix: many servers
+/// 403 unknown or empty agents.
+pub const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Lumen/0.1";
+
+/// Headers every HTTP request carries, browser-style. No
+/// `Accept-Encoding`: this build does not decompress.
+const DEFAULT_HEADERS: [(&str, &str); 3] = [
+    ("User-Agent", USER_AGENT),
+    (
+        "Accept",
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    ),
+    ("Accept-Language", "en-US,en;q=0.9"),
+];
+
 /// Merges the caller's `Cookie` header with cookies collected along the
 /// redirect chain (later hops override earlier same-name values). The
 /// caller keeps the chain on one origin: a cross-origin hop stops
@@ -263,6 +279,9 @@ impl ResourceLoader for HttpLoader {
                     let mut builder = agent()
                         .post(url.as_str())
                         .header("Content-Type", content_type);
+                    for (name, value) in DEFAULT_HEADERS {
+                        builder = builder.header(name, value);
+                    }
                     if let Some(cookie) = &cookie {
                         builder = builder.header("Cookie", cookie);
                     }
@@ -272,6 +291,9 @@ impl ResourceLoader for HttpLoader {
                 }
                 None => {
                     let mut builder = agent().get(url.as_str());
+                    for (name, value) in DEFAULT_HEADERS {
+                        builder = builder.header(name, value);
+                    }
                     if let Some(cookie) = &cookie {
                         builder = builder.header("Cookie", cookie);
                     }
@@ -349,6 +371,9 @@ impl ResourceLoader for HttpLoader {
         let mut builder = agent()
             .options(probe.url.as_str())
             .header("Access-Control-Request-Method", &probe.method);
+        for (name, value) in DEFAULT_HEADERS {
+            builder = builder.header(name, value);
+        }
         if !probe.headers.is_empty() {
             builder = builder.header("Access-Control-Request-Headers", &probe.headers.join(", "));
         }
@@ -445,6 +470,26 @@ mod tests {
         let response = FileLoader.load(&ResourceRequest::get(url)).unwrap();
         assert!(response.text().contains("Hello from Lumen"));
         assert_eq!(response.content_type.as_deref(), Some("text/html"));
+    }
+
+    #[test]
+    fn requests_carry_browser_headers() {
+        let (base, rx) = serve(vec![
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_string(),
+        ]);
+        HttpLoader
+            .load(&ResourceRequest::get(Url::parse(&base).unwrap()))
+            .unwrap();
+        let head = seen(rx)[0].to_ascii_lowercase();
+        assert!(
+            head.contains(&format!("user-agent: {}", USER_AGENT.to_ascii_lowercase())),
+            "missing User-Agent in {head}"
+        );
+        assert!(head.contains("accept: text/html"), "missing Accept in {head}");
+        assert!(
+            head.contains("accept-language: en-us"),
+            "missing Accept-Language in {head}"
+        );
     }
 
     #[test]

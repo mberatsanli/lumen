@@ -44,6 +44,7 @@ use futures_concurrency::future::FutureGroup;
 use futures_lite::{StreamExt, future};
 use lumen_html::NodeId;
 use lumen_platform::{ResourceRequest, Url};
+use lumen_platform::USER_AGENT;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::Path;
@@ -2441,10 +2442,6 @@ fn json_parse(text: &str, context: &mut Context) -> Option<JsValue> {
 
 // ---- navigator ----
 
-/// The UA string navigator.userAgent reports (kept in one place so a
-/// future network User-Agent header can share it).
-const USER_AGENT: &str = "Lumen/0.1 (educational)";
-
 /// navigator.platform, following the classic (frozen) web values.
 fn platform() -> &'static str {
     match std::env::consts::OS {
@@ -4697,7 +4694,10 @@ mod tests {
         );
         let _scripts = PageScripts::new(&mut session).expect("page has scripts");
         let text = out_text(&session);
-        assert!(text.starts_with("Lumen/"), "userAgent: {text}");
+        assert!(
+            text.starts_with("Mozilla/5.0") && text.contains("Lumen/0.1"),
+            "userAgent: {text}"
+        );
         assert!(text.contains("|tr-TR|"), "language: {text}");
         assert!(text.ends_with("|true|tr-TR,en"), "rest: {text}");
     }
