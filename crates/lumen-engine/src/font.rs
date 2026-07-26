@@ -24,7 +24,11 @@ pub struct SystemFont {
     mono: Option<fontdue::Font>,
     /// Wide-coverage faces consulted when the chosen face lacks a glyph
     /// (symbols, exotic scripts) — otherwise text shows notdef boxes.
-    fallbacks: Vec<fontdue::Font>,
+    /// One lazily-parsed slot per candidate path, tried in order, so a
+    /// single uncovered glyph only pays for the faces up to the one
+    /// that covers it (parsing all of macOS's fallback faces up front
+    /// costs hundreds of MB in fontdue).
+    fallbacks: Vec<std::sync::OnceLock<Option<fontdue::Font>>>,
     glyph_cache: Mutex<HashMap<(char, u32, bool), Arc<Glyph>>>,
 }
 
@@ -52,9 +56,11 @@ const MONO_CANDIDATE_PATHS: [&str; 8] = [
 /// Wide-coverage fallback faces per platform, tried in order (all that
 /// parse are kept).
 const FALLBACK_CANDIDATE_PATHS: [&str; 5] = [
-    // macOS
-    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    // macOS — cheap first: Apple Symbols covers the common triggers
+    // (arrows, math symbols) for ~2 MB; Arial Unicode is the last
+    // resort for exotic scripts and is expensive to parse.
     "/System/Library/Fonts/Apple Symbols.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
     // Linux
     "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -118,17 +124,14 @@ impl SystemFont {
                 })
         };
         let font = load(&CANDIDATE_PATHS)?;
-        let fallbacks = FALLBACK_CANDIDATE_PATHS
-            .iter()
-            .filter_map(|path| std::fs::read(path).ok())
-            .filter_map(|data| {
-                fontdue::Font::from_bytes(data.as_slice(), fontdue::FontSettings::default()).ok()
-            })
-            .collect();
         Some(Self {
             font,
             mono: load(&MONO_CANDIDATE_PATHS),
-            fallbacks,
+            // Fallback faces parse per-slot on the first uncovered glyph.
+            fallbacks: FALLBACK_CANDIDATE_PATHS
+                .iter()
+                .map(|_| std::sync::OnceLock::new())
+                .collect(),
             glyph_cache: Mutex::new(HashMap::new()),
         })
     }
@@ -143,7 +146,8 @@ impl SystemFont {
     }
 
     /// The face that actually has a glyph for `character`: the requested
-    /// face, else the other face, else the first covering fallback.
+    /// face, else the other face, else the first covering fallback —
+    /// each fallback face is parsed only when reached.
     fn face_for(&self, character: char, monospace: bool) -> &fontdue::Font {
         let preferred = self.face(monospace);
         let has = |font: &fontdue::Font| font.lookup_glyph_index(character) != 0;
@@ -154,10 +158,20 @@ impl SystemFont {
         if has(other) {
             return other;
         }
-        self.fallbacks
-            .iter()
-            .find(|font| has(font))
-            .unwrap_or(preferred)
+        for (path, slot) in FALLBACK_CANDIDATE_PATHS.iter().zip(&self.fallbacks) {
+            let font = slot.get_or_init(|| {
+                std::fs::read(path).ok().and_then(|data| {
+                    fontdue::Font::from_bytes(data.as_slice(), fontdue::FontSettings::default())
+                        .ok()
+                })
+            });
+            if let Some(font) = font.as_ref()
+                && has(font)
+            {
+                return font;
+            }
+        }
+        preferred
     }
 
     /// Rasterizes one character at `font_size` (cached), returning metrics
@@ -400,5 +414,27 @@ mod tests {
             "expected proportional widths: {narrow} vs {wide}"
         );
         assert!(font.ascent(16.0) > 8.0);
+    }
+
+    #[test]
+    fn fallback_faces_load_lazily() {
+        // macOS's Arial Unicode costs hundreds of MB to parse in
+        // fontdue; no page should pay that unless it renders a glyph
+        // the main faces lack — and then only up to the covering face.
+        let Some(font) = SystemFont::load_default() else {
+            return; // no system fonts on this machine
+        };
+        assert!(
+            font.fallbacks.iter().all(|slot| slot.get().is_none()),
+            "fallback faces must not load eagerly"
+        );
+        // Apple Symbols covers ★: only that slot should initialize.
+        let _ = font.rasterize('★', 16.0, false);
+        let loaded = font
+            .fallbacks
+            .iter()
+            .filter(|slot| slot.get().is_some())
+            .count();
+        assert_eq!(loaded, 1, "only the first covering fallback loads");
     }
 }
