@@ -424,12 +424,13 @@ fn cursor_icon(cursor: Cursor) -> CursorIcon {
 }
 
 /// Draws proportional thumbs on `overflow: scroll/auto` boxes.
-fn draw_inner_scrollbars(
-    framebuffer: &mut lumen_engine::Framebuffer,
+/// Inner scrollbar thumbs as paint commands (window-CSS coordinates),
+/// shared by the CPU overlay pass and the GPU passes.
+fn inner_scrollbar_commands(
     layout: &lumen_engine::LayoutBox,
     offsets: &std::collections::HashMap<usize, f32>,
     page_scroll: f32,
-    scale: f32,
+    commands: &mut Vec<DisplayCommand>,
 ) {
     let max = layout.max_inner_scroll();
     if max > 0.0 && layout.style.overflow == lumen_engine::Overflow::Scroll {
@@ -438,19 +439,19 @@ fn draw_inner_scrollbars(
         let track = content.height;
         let thumb = (track * track / (track + max)).max(12.0);
         let y = content.y + (track - thumb) * (offset / max).clamp(0.0, 1.0);
-        framebuffer.blend_fill(
-            lumen_engine::Rect {
-                x: (content.x + content.width - 5.0) * scale,
-                y: (y - page_scroll + CHROME_HEIGHT) * scale,
-                width: 3.0 * scale,
-                height: thumb * scale,
+        commands.push(DisplayCommand::FillRect {
+            rect: Rect {
+                x: content.x + content.width - 5.0,
+                y: y - page_scroll + CHROME_HEIGHT,
+                width: 3.0,
+                height: thumb,
             },
-            lumen_css::Color::rgb(0x55, 0x52, 0x5c),
-            130,
-        );
+            color: lumen_css::Color::rgba(0x55, 0x52, 0x5c, 130),
+            radius: lumen_engine::Corners::uniform(0.0),
+        });
     }
     for child in &layout.children {
-        draw_inner_scrollbars(framebuffer, child, offsets, page_scroll, scale);
+        inner_scrollbar_commands(child, offsets, page_scroll, commands);
     }
 }
 
@@ -609,8 +610,11 @@ struct App {
     state: SessionState,
     proxy: winit::event_loop::EventLoopProxy<ShellEvent>,
     font: Option<Arc<SystemFont>>,
-    window: Option<Rc<Window>>,
-    surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
+    window: Option<Arc<Window>>,
+    surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
+    /// GPU raster backend; `None` means the softbuffer CPU path is used
+    /// (no adapter, or `LUMEN_RASTER=cpu`).
+    gpu: Option<lumen_gpu::GpuRenderer>,
     scroll_y: f32,
     /// Last cursor position in CSS pixels (window coordinates, bar included).
     cursor: Option<(f32, f32)>,
@@ -716,6 +720,7 @@ impl App {
             font,
             window: None,
             surface: None,
+            gpu: None,
             scroll_y: 0.0,
             cursor: None,
             url_input: None,
@@ -2758,6 +2763,370 @@ impl App {
         }
     }
 
+    /// Highlight fills (selection, find matches, edit caret) and inner
+    /// scrollbar thumbs as paint commands in window-CSS coordinates
+    /// (the rasterizer applies the device scale). Shared by the CPU
+    /// overlay pass and the GPU passes.
+    fn overlay_commands(&mut self) -> Vec<DisplayCommand> {
+        let mut commands = Vec::new();
+        let mut fill = |rect: Rect, color: lumen_css::Color, alpha: u8| {
+            commands.push(DisplayCommand::FillRect {
+                rect,
+                color: lumen_css::Color::rgba(color.r, color.g, color.b, alpha),
+                radius: lumen_engine::Corners::uniform(0.0),
+            });
+        };
+        let scroll_y = self.scroll_y;
+        let to_window = |rect: Rect| Rect {
+            y: rect.y - scroll_y + CHROME_HEIGHT,
+            ..rect
+        };
+        let selection_runs = if self
+            .selection
+            .is_some_and(|selection| !selection.is_empty())
+        {
+            self.text_runs()
+        } else {
+            None
+        };
+        if let (Some(selection), Some(runs)) = (self.selection, selection_runs) {
+            let measurer = self.measurer();
+            for region in highlight_rects(&runs, &selection, measurer.as_ref()) {
+                // ::selection backgrounds render stronger than the default
+                // translucent blue.
+                let (color, alpha) = match region.background {
+                    Some(custom) => (custom, 150),
+                    None => (lumen_css::Color::rgb(0x33, 0x8c, 0xff), 92),
+                };
+                fill(to_window(region.rect), color, alpha);
+            }
+        }
+        // Find matches highlight in yellow; the current one in orange.
+        let find_runs = if self.find_input.is_some() && !self.find_matches.is_empty() {
+            self.text_runs()
+        } else {
+            None
+        };
+        if let Some(runs) = find_runs {
+            let measurer = self.measurer();
+            for (index, matched) in self.find_matches.iter().enumerate() {
+                let (color, alpha) = if index == self.find_index {
+                    (lumen_css::Color::rgb(0xff, 0x8c, 0x1a), 150)
+                } else {
+                    (lumen_css::Color::rgb(0xff, 0xd5, 0x4f), 110)
+                };
+                for region in highlight_rects(&runs, matched, measurer.as_ref()) {
+                    fill(to_window(region.rect), color, alpha);
+                }
+            }
+        }
+        // Focused in-page input: selection highlight + caret line (the
+        // session owns the geometry).
+        if let Some(overlay) = self.session().and_then(Session::edit_overlay) {
+            if let Some(selection) = overlay.selection {
+                fill(
+                    to_window(selection),
+                    lumen_css::Color::rgb(0xb3, 0xd4, 0xfc),
+                    140,
+                );
+            }
+            if let Some(caret) = overlay.caret {
+                fill(to_window(caret), lumen_css::Color::rgb(0x20, 0x20, 0x20), 255);
+            }
+        }
+        // Inner scrollbars: a thin thumb on every scrollable box.
+        if let SessionState::Ready(session) = &self.state
+            && let Some(page) = session.page()
+        {
+            inner_scrollbar_commands(
+                &page.layout,
+                session.scroll_offsets(),
+                self.scroll_y,
+                &mut commands,
+            );
+        }
+        commands
+    }
+
+    /// The page scrollbar thumb as paint commands (window-CSS coords).
+    fn scrollbar_thumb_commands(&self) -> Vec<DisplayCommand> {
+        let max_scroll = self.max_scroll();
+        if max_scroll <= 0.0 {
+            return Vec::new();
+        }
+        let viewport = self.viewport();
+        let content_height = viewport.height + max_scroll;
+        let thumb_height = (viewport.height * viewport.height / content_height).max(24.0);
+        let thumb_y = CHROME_HEIGHT
+            + (viewport.height - thumb_height) * (self.scroll_y / max_scroll).clamp(0.0, 1.0);
+        vec![DisplayCommand::FillRect {
+            rect: Rect {
+                x: viewport.width - 8.0,
+                y: thumb_y,
+                width: 5.0,
+                height: thumb_height,
+            },
+            color: lumen_css::Color::rgba(0x55, 0x52, 0x5c, 120),
+            radius: lumen_engine::Corners::uniform(0.0),
+        }]
+    }
+
+    /// Open select dropdown: a native-looking card over the page — soft
+    /// shadow, rounded opaque panel, hover highlight, and a tick on the
+    /// selected option.
+    fn select_popup_commands(&self) -> Option<Vec<DisplayCommand>> {
+        let popup = self.select_popup.as_ref()?;
+        let mut commands: Vec<DisplayCommand> = Vec::new();
+        let rect = popup.rect;
+        commands.push(DisplayCommand::DrawShadow {
+            rect: Rect {
+                x: rect.x,
+                y: rect.y + 3.0,
+                ..rect
+            },
+            radius: lumen_engine::Corners::uniform(8.0),
+            blur: 14.0,
+            color: lumen_css::Color::rgba(0x20, 0x1c, 0x2a, 70),
+            inset: false,
+        });
+        commands.push(DisplayCommand::FillRect {
+            rect,
+            color: lumen_css::Color::rgb(0xff, 0xff, 0xff),
+            radius: lumen_engine::Corners::uniform(8.0),
+        });
+        commands.push(DisplayCommand::StrokeRect {
+            rect,
+            widths: lumen_engine::EdgeSizes::uniform(1.0),
+            colors: lumen_engine::EdgeSizes::uniform(lumen_css::Color::rgb(0xd6, 0xd1, 0xc6)),
+            styles: lumen_engine::EdgeSizes::uniform(lumen_engine::BorderStyle::Solid),
+            radius: lumen_engine::Corners::uniform(8.0),
+        });
+        for (index, (_, label)) in popup.options.iter().enumerate() {
+            let row_y = rect.y + 6.0 + SELECT_ROW_HEIGHT * index as f32;
+            if index == popup.hovered {
+                commands.push(DisplayCommand::FillRect {
+                    rect: Rect {
+                        x: rect.x + 4.0,
+                        y: row_y,
+                        width: rect.width - 8.0,
+                        height: SELECT_ROW_HEIGHT,
+                    },
+                    color: lumen_css::Color::rgb(0xea, 0xf1, 0xf8),
+                    radius: lumen_engine::Corners::uniform(5.0),
+                });
+            }
+            if index == popup.selected {
+                commands.push(DisplayCommand::DrawMark {
+                    rect: Rect {
+                        x: rect.x + 8.0,
+                        y: row_y + (SELECT_ROW_HEIGHT - 12.0) / 2.0,
+                        width: 12.0,
+                        height: 12.0,
+                    },
+                    color: lumen_css::Color::rgb(0x22, 0x66, 0xaa),
+                    mark: lumen_engine::Mark::Check,
+                });
+            }
+            commands.push(DisplayCommand::DrawText {
+                x: rect.x + 26.0,
+                y: row_y + SELECT_ROW_HEIGHT - 7.0,
+                text: label.clone(),
+                color: lumen_css::Color::rgb(0x23, 0x20, 0x19),
+                font_size: 13.0,
+                font_weight: if index == popup.selected { 600 } else { 400 },
+                underline: false,
+                italic: false,
+                monospace: false,
+                line_through: false,
+                letter_spacing: 0.0,
+                decoration_color: lumen_css::Color::rgb(0, 0, 0),
+                decoration_style: lumen_engine::BorderStyle::Solid,
+            });
+        }
+        Some(commands)
+    }
+
+    /// Open color palette: the same card treatment with a grid of
+    /// swatches; the hovered one gets a blue ring.
+    fn color_popup_commands(&self) -> Option<Vec<DisplayCommand>> {
+        let popup = self.color_popup.as_ref()?;
+        let mut commands: Vec<DisplayCommand> = Vec::new();
+        let rect = popup.rect;
+        commands.push(DisplayCommand::DrawShadow {
+            rect: Rect {
+                x: rect.x,
+                y: rect.y + 3.0,
+                ..rect
+            },
+            radius: lumen_engine::Corners::uniform(8.0),
+            blur: 14.0,
+            color: lumen_css::Color::rgba(0x20, 0x1c, 0x2a, 70),
+            inset: false,
+        });
+        commands.push(DisplayCommand::FillRect {
+            rect,
+            color: lumen_css::Color::rgb(0xff, 0xff, 0xff),
+            radius: lumen_engine::Corners::uniform(8.0),
+        });
+        commands.push(DisplayCommand::StrokeRect {
+            rect,
+            widths: lumen_engine::EdgeSizes::uniform(1.0),
+            colors: lumen_engine::EdgeSizes::uniform(lumen_css::Color::rgb(0xd6, 0xd1, 0xc6)),
+            styles: lumen_engine::EdgeSizes::uniform(lumen_engine::BorderStyle::Solid),
+            radius: lumen_engine::Corners::uniform(8.0),
+        });
+        for (index, hex) in COLOR_SWATCHES.iter().enumerate() {
+            let swatch = swatch_rect(rect, index);
+            let Some(color) = lumen_css::Color::parse(hex) else {
+                continue;
+            };
+            commands.push(DisplayCommand::FillRect {
+                rect: swatch,
+                color,
+                radius: lumen_engine::Corners::uniform(4.0),
+            });
+            let ring = popup.hovered == Some(index);
+            commands.push(DisplayCommand::StrokeRect {
+                rect: swatch,
+                widths: lumen_engine::EdgeSizes::uniform(if ring { 2.0 } else { 1.0 }),
+                colors: lumen_engine::EdgeSizes::uniform(if ring {
+                    lumen_css::Color::rgb(0x22, 0x66, 0xaa)
+                } else {
+                    lumen_css::Color::rgba(0, 0, 0, 40)
+                }),
+                styles: lumen_engine::EdgeSizes::uniform(lumen_engine::BorderStyle::Solid),
+                radius: lumen_engine::Corners::uniform(4.0),
+            });
+        }
+        Some(commands)
+    }
+
+    /// Form-validation bubble: a dark Chrome-style card under the
+    /// violating control. It only draws while the session still reports
+    /// the violation — a cleared one closes the bubble.
+    fn violation_popup_commands(&self) -> Option<Vec<DisplayCommand>> {
+        let popup = self.violation_popup.as_ref()?;
+        if self
+            .session()
+            .and_then(Session::form_violation)
+            .is_none_or(|violation| violation.node != popup.node)
+        {
+            return None;
+        }
+        let rect = popup.rect;
+        Some(vec![
+            DisplayCommand::DrawShadow {
+                rect: Rect {
+                    x: rect.x,
+                    y: rect.y + 2.0,
+                    ..rect
+                },
+                radius: lumen_engine::Corners::uniform(6.0),
+                blur: 12.0,
+                color: lumen_css::Color::rgba(0x20, 0x1c, 0x2a, 90),
+                inset: false,
+            },
+            DisplayCommand::FillRect {
+                rect,
+                color: lumen_css::Color::rgb(0x32, 0x2f, 0x35),
+                radius: lumen_engine::Corners::uniform(6.0),
+            },
+            DisplayCommand::DrawText {
+                x: rect.x + 12.0,
+                y: rect.y + rect.height - 10.0,
+                text: popup.message.clone(),
+                color: lumen_css::Color::rgb(0xff, 0xff, 0xff),
+                font_size: 13.0,
+                font_weight: 400,
+                underline: false,
+                italic: false,
+                monospace: false,
+                line_through: false,
+                letter_spacing: 0.0,
+                decoration_color: lumen_css::Color::rgb(0, 0, 0),
+                decoration_style: lumen_engine::BorderStyle::Solid,
+            },
+        ])
+    }
+
+    /// GPU frame: page + overlays + chrome as layered passes. Returns
+    /// false when the GPU is unusable — the caller then re-arms the
+    /// softbuffer fallback and repaints on the CPU path.
+    fn render_gpu_frame(&mut self, width: u32, height: u32, chrome: &[DisplayCommand]) -> bool {
+        let scale = self.scale();
+        let font = self.effective_font();
+        let overlay = self.overlay_commands();
+        let thumb = self.scrollbar_thumb_commands();
+        let select = self.select_popup_commands();
+        let color = self.color_popup_commands();
+        let violation = self.violation_popup_commands();
+        let hud = if self.debug_hud {
+            Some(self.hud_commands())
+        } else {
+            None
+        };
+        let sticky = self.sticky_display_list();
+        let page: Option<&Vec<DisplayCommand>> = match &sticky {
+            Some(list) => Some(list.as_ref()),
+            None => match &self.state {
+                SessionState::Ready(session) => session.page().map(|page| &page.display_list),
+                _ => None,
+            },
+        };
+        let mut passes: Vec<lumen_gpu::Pass> = Vec::new();
+        if let Some(page) = page {
+            passes.push(lumen_gpu::Pass::new(
+                page,
+                self.scroll_y - CHROME_HEIGHT,
+                // Fixed content pins below the chrome, not to the
+                // framebuffer's top edge.
+                -CHROME_HEIGHT,
+            ));
+        }
+        passes.push(lumen_gpu::Pass::new(&overlay, 0.0, 0.0));
+        for popup in [&select, &color, &violation].into_iter().flatten() {
+            passes.push(lumen_gpu::Pass::new(
+                popup,
+                self.scroll_y - CHROME_HEIGHT,
+                0.0,
+            ));
+        }
+        passes.push(lumen_gpu::Pass::new(&thumb, 0.0, 0.0));
+        passes.push(lumen_gpu::Pass::new(chrome, 0.0, 0.0));
+        if let Some(hud) = &hud {
+            passes.push(lumen_gpu::Pass::new(hud, 0.0, 0.0));
+        }
+        let Some(gpu) = self.gpu.as_mut() else {
+            return false;
+        };
+        gpu.resize(width, height);
+        if gpu.render_passes(&passes, scale, font.as_deref()).is_none() {
+            return false;
+        }
+        self.last_frame_kind = "gpu";
+        // The full frame was painted; any accumulated damage is subsumed.
+        if let SessionState::Ready(session) = &mut self.state {
+            session.note_rasterized();
+        }
+        true
+    }
+
+    /// Re-arms the softbuffer CPU path when the GPU is lost mid-session.
+    fn ensure_cpu_surface(&mut self) {
+        if self.surface.is_some() {
+            return;
+        }
+        let Some(window) = self.window.clone() else {
+            return;
+        };
+        let Ok(context) = softbuffer::Context::new(window.clone()) else {
+            return;
+        };
+        if let Ok(surface) = softbuffer::Surface::new(&context, window) {
+            self.surface = Some(surface);
+        }
+    }
+
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
         let frame_started = Instant::now();
         // Step running CSS transitions and script timers; keep redrawing
@@ -2793,6 +3162,23 @@ impl App {
         else {
             return;
         };
+
+        // GPU path: page + overlays + chrome as layered passes, no
+        // framebuffer cache (a full GPU repaint is cheap). On failure the
+        // softbuffer CPU path below takes over permanently.
+        if self.gpu.is_some() {
+            if self.render_gpu_frame(size.width, size.height, &chrome) {
+                let now = Instant::now();
+                self.frame_times.push_back((now, now - frame_started));
+                while self.frame_times.len() > 240 {
+                    self.frame_times.pop_front();
+                }
+                return;
+            }
+            self.gpu = None;
+            self.ensure_cpu_surface();
+            eprintln!("note: GPU presentation failed, falling back to CPU rasterization");
+        }
 
         // Page first (offset below the bar via the scroll shift), then the
         // chrome painted over it. The page raster is cached so overlay-only
@@ -2952,307 +3338,42 @@ impl App {
             }
             _ => base.clone(),
         };
-        let selection_runs = if self
-            .selection
-            .is_some_and(|selection| !selection.is_empty())
+        // Highlights (selection/find/caret) and inner scrollbar thumbs,
+        // as paint commands shared with the GPU overlay passes.
+        let overlay = self.overlay_commands();
+        rasterize_over(
+            &mut framebuffer,
+            &overlay,
+            0.0,
+            scale,
+            self.effective_font().as_deref(),
+        );
+        // Open select dropdown / color palette / validation bubble.
+        for popup in [
+            self.select_popup_commands(),
+            self.color_popup_commands(),
+            self.violation_popup_commands(),
+        ]
+        .into_iter()
+        .flatten()
         {
-            self.text_runs()
-        } else {
-            None
-        };
-        if let (Some(selection), Some(runs)) = (self.selection, selection_runs) {
-            let measurer = self.measurer();
-            for region in highlight_rects(&runs, &selection, measurer.as_ref()) {
-                // ::selection backgrounds render stronger than the default
-                // translucent blue.
-                let (color, alpha) = match region.background {
-                    Some(custom) => (custom, 150),
-                    None => (lumen_css::Color::rgb(0x33, 0x8c, 0xff), 92),
-                };
-                framebuffer.blend_fill(
-                    Rect {
-                        x: region.rect.x * scale,
-                        y: (region.rect.y - self.scroll_y + CHROME_HEIGHT) * scale,
-                        width: region.rect.width * scale,
-                        height: region.rect.height * scale,
-                    },
-                    color,
-                    alpha,
-                );
-            }
-        }
-        // Find matches highlight in yellow; the current one in orange.
-        let find_runs = if self.find_input.is_some() && !self.find_matches.is_empty() {
-            self.text_runs()
-        } else {
-            None
-        };
-        if let Some(runs) = find_runs {
-            let measurer = self.measurer();
-            for (index, matched) in self.find_matches.iter().enumerate() {
-                let (color, alpha) = if index == self.find_index {
-                    (lumen_css::Color::rgb(0xff, 0x8c, 0x1a), 150)
-                } else {
-                    (lumen_css::Color::rgb(0xff, 0xd5, 0x4f), 110)
-                };
-                for region in highlight_rects(&runs, matched, measurer.as_ref()) {
-                    framebuffer.blend_fill(
-                        Rect {
-                            x: region.rect.x * scale,
-                            y: (region.rect.y - self.scroll_y + CHROME_HEIGHT) * scale,
-                            width: region.rect.width * scale,
-                            height: region.rect.height * scale,
-                        },
-                        color,
-                        alpha,
-                    );
-                }
-            }
-        }
-        // Focused in-page input: selection highlight + caret line (the
-        // session owns the geometry).
-        if let Some(overlay) = self.session().and_then(Session::edit_overlay) {
-            let to_device = |rect: Rect| Rect {
-                x: rect.x * scale,
-                y: (rect.y - self.scroll_y + CHROME_HEIGHT) * scale,
-                width: rect.width * scale,
-                height: rect.height * scale,
-            };
-            if let Some(selection) = overlay.selection {
-                framebuffer.blend_fill(
-                    to_device(selection),
-                    lumen_css::Color::rgb(0xb3, 0xd4, 0xfc),
-                    140,
-                );
-            }
-            if let Some(caret) = overlay.caret {
-                framebuffer.blend_fill(
-                    to_device(caret),
-                    lumen_css::Color::rgb(0x20, 0x20, 0x20),
-                    255,
-                );
-            }
-        }
-        // Inner scrollbars: a thin thumb on every scrollable box.
-        if let SessionState::Ready(session) = &self.state
-            && let Some(page) = session.page()
-        {
-            draw_inner_scrollbars(
-                &mut framebuffer,
-                &page.layout,
-                session.scroll_offsets(),
-                self.scroll_y,
-                scale,
-            );
-        }
-        // Open select dropdown: a native-looking card over the page —
-        // soft shadow, rounded opaque panel, hover highlight, and a tick
-        // on the selected option.
-        if let Some(popup) = &self.select_popup {
-            let mut commands: Vec<DisplayCommand> = Vec::new();
-            let rect = popup.rect;
-            commands.push(DisplayCommand::DrawShadow {
-                rect: Rect {
-                    x: rect.x,
-                    y: rect.y + 3.0,
-                    ..rect
-                },
-                radius: lumen_engine::Corners::uniform(8.0),
-                blur: 14.0,
-                color: lumen_css::Color::rgba(0x20, 0x1c, 0x2a, 70),
-                inset: false,
-            });
-            commands.push(DisplayCommand::FillRect {
-                rect,
-                color: lumen_css::Color::rgb(0xff, 0xff, 0xff),
-                radius: lumen_engine::Corners::uniform(8.0),
-            });
-            commands.push(DisplayCommand::StrokeRect {
-                rect,
-                widths: lumen_engine::EdgeSizes::uniform(1.0),
-                colors: lumen_engine::EdgeSizes::uniform(lumen_css::Color::rgb(0xd6, 0xd1, 0xc6)),
-                styles: lumen_engine::EdgeSizes::uniform(lumen_engine::BorderStyle::Solid),
-                radius: lumen_engine::Corners::uniform(8.0),
-            });
-            for (index, (_, label)) in popup.options.iter().enumerate() {
-                let row_y = rect.y + 6.0 + SELECT_ROW_HEIGHT * index as f32;
-                if index == popup.hovered {
-                    commands.push(DisplayCommand::FillRect {
-                        rect: Rect {
-                            x: rect.x + 4.0,
-                            y: row_y,
-                            width: rect.width - 8.0,
-                            height: SELECT_ROW_HEIGHT,
-                        },
-                        color: lumen_css::Color::rgb(0xea, 0xf1, 0xf8),
-                        radius: lumen_engine::Corners::uniform(5.0),
-                    });
-                }
-                if index == popup.selected {
-                    commands.push(DisplayCommand::DrawMark {
-                        rect: Rect {
-                            x: rect.x + 8.0,
-                            y: row_y + (SELECT_ROW_HEIGHT - 12.0) / 2.0,
-                            width: 12.0,
-                            height: 12.0,
-                        },
-                        color: lumen_css::Color::rgb(0x22, 0x66, 0xaa),
-                        mark: lumen_engine::Mark::Check,
-                    });
-                }
-                commands.push(DisplayCommand::DrawText {
-                    x: rect.x + 26.0,
-                    y: row_y + SELECT_ROW_HEIGHT - 7.0,
-                    text: label.clone(),
-                    color: lumen_css::Color::rgb(0x23, 0x20, 0x19),
-                    font_size: 13.0,
-                    font_weight: if index == popup.selected { 600 } else { 400 },
-                    underline: false,
-                    italic: false,
-                    monospace: false,
-                    line_through: false,
-                    letter_spacing: 0.0,
-                    decoration_color: lumen_css::Color::rgb(0, 0, 0),
-                    decoration_style: lumen_engine::BorderStyle::Solid,
-                });
-            }
             rasterize_over(
                 &mut framebuffer,
-                &commands,
-                self.scroll_y - CHROME_HEIGHT,
-                scale,
-                self.effective_font().as_deref(),
-            );
-        }
-        // Open color palette: the same card treatment with a grid of
-        // swatches; the hovered one gets a blue ring.
-        if let Some(popup) = &self.color_popup {
-            let mut commands: Vec<DisplayCommand> = Vec::new();
-            let rect = popup.rect;
-            commands.push(DisplayCommand::DrawShadow {
-                rect: Rect {
-                    x: rect.x,
-                    y: rect.y + 3.0,
-                    ..rect
-                },
-                radius: lumen_engine::Corners::uniform(8.0),
-                blur: 14.0,
-                color: lumen_css::Color::rgba(0x20, 0x1c, 0x2a, 70),
-                inset: false,
-            });
-            commands.push(DisplayCommand::FillRect {
-                rect,
-                color: lumen_css::Color::rgb(0xff, 0xff, 0xff),
-                radius: lumen_engine::Corners::uniform(8.0),
-            });
-            commands.push(DisplayCommand::StrokeRect {
-                rect,
-                widths: lumen_engine::EdgeSizes::uniform(1.0),
-                colors: lumen_engine::EdgeSizes::uniform(lumen_css::Color::rgb(0xd6, 0xd1, 0xc6)),
-                styles: lumen_engine::EdgeSizes::uniform(lumen_engine::BorderStyle::Solid),
-                radius: lumen_engine::Corners::uniform(8.0),
-            });
-            for (index, hex) in COLOR_SWATCHES.iter().enumerate() {
-                let swatch = swatch_rect(rect, index);
-                let Some(color) = lumen_css::Color::parse(hex) else {
-                    continue;
-                };
-                commands.push(DisplayCommand::FillRect {
-                    rect: swatch,
-                    color,
-                    radius: lumen_engine::Corners::uniform(4.0),
-                });
-                let ring = popup.hovered == Some(index);
-                commands.push(DisplayCommand::StrokeRect {
-                    rect: swatch,
-                    widths: lumen_engine::EdgeSizes::uniform(if ring { 2.0 } else { 1.0 }),
-                    colors: lumen_engine::EdgeSizes::uniform(if ring {
-                        lumen_css::Color::rgb(0x22, 0x66, 0xaa)
-                    } else {
-                        lumen_css::Color::rgba(0, 0, 0, 40)
-                    }),
-                    styles: lumen_engine::EdgeSizes::uniform(lumen_engine::BorderStyle::Solid),
-                    radius: lumen_engine::Corners::uniform(4.0),
-                });
-            }
-            rasterize_over(
-                &mut framebuffer,
-                &commands,
-                self.scroll_y - CHROME_HEIGHT,
-                scale,
-                self.effective_font().as_deref(),
-            );
-        }
-        // Form-validation bubble: a dark Chrome-style card under the
-        // violating control. It only draws while the session still
-        // reports the violation — a cleared one closes the bubble.
-        if let Some(popup) = &self.violation_popup
-            && self
-                .session()
-                .and_then(Session::form_violation)
-                .is_some_and(|violation| violation.node == popup.node)
-        {
-            let rect = popup.rect;
-            let commands = vec![
-                DisplayCommand::DrawShadow {
-                    rect: Rect {
-                        x: rect.x,
-                        y: rect.y + 2.0,
-                        ..rect
-                    },
-                    radius: lumen_engine::Corners::uniform(6.0),
-                    blur: 12.0,
-                    color: lumen_css::Color::rgba(0x20, 0x1c, 0x2a, 90),
-                    inset: false,
-                },
-                DisplayCommand::FillRect {
-                    rect,
-                    color: lumen_css::Color::rgb(0x32, 0x2f, 0x35),
-                    radius: lumen_engine::Corners::uniform(6.0),
-                },
-                DisplayCommand::DrawText {
-                    x: rect.x + 12.0,
-                    y: rect.y + rect.height - 10.0,
-                    text: popup.message.clone(),
-                    color: lumen_css::Color::rgb(0xff, 0xff, 0xff),
-                    font_size: 13.0,
-                    font_weight: 400,
-                    underline: false,
-                    italic: false,
-                    monospace: false,
-                    line_through: false,
-                    letter_spacing: 0.0,
-                    decoration_color: lumen_css::Color::rgb(0, 0, 0),
-                    decoration_style: lumen_engine::BorderStyle::Solid,
-                },
-            ];
-            rasterize_over(
-                &mut framebuffer,
-                &commands,
+                &popup,
                 self.scroll_y - CHROME_HEIGHT,
                 scale,
                 self.effective_font().as_deref(),
             );
         }
         // Scrollbar: a proportional overlay thumb on the right edge.
-        let max_scroll = self.max_scroll();
-        if max_scroll > 0.0 {
-            let viewport = self.viewport();
-            let content_height = viewport.height + max_scroll;
-            let thumb_height = (viewport.height * viewport.height / content_height).max(24.0);
-            let thumb_y = CHROME_HEIGHT
-                + (viewport.height - thumb_height) * (self.scroll_y / max_scroll).clamp(0.0, 1.0);
-            framebuffer.blend_fill(
-                Rect {
-                    x: (viewport.width - 8.0) * scale,
-                    y: thumb_y * scale,
-                    width: 5.0 * scale,
-                    height: thumb_height * scale,
-                },
-                lumen_css::Color::rgb(0x55, 0x52, 0x5c),
-                120,
-            );
-        }
+        let thumb = self.scrollbar_thumb_commands();
+        rasterize_over(
+            &mut framebuffer,
+            &thumb,
+            0.0,
+            scale,
+            self.effective_font().as_deref(),
+        );
         rasterize_over(
             &mut framebuffer,
             &chrome,
@@ -3681,27 +3802,43 @@ impl ApplicationHandler<ShellEvent> for App {
             .with_title("Lumen")
             .with_min_inner_size(winit::dpi::LogicalSize::new(320.0, 240.0));
         let window = match event_loop.create_window(attributes) {
-            Ok(window) => Rc::new(window),
+            Ok(window) => Arc::new(window),
             Err(error) => {
                 eprintln!("error: cannot create window: {error}");
                 event_loop.exit();
                 return;
             }
         };
-        let context = match softbuffer::Context::new(window.clone()) {
-            Ok(context) => context,
-            Err(error) => {
-                eprintln!("error: cannot create draw context: {error}");
-                event_loop.exit();
-                return;
+        // GPU rasterization first (wgpu); softbuffer/CPU stays as the
+        // fallback when no adapter is available or LUMEN_RASTER=cpu.
+        let gpu_forced_off = std::env::var("LUMEN_RASTER").is_ok_and(|value| value == "cpu");
+        if !gpu_forced_off {
+            let size = window.inner_size();
+            self.gpu = lumen_gpu::GpuRenderer::for_surface(
+                window.clone(),
+                size.width,
+                size.height,
+            );
+            if self.gpu.is_some() {
+                eprintln!("note: GPU rasterization enabled (LUMEN_RASTER=cpu to disable)");
             }
-        };
-        match softbuffer::Surface::new(&context, window.clone()) {
-            Ok(surface) => self.surface = Some(surface),
-            Err(error) => {
-                eprintln!("error: cannot create draw surface: {error}");
-                event_loop.exit();
-                return;
+        }
+        if self.gpu.is_none() {
+            let context = match softbuffer::Context::new(window.clone()) {
+                Ok(context) => context,
+                Err(error) => {
+                    eprintln!("error: cannot create draw context: {error}");
+                    event_loop.exit();
+                    return;
+                }
+            };
+            match softbuffer::Surface::new(&context, window.clone()) {
+                Ok(surface) => self.surface = Some(surface),
+                Err(error) => {
+                    eprintln!("error: cannot create draw surface: {error}");
+                    event_loop.exit();
+                    return;
+                }
             }
         }
         self.window = Some(window);

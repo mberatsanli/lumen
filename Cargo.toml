@@ -6,6 +6,7 @@ members = [
   "crates/lumen-engine",
   "crates/lumen-browser",
   "crates/lumen-platform",
+  "crates/lumen-gpu",
   "apps/lumen-cli",
   "apps/lumen-desktop",
 ]
