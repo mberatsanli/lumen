@@ -141,6 +141,23 @@ pub fn build_display_list_scrolled(
     images: &ImageMap,
     scroll_offsets: &std::collections::HashMap<lumen_html::NodeId, f32>,
 ) -> Vec<DisplayCommand> {
+    build_display_list_page(layout, images, scroll_offsets, 0.0, 0.0)
+}
+
+/// [`build_display_list_scrolled`] with the page-scroll component of
+/// `position: sticky` shifts baked in: shells that apply the page scroll
+/// at raster time (the raster backend knows a single scroll value) call
+/// this so sticky boxes paint at their stuck position, glued to the page
+/// viewport of `viewport_height`. With a zero `page_scroll` it reduces
+/// to [`build_display_list_scrolled`].
+#[must_use]
+pub fn build_display_list_page(
+    layout: &LayoutBox,
+    images: &ImageMap,
+    scroll_offsets: &std::collections::HashMap<lumen_html::NodeId, f32>,
+    page_scroll: f32,
+    viewport_height: f32,
+) -> Vec<DisplayCommand> {
     let mut commands = Vec::new();
     // Per CSS, the root element's background (or the body's, when the root
     // is transparent) paints the whole canvas, not just its own box.
@@ -159,6 +176,7 @@ pub fn build_display_list_scrolled(
         scroll_offsets,
         &mut commands,
         0,
+        (page_scroll, viewport_height),
     );
     commands
 }
@@ -181,6 +199,9 @@ fn canvas_background(root: &LayoutBox) -> Option<Color> {
 /// enclosing scroll shift (it is viewport-relative by definition), so
 /// it paints with a zero shift inside a [`DisplayCommand::PushFixed`]
 /// scope — the raster backend then skips the page scroll for it too.
+/// `page` carries the page scroll and viewport height for the sticky
+/// page-shift (zeroed inside fixed scopes: their content does not
+/// scroll with the page).
 #[allow(clippy::too_many_arguments)]
 fn paint_child(
     child: &LayoutBox,
@@ -190,6 +211,7 @@ fn paint_child(
     scroll_offsets: &std::collections::HashMap<lumen_html::NodeId, f32>,
     commands: &mut Vec<DisplayCommand>,
     depth: usize,
+    page: (f32, f32),
 ) {
     if child.style.position == Position::Fixed {
         commands.push(DisplayCommand::PushFixed);
@@ -201,6 +223,7 @@ fn paint_child(
             scroll_offsets,
             commands,
             depth + 1,
+            (0.0, page.1),
         );
         commands.push(DisplayCommand::PopFixed);
     } else {
@@ -212,10 +235,12 @@ fn paint_child(
             scroll_offsets,
             commands,
             depth + 1,
+            page,
         );
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_box(
     layout: &LayoutBox,
     images: &ImageMap,
@@ -224,6 +249,7 @@ fn paint_box(
     scroll_offsets: &std::collections::HashMap<lumen_html::NodeId, f32>,
     commands: &mut Vec<DisplayCommand>,
     depth: usize,
+    page: (f32, f32),
 ) {
     // Depth guard: deeper subtrees are simply not painted (layout already
     // caps nesting, this is the second line of defense).
@@ -618,12 +644,23 @@ fn paint_box(
     // offset (the clip is already in place). Inline lines and block
     // children both scroll. `position: sticky` children counter-shift to
     // stay glued to the container's padding box (see
-    // LayoutBox::sticky_child_shift).
+    // LayoutBox::sticky_child_shift) — or to the page viewport when the
+    // page itself is their scroll container (LayoutBox::
+    // page_sticky_child_shift, baked in from the shell's page scroll).
     let scroll_offset = match scroll_offsets.get(&layout.node_id) {
         Some(offset) if clips => *offset,
         _ => 0.0,
     };
     let child_shift = (shift.0, shift.1 - scroll_offset);
+    // The page-scroll sticky shift applies only when this box is not an
+    // inner scroll container for its children.
+    let page_sticky = |child: &LayoutBox| {
+        if clips {
+            0.0
+        } else {
+            layout.page_sticky_child_shift(child, page.0, page.1)
+        }
+    };
 
     if let LayoutKind::Inline { lines } = &layout.kind {
         let content = {
@@ -703,6 +740,7 @@ fn paint_box(
                             scroll_offsets,
                             commands,
                             depth,
+                            page,
                         );
                     }
                     crate::inline::FragmentContent::Text { .. } => {}
@@ -720,7 +758,7 @@ fn paint_box(
         .all(|child| child.style.z_index.is_none())
     {
         for child in &layout.children {
-            let sticky = layout.sticky_child_shift(child, scroll_offset);
+            let sticky = layout.sticky_child_shift(child, scroll_offset) + page_sticky(child);
             paint_child(
                 child,
                 images,
@@ -729,11 +767,12 @@ fn paint_box(
                 scroll_offsets,
                 commands,
                 depth,
+                page,
             );
         }
     } else {
         for child in layout.children_in_paint_order() {
-            let sticky = layout.sticky_child_shift(child, scroll_offset);
+            let sticky = layout.sticky_child_shift(child, scroll_offset) + page_sticky(child);
             paint_child(
                 child,
                 images,
@@ -742,6 +781,7 @@ fn paint_box(
                 scroll_offsets,
                 commands,
                 depth,
+                page,
             );
         }
     }
@@ -1333,6 +1373,130 @@ mod tests {
         // Flow position 500 - 30 scroll = 470 is way past the container
         // bottom; the footer sticks to bottom - 10 inset.
         assert_eq!(foot_y, container.y + container.height - 10.0 - 20.0);
+    }
+
+    /// The background fill Y of the box painted in `color`.
+    fn fill_y(list: &[DisplayCommand], color: Color) -> f32 {
+        list.iter()
+            .find_map(|command| match command {
+                DisplayCommand::FillRect {
+                    rect, color: fill, ..
+                } if *fill == color => Some(rect.y),
+                _ => None,
+            })
+            .expect("fill in the given color")
+    }
+
+    #[test]
+    fn page_sticky_sticks_to_the_viewport_when_the_page_scrolls() {
+        let page = build_page(
+            "<style>.head { position: sticky; top: 0; height: 20px; z-index: 1; \
+                            background-color: #112233; }\
+                    .tall { height: 5000px; }</style>\
+             <div class='head'></div><div class='tall'></div>",
+            Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        let head = find_box(&page.layout, "div");
+        let flow_top = head.border_box().y;
+        let offsets = std::collections::HashMap::new();
+        let color = Color::rgb(0x11, 0x22, 0x33);
+        // Scrolled 300px: the header paints 300px below its flow
+        // position, i.e. at the viewport top (page y = scroll).
+        let list = build_display_list_page(&page.layout, &page.images, &offsets, 300.0, 600.0);
+        assert_eq!(fill_y(&list, color), flow_top + 300.0);
+        // The hit test agrees: the stuck header answers at its visual
+        // position.
+        let hit = page
+            .layout
+            .hit_test_page(5.0, 305.0, 300.0, 600.0, &offsets);
+        assert_eq!(hit, Some(head.node_id));
+        // Zero page scroll: identical to the plain display list (the
+        // SVG/CLI path passes no scroll — sticky stays at flow).
+        let plain = build_display_list_scrolled(&page.layout, &page.images, &offsets);
+        let zero = build_display_list_page(&page.layout, &page.images, &offsets, 0.0, 600.0);
+        assert_eq!(plain, zero);
+        assert_eq!(fill_y(&zero, color), flow_top);
+    }
+
+    #[test]
+    fn page_sticky_never_leaves_its_containing_block() {
+        let page = build_page(
+            "<style>.section { height: 400px; margin-top: 100px; }\
+                    .head { position: sticky; top: 0; height: 20px; \
+                            background-color: #224466; }\
+                    .tall { height: 5000px; }</style>\
+             <div class='section'><div class='head'></div></div><div class='tall'></div>",
+            Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        let section = find_box(&page.layout, "div");
+        let head = &section.children[0];
+        let containing = section.dimensions.padding_box();
+        let flow_top = head.border_box().y;
+        let offsets = std::collections::HashMap::new();
+        let color = Color::rgb(0x22, 0x44, 0x66);
+        // Scrolled far past the section: the header rides the section's
+        // bottom edge out of view instead of floating at the viewport
+        // top forever.
+        let list = build_display_list_page(&page.layout, &page.images, &offsets, 2000.0, 600.0);
+        assert_eq!(
+            fill_y(&list, color),
+            containing.y + containing.height - head.border_box().height
+        );
+        // Sanity: the section is taller than the scroll, so the header
+        // only shifts by the room it has.
+        assert!(flow_top + 2000.0 > containing.y + containing.height);
+    }
+
+    #[test]
+    fn page_sticky_inside_an_inner_scroller_sticks_to_the_scroller_only() {
+        let page = build_page(
+            "<style>.scroll { overflow-y: scroll; height: 100px; }\
+                    .head { position: sticky; top: 0; height: 20px; z-index: 1; \
+                            background-color: #334455; }\
+                    .tall { height: 500px; }</style>\
+             <div class='scroll'><div class='head'></div><div class='tall'></div></div>",
+            Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        let scroller = find_box(&page.layout, "div");
+        let container_top = scroller.dimensions.padding_box().y;
+        let offsets = std::collections::HashMap::from([(scroller.node_id, 60.0)]);
+        let color = Color::rgb(0x33, 0x44, 0x55);
+        // A page scroll must not add stickiness on top of the inner
+        // scroller's: the header sits at the container top either way.
+        let inner = build_display_list_scrolled(&page.layout, &page.images, &offsets);
+        let paged = build_display_list_page(&page.layout, &page.images, &offsets, 300.0, 600.0);
+        assert_eq!(fill_y(&inner, color), container_top);
+        assert_eq!(fill_y(&paged, color), container_top);
+    }
+
+    #[test]
+    fn page_sticky_bottom_sticks_to_the_viewport_bottom() {
+        let page = build_page(
+            "<style>.foot { position: sticky; bottom: 10px; height: 20px; \
+                            background-color: #445566; }\
+                    .tall { height: 5000px; }</style>\
+             <div class='tall'></div><div class='foot'></div>",
+            Size {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+        let offsets = std::collections::HashMap::new();
+        let color = Color::rgb(0x44, 0x55, 0x66);
+        // The footer's flow position is far below the viewport; scrolled
+        // 300px it sticks at viewport bottom - 10 inset (page y =
+        // scroll + viewport - inset - height).
+        let list = build_display_list_page(&page.layout, &page.images, &offsets, 300.0, 600.0);
+        assert_eq!(fill_y(&list, color), 300.0 + 600.0 - 10.0 - 20.0);
     }
 
     #[test]

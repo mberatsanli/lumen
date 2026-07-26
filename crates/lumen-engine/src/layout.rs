@@ -109,6 +109,35 @@ impl LayoutBox {
         y: f32,
         scroll_offsets: &std::collections::HashMap<NodeId, f32>,
     ) -> Option<(NodeId, f32)> {
+        self.scrollable_under_impl(x, y, 0.0, 0.0, true, scroll_offsets)
+    }
+
+    /// Like [`Self::scrollable_under`], but the point is in page
+    /// coordinates (viewport point + page scroll): `position: fixed`
+    /// boxes are tested at their viewport position, so a fixed sidebar
+    /// scrolls its own content, and sticky children at their stuck
+    /// position.
+    #[must_use]
+    pub fn scrollable_under_page(
+        &self,
+        x: f32,
+        y: f32,
+        page_scroll: f32,
+        viewport_height: f32,
+        scroll_offsets: &std::collections::HashMap<NodeId, f32>,
+    ) -> Option<(NodeId, f32)> {
+        self.scrollable_under_impl(x, y, page_scroll, viewport_height, false, scroll_offsets)
+    }
+
+    fn scrollable_under_impl(
+        &self,
+        x: f32,
+        y: f32,
+        page_scroll: f32,
+        viewport_height: f32,
+        in_fixed: bool,
+        scroll_offsets: &std::collections::HashMap<NodeId, f32>,
+    ) -> Option<(NodeId, f32)> {
         let rect = self.border_box();
         let inside =
             x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
@@ -118,11 +147,30 @@ impl LayoutBox {
         };
         let (child_x, child_y) = (x, y + scroll_offset);
         // Sticky children sit at their stuck (visual) position: convert
-        // the point into their flow coordinates per child.
+        // the point into their flow coordinates per child. Fixed
+        // children escape both the enclosing inner scroll and the page
+        // scroll — their coordinates are viewport-relative.
         let child_point = |child: &LayoutBox| {
-            (
-                child_x,
-                child_y - self.sticky_child_shift(child, scroll_offset),
+            if !in_fixed && child.style.position == Position::Fixed {
+                (child_x, child_y - scroll_offset - page_scroll)
+            } else {
+                (
+                    child_x,
+                    child_y
+                        - self.sticky_child_shift(child, scroll_offset)
+                        - self.page_sticky_part(child, page_scroll, viewport_height, in_fixed),
+                )
+            }
+        };
+        let find_in = |child: &LayoutBox| {
+            let (px, py) = child_point(child);
+            child.scrollable_under_impl(
+                px,
+                py,
+                page_scroll,
+                viewport_height,
+                in_fixed || child.style.position == Position::Fixed,
+                scroll_offsets,
             )
         };
         // Fast path: with no z-index anywhere, paint order is DOM order,
@@ -132,18 +180,12 @@ impl LayoutBox {
             .iter()
             .all(|child| child.style.z_index.unwrap_or(0) == 0)
         {
-            self.children.iter().rev().find_map(|child| {
-                let (px, py) = child_point(child);
-                child.scrollable_under(px, py, scroll_offsets)
-            })
+            self.children.iter().rev().find_map(find_in)
         } else {
             self.children_in_paint_order()
                 .into_iter()
                 .rev()
-                .find_map(|child| {
-                    let (px, py) = child_point(child);
-                    child.scrollable_under(px, py, scroll_offsets)
-                })
+                .find_map(find_in)
         };
         if found.is_some() {
             return found;
@@ -192,6 +234,73 @@ impl LayoutBox {
         } else {
             0.0
         }
+    }
+
+    /// The vertical shift of a `position: sticky` child when the PAGE is
+    /// its scroll container, scrolled by `page_scroll`, with the given
+    /// page viewport height. Unlike [`Self::sticky_child_shift`] (which
+    /// glues the child to this box's own padding box) the child sticks
+    /// to the viewport (`page_scroll + top`); the shift is still clamped
+    /// so the child never leaves this box's padding box. Zero for
+    /// non-sticky children, a zero scroll, or sticky without a `top`/
+    /// `bottom` constraint.
+    #[must_use]
+    pub fn page_sticky_child_shift(
+        &self,
+        child: &LayoutBox,
+        page_scroll: f32,
+        viewport_height: f32,
+    ) -> f32 {
+        if child.style.position != Position::Sticky || page_scroll == 0.0 {
+            return 0.0;
+        }
+        let containing = self.dimensions.padding_box();
+        let flow_top = child.border_box().y;
+        let height = child.border_box().height;
+        let viewport = Size::default();
+        let resolve = |dimension: Dimension| dimension.resolve(containing.height, viewport);
+        let offsets = &child.style.offsets;
+        if let Some(top) = resolve(offsets.top) {
+            // Stick to the viewport top, but never past the padding-box
+            // bottom (the room left below the flow position).
+            let room = (containing.y + containing.height - height - flow_top).max(0.0);
+            (page_scroll + top - flow_top).clamp(0.0, room)
+        } else if let Some(bottom) = resolve(offsets.bottom) {
+            // Stick to the viewport bottom, never above the padding-box
+            // top (the room left above the flow position).
+            let room = (flow_top - containing.y).max(0.0);
+            (page_scroll + viewport_height - bottom - height - flow_top).clamp(-room, 0.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// The page-scroll component of a sticky child's shift (see
+    /// [`Self::page_sticky_child_shift`]), gated on the context: content
+    /// inside a `position: fixed` subtree does not scroll with the page,
+    /// and a sticky child of an inner scroll container sticks to that
+    /// container (handled by [`Self::sticky_child_shift`]), not to the
+    /// page viewport.
+    fn page_sticky_part(
+        &self,
+        child: &LayoutBox,
+        page_scroll: f32,
+        viewport_height: f32,
+        in_fixed: bool,
+    ) -> f32 {
+        if in_fixed || self.style.clips_overflow() {
+            0.0
+        } else {
+            self.page_sticky_child_shift(child, page_scroll, viewport_height)
+        }
+    }
+
+    /// Whether any box in this subtree is `position: sticky`. Such pages
+    /// repaint on every page scroll: the stuck position is baked into
+    /// the display list (see `paint::build_display_list_page`).
+    #[must_use]
+    pub fn has_sticky(&self) -> bool {
+        self.style.position == Position::Sticky || self.children.iter().any(LayoutBox::has_sticky)
     }
 
     /// How far this box's content can scroll: the extent of its children
@@ -254,22 +363,25 @@ impl LayoutBox {
         y: f32,
         scroll_offsets: &std::collections::HashMap<NodeId, f32>,
     ) -> Option<NodeId> {
-        self.hit_test_impl(x, y, 0.0, true, scroll_offsets)
+        self.hit_test_impl(x, y, 0.0, 0.0, true, scroll_offsets)
     }
 
     /// Like [`Self::hit_test_scrolled`], but the point is in page
     /// coordinates (viewport point + page scroll) and `position: fixed`
     /// boxes are tested at their viewport position: the page scroll is
-    /// subtracted back out at each fixed boundary.
+    /// subtracted back out at each fixed boundary. Sticky children are
+    /// tested at their stuck position, which the page scroll shifts
+    /// within the page viewport of `viewport_height`.
     #[must_use]
     pub fn hit_test_page(
         &self,
         x: f32,
         y: f32,
         page_scroll: f32,
+        viewport_height: f32,
         scroll_offsets: &std::collections::HashMap<NodeId, f32>,
     ) -> Option<NodeId> {
-        self.hit_test_impl(x, y, page_scroll, false, scroll_offsets)
+        self.hit_test_impl(x, y, page_scroll, viewport_height, false, scroll_offsets)
     }
 
     fn hit_test_impl(
@@ -277,6 +389,7 @@ impl LayoutBox {
         x: f32,
         y: f32,
         page_scroll: f32,
+        viewport_height: f32,
         in_fixed: bool,
         scroll_offsets: &std::collections::HashMap<NodeId, f32>,
     ) -> Option<NodeId> {
@@ -295,14 +408,23 @@ impl LayoutBox {
             } else {
                 (
                     child_x,
-                    child_y - self.sticky_child_shift(child, scroll_offset),
+                    child_y
+                        - self.sticky_child_shift(child, scroll_offset)
+                        - self.page_sticky_part(child, page_scroll, viewport_height, in_fixed),
                 )
             }
         };
         let hit_child = |child: &LayoutBox| {
             let (px, py) = child_point(child);
             let nested_fixed = in_fixed || child.style.position == Position::Fixed;
-            child.hit_test_impl(px, py, page_scroll, nested_fixed, scroll_offsets)
+            child.hit_test_impl(
+                px,
+                py,
+                page_scroll,
+                viewport_height,
+                nested_fixed,
+                scroll_offsets,
+            )
         };
         // Fast path: with no z-index anywhere, paint order is DOM order,
         // so neither the collecting Vec nor the sort is needed.
@@ -346,6 +468,7 @@ impl LayoutBox {
                             px,
                             py,
                             page_scroll,
+                            viewport_height,
                             in_fixed || laid.style.position == Position::Fixed,
                             scroll_offsets,
                         ) {
@@ -3281,12 +3404,62 @@ mod tests {
         // Same viewport point (15, 15), once unscrolled and once with
         // the page scrolled 1000px down: the fixed badge is hit both
         // times, not the tall div scrolled underneath the point.
-        let unscrolled = layout.hit_test_page(15.0, 15.0, 0.0, &offsets);
-        let scrolled = layout.hit_test_page(15.0, 1015.0, 1000.0, &offsets);
+        let unscrolled = layout.hit_test_page(15.0, 15.0, 0.0, 600.0, &offsets);
+        let scrolled = layout.hit_test_page(15.0, 1015.0, 1000.0, 600.0, &offsets);
         assert!(unscrolled.is_some());
         assert_eq!(unscrolled, scrolled);
         let node = scrolled.expect("the badge is hit");
         let laid = layout.find_by_node(node).expect("hit node has a box");
         assert_eq!(laid.style.position, Position::Fixed);
+    }
+
+    #[test]
+    fn hit_test_page_finds_sticky_boxes_at_their_stuck_position() {
+        let layout = layout_of(
+            "<style>.head { position: sticky; top: 0; height: 20px; z-index: 1; }\
+                    .tall { height: 5000px; }</style>\
+             <div class='head'></div><div class='tall'></div>",
+        );
+        assert!(layout.has_sticky());
+        let head = find_box(&layout, "div");
+        let flow_top = head.border_box().y;
+        let offsets = std::collections::HashMap::new();
+        // Scrolled 300px down: the header sticks to the viewport top, so
+        // it answers at page y = 300 (viewport y 0), not at its flow
+        // position, which scrolled off.
+        let stuck = layout.hit_test_page(5.0, 305.0, 300.0, 600.0, &offsets);
+        assert_eq!(stuck, Some(head.node_id));
+        let flow = layout.hit_test_page(5.0, flow_top + 5.0, 300.0, 600.0, &offsets);
+        assert_ne!(flow, Some(head.node_id));
+        // Unscrolled it sits at its flow position.
+        let top = layout.hit_test_page(5.0, flow_top + 5.0, 0.0, 600.0, &offsets);
+        assert_eq!(top, Some(head.node_id));
+        // A page without sticky boxes reports none.
+        let plain = layout_of("<div>x</div>");
+        assert!(!plain.has_sticky());
+    }
+
+    #[test]
+    fn scrollable_under_page_scrolls_fixed_sidebar_content() {
+        let layout = layout_of(
+            "<style>.side { position: fixed; top: 0; left: 0; width: 100px; \
+                            height: 200px; overflow-y: scroll; }\
+                    .content { height: 1000px; }\
+                    .tall { height: 5000px; }</style>\
+             <div class='side'><div class='content'></div></div><div class='tall'></div>",
+        );
+        let sidebar = find_box(&layout, "div");
+        let max = sidebar.max_inner_scroll();
+        assert!(max > 0.0);
+        let offsets = std::collections::HashMap::new();
+        // The page is scrolled 1000px down; the pointer hovers the fixed
+        // sidebar at viewport point (50, 50) — page point (50, 1050).
+        // The sidebar's own content is scrollable there.
+        let hit = layout.scrollable_under_page(50.0, 1050.0, 1000.0, 600.0, &offsets);
+        assert_eq!(hit, Some((sidebar.node_id, max)));
+        // Page-unaware testing misses the sidebar entirely: its layout
+        // box sits at the viewport position, not 1000px into the page.
+        let unaware = layout.scrollable_under(50.0, 1050.0, &offsets);
+        assert_ne!(unaware, Some((sidebar.node_id, max)));
     }
 }

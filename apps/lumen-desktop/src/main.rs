@@ -659,6 +659,10 @@ struct App {
     rss_checked: Option<Instant>,
     /// Cached page raster keyed by (generation, scroll, size).
     page_frame: Option<((u64, u32, u32, u32), lumen_engine::Framebuffer)>,
+    /// Display list with the sticky page-shift baked in, keyed by
+    /// (generation, scroll): sticky pages rebuild it per scroll offset
+    /// (see [`App::sticky_display_list`]).
+    sticky_list: Option<(u64, u32, Rc<Vec<DisplayCommand>>)>,
     /// Reused per-redraw composition buffer; overlays and chrome draw here
     /// so the cached page raster stays pristine without a fresh allocation
     /// on every frame.
@@ -737,6 +741,7 @@ impl App {
             rss_megabytes: None,
             rss_checked: None,
             page_frame: None,
+            sticky_list: None,
             compose_frame: None,
             text_runs: None,
             find_runs: None,
@@ -1061,6 +1066,53 @@ impl App {
         })
     }
 
+    /// Whether the current page paints any `position: sticky` content.
+    /// Sticky boxes bake the page-scroll shift into the display list, so
+    /// such pages repaint on every scroll — same restrictions as fixed.
+    fn page_has_sticky(&self) -> bool {
+        self.session()
+            .and_then(Session::page)
+            .is_some_and(|page| page.layout.has_sticky())
+    }
+
+    /// Fixed or sticky: neither the scroll blit nor the damage fast path
+    /// is safe (see [`Self::page_has_fixed`] and [`Self::page_has_sticky`]).
+    fn page_has_fixed_or_sticky(&self) -> bool {
+        self.page_has_fixed() || self.page_has_sticky()
+    }
+
+    /// The display list for rasterizing a sticky page: the page-scroll
+    /// component of sticky shifts is baked into the list (the raster
+    /// backend knows a single scroll value), so it is rebuilt whenever
+    /// the scroll offset (or the page generation) changes and cached per
+    /// (generation, scroll) in between. `None` for pages without sticky
+    /// content — those rasterize the session's scroll-independent list.
+    fn sticky_display_list(&mut self) -> Option<Rc<Vec<DisplayCommand>>> {
+        if !self.page_has_sticky() {
+            return None;
+        }
+        let key = (self.page_generation, self.scroll_y.to_bits());
+        if let Some((generation, scroll, list)) = &self.sticky_list
+            && (*generation, *scroll) == key
+        {
+            return Some(list.clone());
+        }
+        let list = match &self.state {
+            SessionState::Ready(session) => session.page().map(|page| {
+                Rc::new(lumen_engine::paint::build_display_list_page(
+                    &page.layout,
+                    &page.images,
+                    session.scroll_offsets(),
+                    self.scroll_y,
+                    page.viewport.height,
+                ))
+            }),
+            SessionState::Loading { .. } => None,
+        }?;
+        self.sticky_list = Some((key.0, key.1, list.clone()));
+        Some(list)
+    }
+
     /// Paint commands for the browser chrome (address bar, nav buttons).
     /// Geometry of the tab strip: one `Rect` per tab (in order) plus the
     /// trailing "+" new-tab button, all in CSS window coordinates.
@@ -1292,7 +1344,12 @@ impl App {
                 decoration_style: lumen_engine::BorderStyle::Solid,
             },
             DisplayCommand::FillRect {
-                rect: bar(60.0, 6.0, (width - 68.0 - 56.0).max(40.0), BAR_HEIGHT - 12.0),
+                rect: bar(
+                    60.0,
+                    6.0,
+                    (width - 68.0 - 56.0).max(40.0),
+                    BAR_HEIGHT - 12.0,
+                ),
                 color: Color::rgb(0xff, 0xff, 0xff),
                 radius: lumen_engine::Corners::uniform(6.0),
             },
@@ -1455,9 +1512,9 @@ impl App {
                     styles: lumen_engine::EdgeSizes::uniform(lumen_engine::BorderStyle::Solid),
                     radius: lumen_engine::Corners::uniform(8.0),
                 });
-                let hovered = self.cursor.and_then(|(x, y)| {
-                    rows.iter().position(|rect| rect_contains(*rect, x, y))
-                });
+                let hovered = self
+                    .cursor
+                    .and_then(|(x, y)| rows.iter().position(|rect| rect_contains(*rect, x, y)));
                 for (index, rect) in rows.iter().enumerate() {
                     if hovered == Some(index) {
                         commands.push(DisplayCommand::FillRect {
@@ -1690,8 +1747,13 @@ impl App {
     fn update_hover(&mut self) {
         let hit = self.page_cursor().and_then(|(x, y)| {
             self.session().and_then(Session::page).and_then(|page| {
-                page.layout
-                    .hit_test_page(x, y, self.scroll_y, session_offsets(&self.state))
+                page.layout.hit_test_page(
+                    x,
+                    y,
+                    self.scroll_y,
+                    self.viewport().height,
+                    session_offsets(&self.state),
+                )
             })
         });
         let over_link = hit.is_some_and(|node| {
@@ -1802,8 +1864,8 @@ impl App {
         // anywhere else just closes the card.
         if let Some(popup) = self.color_popup.take() {
             if let Some((x, y)) = self.page_cursor()
-                && let Some(index) =
-                    (0..COLOR_SWATCHES.len()).find(|index| rect_contains(swatch_rect(popup.rect, *index), x, y))
+                && let Some(index) = (0..COLOR_SWATCHES.len())
+                    .find(|index| rect_contains(swatch_rect(popup.rect, *index), x, y))
                 && let SessionState::Ready(session) = &mut self.state
             {
                 session.set_color_value(popup.node, COLOR_SWATCHES[index]);
@@ -1833,8 +1895,13 @@ impl App {
         }
         let node = self.page_cursor().and_then(|(x, y)| {
             self.session().and_then(Session::page).and_then(|page| {
-                page.layout
-                    .hit_test_page(x, y, self.scroll_y, session_offsets(&self.state))
+                page.layout.hit_test_page(
+                    x,
+                    y,
+                    self.scroll_y,
+                    self.viewport().height,
+                    session_offsets(&self.state),
+                )
             })
         });
         // Script listeners see the click first, bubbling to ancestors;
@@ -2316,13 +2383,13 @@ impl App {
         document
             .descendants(document.root())
             .filter(|node| {
-                document.element(*node).is_some_and(|element| {
-                    match element.tag_name.as_str() {
+                document
+                    .element(*node)
+                    .is_some_and(|element| match element.tag_name.as_str() {
                         "select" | "textarea" | "button" => true,
                         "input" => element.attributes.get("type") != Some("hidden"),
                         _ => false,
-                    }
-                })
+                    })
             })
             .collect()
     }
@@ -2746,20 +2813,24 @@ impl App {
             // frame otherwise intact (same size, same scroll): re-rasterize
             // just the damaged region into the old buffer. `None` damage
             // means the restyle changed nothing visible — keep the pixels.
-            // Pages with `position: fixed` content take the slow path:
-            // damage rects are page-relative, fixed boxes are not.
-            let has_fixed = self.page_has_fixed();
+            // Pages with `position: fixed` or sticky content take the slow
+            // path: damage rects are page-relative; fixed boxes are
+            // viewport-relative and sticky boxes bake the scroll into
+            // their display list.
+            let has_fixed_or_sticky = self.page_has_fixed_or_sticky();
             let damage = match self.session().map(Session::repaint_damage) {
-                Some(RepaintDamage::Region(damage)) if !has_fixed => match &self.page_frame {
-                    Some((key, _))
-                        if key.1 == self.scroll_y.to_bits()
-                            && key.2 == size.width
-                            && key.3 == size.height =>
-                    {
-                        Some(damage)
+                Some(RepaintDamage::Region(damage)) if !has_fixed_or_sticky => {
+                    match &self.page_frame {
+                        Some((key, _))
+                            if key.1 == self.scroll_y.to_bits()
+                                && key.2 == size.width
+                                && key.3 == size.height =>
+                        {
+                            Some(damage)
+                        }
+                        _ => None,
                     }
-                    _ => None,
-                },
+                }
                 _ => None,
             };
             let frame = if let Some(damage) = damage {
@@ -2796,9 +2867,10 @@ impl App {
             } else {
                 // Same page, same size, different scroll: hand the old
                 // buffer to the blit, which shifts it in place instead of
-                // cloning. Pages with `position: fixed` content cannot
-                // blit — the shifted pixels would smear the fixed boxes.
-                let blit_viable = !has_fixed
+                // cloning. Pages with `position: fixed` or sticky content
+                // cannot blit — the shifted pixels would smear the
+                // fixed/sticky boxes.
+                let blit_viable = !has_fixed_or_sticky
                     && matches!(
                         &self.page_frame,
                         Some((key, _))
@@ -2826,9 +2898,12 @@ impl App {
                     }
                     None => {
                         self.last_frame_kind = "full";
-                        match self.session().and_then(Session::page) {
-                            Some(page) => rasterize_with_fixed_origin(
-                                &page.display_list,
+                        // Sticky pages rasterize a display list rebuilt
+                        // for the current scroll; everything else uses
+                        // the session's scroll-independent list.
+                        match self.sticky_display_list() {
+                            Some(list) => rasterize_with_fixed_origin(
+                                &list,
                                 size.width,
                                 size.height,
                                 self.scroll_y - CHROME_HEIGHT,
@@ -2838,7 +2913,20 @@ impl App {
                                 scale,
                                 self.effective_font().as_deref(),
                             ),
-                            None => lumen_engine::Framebuffer::new(size.width, size.height),
+                            None => match self.session().and_then(Session::page) {
+                                Some(page) => rasterize_with_fixed_origin(
+                                    &page.display_list,
+                                    size.width,
+                                    size.height,
+                                    self.scroll_y - CHROME_HEIGHT,
+                                    // Fixed content pins below the chrome,
+                                    // not to the framebuffer's top edge.
+                                    -CHROME_HEIGHT,
+                                    scale,
+                                    self.effective_font().as_deref(),
+                                ),
+                                None => lumen_engine::Framebuffer::new(size.width, size.height),
+                            },
                         }
                     }
                 }
@@ -3438,10 +3526,7 @@ impl App {
         let Some(name) = Self::dom_key_name(key) else {
             return false;
         };
-        let target = self
-            .session()
-            .and_then(Session::editing)
-            .unwrap_or(0);
+        let target = self.session().and_then(Session::editing).unwrap_or(0);
         let mut prevented = false;
         if let (Some(scripts), SessionState::Ready(session)) =
             (&mut self.page_scripts, &mut self.state)
@@ -3752,8 +3837,13 @@ impl ApplicationHandler<ShellEvent> for App {
                 // :active while the button is held.
                 let hit = self.page_cursor().and_then(|(x, y)| {
                     self.session().and_then(Session::page).and_then(|page| {
-                        page.layout
-                            .hit_test_page(x, y, self.scroll_y, session_offsets(&self.state))
+                        page.layout.hit_test_page(
+                            x,
+                            y,
+                            self.scroll_y,
+                            self.viewport().height,
+                            session_offsets(&self.state),
+                        )
                     })
                 });
                 if let SessionState::Ready(session) = &mut self.state
@@ -3837,7 +3927,13 @@ impl ApplicationHandler<ShellEvent> for App {
                 let inner = self.page_cursor().and_then(|(x, y)| {
                     let session = self.session()?;
                     let page = session.page()?;
-                    page.layout.scrollable_under(x, y, session.scroll_offsets())
+                    page.layout.scrollable_under_page(
+                        x,
+                        y,
+                        self.scroll_y,
+                        self.viewport().height,
+                        session.scroll_offsets(),
+                    )
                 });
                 if let Some((node, _)) = inner
                     && let SessionState::Ready(session) = &mut self.state
@@ -3898,7 +3994,8 @@ fn resolve_omnibox(input: &str) -> Url {
             }
         }
         // A dotted token or `localhost[:port]` is a bare hostname.
-        let host_like = input.contains('.') || input == "localhost" || input.starts_with("localhost:");
+        let host_like =
+            input.contains('.') || input == "localhost" || input.starts_with("localhost:");
         if host_like
             && let Ok(url) = Url::parse(&format!("https://{input}"))
             && url.host().is_some()
@@ -3996,7 +4093,10 @@ mod tests {
             "https://example.com/x"
         );
         // Bare dotted host gets https://.
-        assert_eq!(resolve_omnibox("example.com").as_str(), "https://example.com/");
+        assert_eq!(
+            resolve_omnibox("example.com").as_str(),
+            "https://example.com/"
+        );
         assert_eq!(
             resolve_omnibox("localhost:8080").as_str(),
             "https://localhost:8080/"
