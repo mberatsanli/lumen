@@ -759,11 +759,18 @@ impl<L: ResourceLoader> Session<L> {
         if self.transitions.is_empty() && self.animations.is_empty() {
             return false;
         }
-        self.note_full_repaint();
         let Some(page) = self.page.as_mut() else {
             self.transitions.clear();
             self.animations.clear();
             return false;
+        };
+        // Damage accumulated by the animated nodes this tick; transform
+        // animations and canvas-propagating backgrounds force a full
+        // repaint instead (same conservative rule as style damage).
+        let mut full_repaint = false;
+        let mut tick_damage: Option<lumen_engine::Rect> = None;
+        let mut note_node_damage = |page: &lumen_engine::Page, node: NodeId| {
+            tick_damage = union_damage(tick_damage, lumen_engine::node_paint_damage(page, node));
         };
         let mut any_active = false;
         for transition in &mut self.transitions {
@@ -797,6 +804,15 @@ impl<L: ResourceLoader> Session<L> {
                     }
                     _ => {}
                 }
+            }
+            if matches!(
+                (transition.from, transition.to),
+                (AnimatedValue::Transform(_), AnimatedValue::Transform(_))
+            ) {
+                // Paint can land anywhere: transform damage is not a rect.
+                full_repaint = true;
+            } else {
+                note_node_damage(page, transition.node);
             }
             if progress < 1.0 {
                 any_active = true;
@@ -858,6 +874,26 @@ impl<L: ResourceLoader> Session<L> {
                     }
                 }
             }
+            let mutates_transform = animation.tracks.iter().any(|(property, frames)| {
+                *property == "transform"
+                    || frames.iter().any(|(_, value)| {
+                        matches!(value, AnimatedValue::Transform(_) | AnimatedValue::Angle(_))
+                    })
+            });
+            // html/body backgrounds propagate to the whole canvas.
+            let canvas_background = animation
+                .tracks
+                .iter()
+                .any(|(property, _)| *property == "background-color")
+                && page
+                    .document
+                    .element(animation.node)
+                    .is_some_and(|element| matches!(element.tag_name.as_str(), "html" | "body"));
+            if mutates_transform || canvas_background {
+                full_repaint = true;
+            } else {
+                note_node_damage(page, animation.node);
+            }
             if !finished {
                 any_active = true;
             }
@@ -870,6 +906,18 @@ impl<L: ResourceLoader> Session<L> {
             })
         });
         lumen_engine::refresh_paint(page);
+        if full_repaint {
+            self.note_full_repaint();
+        } else {
+            // A pending full repaint subsumes any damage; consecutive
+            // ticks union together.
+            self.repaint_damage = match self.repaint_damage {
+                RepaintDamage::Full => RepaintDamage::Full,
+                RepaintDamage::Region(so_far) => {
+                    RepaintDamage::Region(union_damage(so_far, tick_damage))
+                }
+            };
+        }
         self.transitions.retain(|transition| {
             transition.start_ms.is_none_or(|start| {
                 ((now_ms - start - transition.delay_ms) / transition.duration_ms.max(0.001)) < 1.0
@@ -2470,6 +2518,61 @@ mod tests {
         assert!((transform.b - 1.0).abs() < 0.01, "{transform:?}");
         // Infinite animations never retire.
         assert!(session.tick(10_000.0));
+    }
+
+    #[test]
+    fn color_animation_ticks_damage_only_the_animated_box() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>@keyframes c { from { background-color: #000000; } \
+                 to { background-color: #ffffff; } }\
+                 .kut { animation: c 1s linear infinite; width: 50px; height: 50px; }</style>\
+                 <div class='kut' id='k'>x</div>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        // The shell's first raster consumes the load-time full repaint.
+        session.note_rasterized();
+        session.tick(0.0);
+        let RepaintDamage::Region(Some(rect)) = session.repaint_damage() else {
+            panic!("expected regional damage, got {:?}", session.repaint_damage());
+        };
+        let page = session.page().unwrap();
+        let node = page.document.get_element_by_id("k").unwrap();
+        let border = page.layout.find_by_node(node).unwrap().border_box();
+        // The damage covers the animated box (plus paint outset) but is
+        // far smaller than the page.
+        assert!(rect.x <= border.x && rect.y <= border.y);
+        assert!(rect.x + rect.width >= border.x + border.width);
+        assert!(rect.y + rect.height >= border.y + border.height);
+        assert!(rect.width < page.viewport.width);
+        // The shell consumes the marker on raster; the next tick re-arms.
+        session.note_rasterized();
+        session.tick(16.0);
+        assert!(matches!(
+            session.repaint_damage(),
+            RepaintDamage::Region(Some(_))
+        ));
+    }
+
+    #[test]
+    fn transform_animation_ticks_force_a_full_repaint() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<style>@keyframes r { from { transform: rotate(0deg); } \
+                 to { transform: rotate(360deg); } }\
+                 .d { animation: r 1s linear infinite; }</style>\
+                 <div class='d'>x</div>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        session.tick(0.0);
+        // Transformed paint can land anywhere: no damage rect.
+        assert_eq!(session.repaint_damage(), RepaintDamage::Full);
     }
 
     #[test]

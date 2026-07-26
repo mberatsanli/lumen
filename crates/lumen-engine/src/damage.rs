@@ -87,6 +87,20 @@ fn node_rect(document: &Document, layout: &LayoutBox, node: NodeId) -> Option<Re
         .map(|laid| laid.border_box())
 }
 
+/// The damage rect for a node whose paint-only style is being mutated
+/// in place (animation/transition ticks): its layout rect expanded by
+/// the paint outset of `style`. `None` when the node paints nothing.
+#[must_use]
+pub fn node_damage(
+    document: &Document,
+    layout: &LayoutBox,
+    node: NodeId,
+    style: &ComputedStyle,
+) -> Option<Rect> {
+    let rect = node_rect(document, layout, node)?;
+    Some(rect.expanded_by(crate::geometry::Edges::uniform(paint_outset(style))))
+}
+
 /// Changes that can move pixels outside the node's own box, so no cheap
 /// rect covers them: transformed output lands anywhere, and the html/body
 /// background propagates to the whole canvas.

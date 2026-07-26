@@ -386,6 +386,16 @@ pub fn repaint_page_interactive_damaged(
     damage
 }
 
+/// The damage rect for a single node whose paint-only style was mutated
+/// in place (animation/transition ticks): its layout rect expanded by
+/// its paint outset (outline, shadows, filter blur). `None` when the
+/// node paints nothing (e.g. `display: none` up the chain).
+#[must_use]
+pub fn node_paint_damage(page: &Page, node: lumen_html::NodeId) -> Option<Rect> {
+    let style = page.styles.by_node.get(&node)?;
+    damage::node_damage(&page.document, &page.layout, node, style)
+}
+
 /// Replaces the computed styles stored in a laid-out tree (boxes and text
 /// fragments) with freshly computed ones, keeping all geometry.
 fn patch_layout_styles(layout: &mut LayoutBox, styles: &StyleMap) {
