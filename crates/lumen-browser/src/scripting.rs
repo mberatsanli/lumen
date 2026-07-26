@@ -60,7 +60,9 @@ struct Bridge {
     /// Set when a mutation changed something render-visible.
     dirty: bool,
     /// Registrations collected during the call.
-    pending_listeners: Vec<(NodeId, String, JsObject)>,
+    pending_listeners: Vec<(NodeId, String, Listener)>,
+    /// removeEventListener calls collected during the call.
+    pending_removals: Vec<(NodeId, String, JsObject)>,
     pending_timers: Vec<(u64, f64, Option<f64>, JsObject)>,
     cleared_timers: Vec<u64>,
     next_timer_id: u64,
@@ -112,6 +114,15 @@ struct XhrRequest {
     body: Option<String>,
     with_credentials: bool,
     xhr: JsObject,
+}
+
+/// One addEventListener registration: the callback plus the `once`
+/// option (the rest of the options object — capture, passive — is
+/// tolerated but not modeled).
+#[derive(Clone)]
+struct Listener {
+    callback: JsObject,
+    once: bool,
 }
 
 /// Who a finished (or refused) script read settles: a fetch promise's
@@ -184,7 +195,7 @@ fn default_prevented_get(
 /// One callback in a dispatch: an `addEventListener` registration or
 /// the compiled form of an inline `on*` attribute.
 enum Handler {
-    Js(JsObject),
+    Js(Listener),
     Inline(String),
 }
 
@@ -195,6 +206,23 @@ fn stop_propagation(
 ) -> JsResult<JsValue> {
     with_bridge(|bridge| bridge.stopped = true);
     Ok(JsValue::undefined())
+}
+
+/// Drops `callback` from the (node, event) listener list — the
+/// removeEventListener primitive, also used for `once` listeners that
+/// just ran.
+fn remove_listener(
+    listeners: &mut HashMap<NodeId, HashMap<String, Vec<Listener>>>,
+    node: NodeId,
+    event: &str,
+    callback: &JsObject,
+) {
+    if let Some(callbacks) = listeners
+        .get_mut(&node)
+        .and_then(|by_event| by_event.get_mut(event))
+    {
+        callbacks.retain(|listener| !JsObject::equals(&listener.callback, callback));
+    }
 }
 
 /// A pending `setTimeout`/`setInterval`.
@@ -212,7 +240,7 @@ pub struct PageScripts {
     /// Event listeners indexed by (node, event kind) so dispatch does
     /// not scan every registration for every bubble target. Each inner
     /// Vec keeps registration order.
-    listeners: HashMap<NodeId, HashMap<String, Vec<JsObject>>>,
+    listeners: HashMap<NodeId, HashMap<String, Vec<Listener>>>,
     /// Compiled inline `on*` attribute handlers, keyed by (node, event)
     /// with the attribute text they were compiled from — a changed
     /// attribute recompiles on the next dispatch.
@@ -365,7 +393,7 @@ impl PageScripts {
         self.enter(session, |context| {
             let source = Source::from_bytes(source.as_bytes()).with_path(Path::new(page_path));
             if let Err(error) = context.eval(source) {
-                eprintln!("[js] script error: {error}");
+                report_script_error(&error);
             }
         });
     }
@@ -522,7 +550,7 @@ impl PageScripts {
                 handlers.extend(
                     callbacks
                         .iter()
-                        .map(|callback| (target, Handler::Js(callback.clone()))),
+                        .map(|listener| (target, Handler::Js(listener.clone()))),
                 );
             }
         }
@@ -543,12 +571,12 @@ impl PageScripts {
             // `this`: the element for inline handlers (spec), undefined
             // for addEventListener callbacks (existing behavior).
             let resolved = match handler {
-                Handler::Js(callback) => Some((callback, None)),
+                Handler::Js(listener) => Some((listener.callback, None, listener.once)),
                 Handler::Inline(source) => self
                     .inline_handler(session, target, &event_name, &source)
-                    .map(|callback| (callback, Some(target))),
+                    .map(|callback| (callback, Some(target), false)),
             };
-            let Some((callback, this_node)) = resolved else {
+            let Some((callback, this_node, once)) = resolved else {
                 continue;
             };
             let key = key.clone();
@@ -593,10 +621,13 @@ impl PageScripts {
                 }
                 let event_object = initializer.build();
                 if let Err(error) = callback.call(&this, &[event_object.into()], context) {
-                    eprintln!("[js] script error: {error}");
+                    report_script_error(&error);
                 }
             });
             let stopped = with_bridge(|bridge| bridge.stopped);
+            if once {
+                remove_listener(&mut self.listeners, target, &event_name, &callback);
+            }
             if stopped {
                 break;
             }
@@ -673,7 +704,7 @@ impl PageScripts {
             }
             self.enter(session, |context| {
                 if let Err(error) = timer.callback.call(&JsValue::undefined(), &[], context) {
-                    eprintln!("[js] script error: {error}");
+                    report_script_error(&error);
                 }
             });
             ran = true;
@@ -863,7 +894,7 @@ impl PageScripts {
                         ),
                     };
                     if let Err(error) = call {
-                        eprintln!("[js] script error: {error}");
+                        report_script_error(&error);
                     }
                 }
                 for (result, xhr) in settled_xhrs {
@@ -973,7 +1004,7 @@ impl PageScripts {
         // Drain the microtask queue (promise .then/await continuations)
         // while the page is still checked in.
         if let Err(error) = self.context.run_jobs() {
-            eprintln!("[js] script error: {error}");
+            report_script_error(&error);
         }
         let dirty = with_bridge(|bridge| {
             session.page = bridge.page.take();
@@ -985,6 +1016,9 @@ impl PageScripts {
                     .entry(event)
                     .or_default()
                     .push(callback);
+            }
+            for (node, event, callback) in bridge.pending_removals.drain(..) {
+                remove_listener(&mut self.listeners, node, &event, &callback);
             }
             for (id, delay, interval, callback) in bridge.pending_timers.drain(..) {
                 self.timers.push(Timer {
@@ -1552,6 +1586,11 @@ fn install_globals(context: &mut Context) {
         .expect("fresh context");
 
     let body_get = NativeFunction::from_fn_ptr(document_body_get).to_js_function(context.realm());
+    let head_get = NativeFunction::from_fn_ptr(document_head_get).to_js_function(context.realm());
+    let root_get =
+        NativeFunction::from_fn_ptr(document_element_get).to_js_function(context.realm());
+    let ready_state_get =
+        NativeFunction::from_fn_ptr(document_ready_state_get).to_js_function(context.realm());
     let cookie_get = NativeFunction::from_fn_ptr(cookie_get_).to_js_function(context.realm());
     let cookie_set = NativeFunction::from_fn_ptr(cookie_set_).to_js_function(context.realm());
     let document = ObjectInitializer::new(context)
@@ -1567,7 +1606,25 @@ fn install_globals(context: &mut Context) {
             js_string!("addEventListener"),
             2,
         )
+        .function(
+            NativeFunction::from_fn_ptr(remove_event_listener),
+            js_string!("removeEventListener"),
+            2,
+        )
         .accessor(js_string!("body"), Some(body_get), None, Attribute::all())
+        .accessor(js_string!("head"), Some(head_get), None, Attribute::all())
+        .accessor(
+            js_string!("documentElement"),
+            Some(root_get),
+            None,
+            Attribute::all(),
+        )
+        .accessor(
+            js_string!("readyState"),
+            Some(ready_state_get),
+            None,
+            Attribute::all(),
+        )
         .function(
             NativeFunction::from_fn_ptr(get_element_by_id),
             js_string!("getElementById"),
@@ -1609,6 +1666,13 @@ fn install_globals(context: &mut Context) {
             js_string!("addEventListener"),
             2,
             NativeFunction::from_fn_ptr(window_add_event_listener),
+        )
+        .expect("fresh context");
+    context
+        .register_global_builtin_callable(
+            js_string!("removeEventListener"),
+            2,
+            NativeFunction::from_fn_ptr(window_remove_event_listener),
         )
         .expect("fresh context");
     install_stubs(context);
@@ -1822,19 +1886,76 @@ fn document_body_get(
     })
 }
 
+/// The first element with `tag` in document order (document.head and
+/// friends), as a JS wrapper or null.
+fn first_element_by_tag(tag: &str, context: &mut Context) -> JsValue {
+    let found = with_bridge(|bridge| {
+        let page = bridge.page.as_ref()?;
+        let document = &page.document;
+        document.descendants(document.root()).find(|node| {
+            document
+                .element(*node)
+                .is_some_and(|element| element.tag_name == tag)
+        })
+    });
+    match found {
+        Some(node) => element_object(node, context).into(),
+        None => JsValue::null(),
+    }
+}
+
+fn document_head_get(
+    _this: &JsValue,
+    _args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    Ok(first_element_by_tag("head", context))
+}
+
+fn document_element_get(
+    _this: &JsValue,
+    _args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    // Pages without an explicit <html> fall back to the root, like
+    // document.body does.
+    let value = first_element_by_tag("html", context);
+    if value.is_null() {
+        let root = with_bridge(|bridge| bridge.page.as_ref().map(|page| page.document.root()));
+        return Ok(match root {
+            Some(node) => element_object(node, context).into(),
+            None => JsValue::null(),
+        });
+    }
+    Ok(value)
+}
+
+fn document_ready_state_get(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    // Scripts run after the document parse finishes, so the readyState
+    // they can ever observe is the post-load one.
+    Ok(JsValue::from(js_string!("complete")))
+}
+
 fn window_add_event_listener(
     _this: &JsValue,
     args: &[JsValue],
     context: &mut Context,
 ) -> JsResult<JsValue> {
-    let event = string_arg(args, 0, context);
-    let Some(callback) = args.get(1).and_then(JsValue::as_object) else {
-        return Ok(JsValue::undefined());
-    };
-    with_bridge(|bridge| {
-        // The window listens on the document root (node 0).
-        bridge.pending_listeners.push((0, event, callback.clone()));
-    });
+    // The window listens on the document root (node 0).
+    register_listener(args, context, 0);
+    Ok(JsValue::undefined())
+}
+
+fn window_remove_event_listener(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    unregister_listener(args, context, 0);
     Ok(JsValue::undefined())
 }
 
@@ -2165,7 +2286,7 @@ fn xhr_fire(xhr: &JsObject, handler: &str, event_type: &str, context: &mut Conte
         .property(js_string!("target"), xhr.clone(), Attribute::all())
         .build();
     if let Err(error) = callback.call(&xhr.clone().into(), &[event.into()], context) {
-        eprintln!("[js] script error: {error}");
+        report_script_error(&error);
     }
 }
 
@@ -2664,6 +2785,63 @@ fn console_log(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
     Ok(JsValue::undefined())
 }
 
+// ---- error flood control ----
+
+/// How many times one distinct error message prints before suppression
+/// kicks in — a misfiring handler retried every frame would otherwise
+/// drown the terminal in thousands of identical lines.
+const ERROR_REPORT_BUDGET: usize = 3;
+
+thread_local! {
+    /// Per-message occurrence counts (one script world lives per
+    /// thread, so a thread-local suffices).
+    static ERROR_COUNTS: RefCell<HashMap<String, usize>> = RefCell::new(HashMap::new());
+}
+
+/// What to do with one more occurrence of an error message.
+#[derive(Debug, PartialEq, Eq)]
+enum ErrorReport {
+    /// Print it (within the budget).
+    Print,
+    /// Print it once more with a "suppressed from here on" note.
+    LastOne,
+    /// Swallow it.
+    Silent,
+}
+
+/// Tallies one occurrence of `message` and decides its fate.
+fn tally_error(message: &str) -> ErrorReport {
+    ERROR_COUNTS.with(|counts| {
+        let mut counts = counts.borrow_mut();
+        // Bound the map: a page generating endless DISTINCT messages
+        // resets the tally rather than growing it forever.
+        if counts.len() >= 1024 && !counts.contains_key(message) {
+            counts.clear();
+        }
+        let count = counts.entry(message.to_string()).or_insert(0);
+        *count += 1;
+        match *count {
+            n if n <= ERROR_REPORT_BUDGET => ErrorReport::Print,
+            n if n == ERROR_REPORT_BUDGET + 1 => ErrorReport::LastOne,
+            _ => ErrorReport::Silent,
+        }
+    })
+}
+
+/// Prints a runtime script error, deduplicated: the first few
+/// occurrences of each distinct message print as-is, the next one
+/// prints with a suppression note, and the rest are silent.
+fn report_script_error(error: &boa_engine::JsError) {
+    let message = error.to_string();
+    match tally_error(&message) {
+        ErrorReport::Print => eprintln!("[js] script error: {message}"),
+        ErrorReport::LastOne => {
+            eprintln!("[js] script error: {message} (repeated; further occurrences suppressed)");
+        }
+        ErrorReport::Silent => {}
+    }
+}
+
 // ---- document ----
 
 fn string_arg(args: &[JsValue], index: usize, context: &mut Context) -> String {
@@ -2883,7 +3061,21 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
     let html_set = NativeFunction::from_fn_ptr(inner_html_set).to_js_function(context.realm());
     let parent_get =
         NativeFunction::from_fn_ptr(parent_element_get).to_js_function(context.realm());
+    let parent_node_get =
+        NativeFunction::from_fn_ptr(parent_node_get_).to_js_function(context.realm());
     let children_get = NativeFunction::from_fn_ptr(children_get_).to_js_function(context.realm());
+    let child_nodes_get =
+        NativeFunction::from_fn_ptr(child_nodes_get_).to_js_function(context.realm());
+    let first_child_get =
+        NativeFunction::from_fn_ptr(first_child_get_).to_js_function(context.realm());
+    let last_child_get =
+        NativeFunction::from_fn_ptr(last_child_get_).to_js_function(context.realm());
+    let next_sibling_get =
+        NativeFunction::from_fn_ptr(next_sibling_get_).to_js_function(context.realm());
+    let previous_sibling_get =
+        NativeFunction::from_fn_ptr(previous_sibling_get_).to_js_function(context.realm());
+    let null_frame_get =
+        NativeFunction::from_fn_ptr(frame_browsing_context_get).to_js_function(context.realm());
     let style = node_proxy(node, style_get_trap, style_set_trap, context);
     let dataset = node_proxy(node, dataset_get_trap, dataset_set_trap, context);
     let class_set = NativeFunction::from_fn_ptr(class_name_set).to_js_function(context.realm());
@@ -2922,6 +3114,11 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
             2,
         )
         .function(
+            NativeFunction::from_fn_ptr(remove_event_listener),
+            js_string!("removeEventListener"),
+            2,
+        )
+        .function(
             NativeFunction::from_fn_ptr(get_attribute),
             js_string!("getAttribute"),
             1,
@@ -2934,6 +3131,21 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
         .function(
             NativeFunction::from_fn_ptr(append_child),
             js_string!("appendChild"),
+            1,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(insert_before_),
+            js_string!("insertBefore"),
+            2,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(remove_child),
+            js_string!("removeChild"),
+            1,
+        )
+        .function(
+            NativeFunction::from_fn_ptr(closest_),
+            js_string!("closest"),
             1,
         )
         .function(
@@ -2990,8 +3202,59 @@ fn element_object(node: NodeId, context: &mut Context) -> JsObject {
             Attribute::all(),
         )
         .accessor(
+            js_string!("parentNode"),
+            Some(parent_node_get),
+            None,
+            Attribute::all(),
+        )
+        .accessor(
             js_string!("children"),
             Some(children_get),
+            None,
+            Attribute::all(),
+        )
+        .accessor(
+            js_string!("childNodes"),
+            Some(child_nodes_get),
+            None,
+            Attribute::all(),
+        )
+        .accessor(
+            js_string!("firstChild"),
+            Some(first_child_get),
+            None,
+            Attribute::all(),
+        )
+        .accessor(
+            js_string!("lastChild"),
+            Some(last_child_get),
+            None,
+            Attribute::all(),
+        )
+        .accessor(
+            js_string!("nextSibling"),
+            Some(next_sibling_get),
+            None,
+            Attribute::all(),
+        )
+        .accessor(
+            js_string!("previousSibling"),
+            Some(previous_sibling_get),
+            None,
+            Attribute::all(),
+        )
+        // An iframe's browsing context is not implemented: null lets
+        // feature-detecting scripts (Cloudflare's challenge) bail out
+        // cleanly instead of crashing on undefined.
+        .accessor(
+            js_string!("contentDocument"),
+            Some(null_frame_get.clone()),
+            None,
+            Attribute::all(),
+        )
+        .accessor(
+            js_string!("contentWindow"),
+            Some(null_frame_get),
             None,
             Attribute::all(),
         )
@@ -3202,6 +3465,91 @@ fn parent_element_get(
     })
 }
 
+/// Wraps `Some(node)` as an element object, `None` as null.
+fn optional_element_object(node: Option<NodeId>, context: &mut Context) -> JsValue {
+    match node {
+        Some(node) => element_object(node, context).into(),
+        None => JsValue::null(),
+    }
+}
+
+/// Runs `lookup` against the live document for this wrapper's node,
+/// wrapping the resulting node id (or null).
+fn node_lookup(
+    this: &JsValue,
+    context: &mut Context,
+    lookup: impl FnOnce(&lumen_html::Document, NodeId) -> Option<NodeId>,
+) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context)? else {
+        return Ok(JsValue::null());
+    };
+    let found = with_bridge(|bridge| {
+        let page = bridge.page.as_ref()?;
+        lookup(&page.document, node)
+    });
+    Ok(optional_element_object(found, context))
+}
+
+fn parent_node_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    node_lookup(this, context, |document, node| document.parent(node))
+}
+
+fn first_child_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    node_lookup(this, context, |document, node| {
+        document.children(node).first().copied()
+    })
+}
+
+fn last_child_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    node_lookup(this, context, |document, node| {
+        document.children(node).last().copied()
+    })
+}
+
+/// The node's position among its parent's children, with the parent id.
+fn sibling_position(document: &lumen_html::Document, node: NodeId) -> Option<(NodeId, usize)> {
+    let parent = document.parent(node)?;
+    let index = document
+        .children(parent)
+        .iter()
+        .position(|child| *child == node)?;
+    Some((parent, index))
+}
+
+fn next_sibling_get_(
+    this: &JsValue,
+    _args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    node_lookup(this, context, |document, node| {
+        let (parent, index) = sibling_position(document, node)?;
+        document.children(parent).get(index + 1).copied()
+    })
+}
+
+fn previous_sibling_get_(
+    this: &JsValue,
+    _args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    node_lookup(this, context, |document, node| {
+        let (parent, index) = sibling_position(document, node)?;
+        index
+            .checked_sub(1)
+            .and_then(|previous| document.children(parent).get(previous).copied())
+    })
+}
+
+/// An iframe's contentDocument/contentWindow: always null (no nested
+/// browsing contexts), so scripts feature-detecting frames bail out.
+fn frame_browsing_context_get(
+    _this: &JsValue,
+    _args: &[JsValue],
+    _context: &mut Context,
+) -> JsResult<JsValue> {
+    Ok(JsValue::null())
+}
+
 fn children_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
     let Some(node) = this_node(this, context)? else {
         return Ok(JsValue::undefined());
@@ -3225,6 +3573,88 @@ fn children_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> Js
         .map(|child| element_object(child, context).into())
         .collect();
     Ok(boa_engine::object::builtins::JsArray::from_iter(items, context).into())
+}
+
+fn child_nodes_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context)? else {
+        return Ok(JsValue::undefined());
+    };
+    let children = with_bridge(|bridge| {
+        bridge
+            .page
+            .as_ref()
+            .map(|page| page.document.children(node).to_vec())
+            .unwrap_or_default()
+    });
+    let items: Vec<JsValue> = children
+        .into_iter()
+        .map(|child| element_object(child, context).into())
+        .collect();
+    Ok(boa_engine::object::builtins::JsArray::from_iter(items, context).into())
+}
+
+fn insert_before_(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(parent) = this_node(this, context)? else {
+        return Ok(JsValue::undefined());
+    };
+    let Some(argument) = args.first() else {
+        return Ok(JsValue::undefined());
+    };
+    let Some(child) = this_node(argument, context)? else {
+        return Ok(JsValue::undefined());
+    };
+    // insertBefore(new, null) appends, per spec.
+    let reference = match args.get(1) {
+        Some(value) if !value.is_null_or_undefined() => this_node(value, context)?,
+        _ => None,
+    };
+    with_bridge(|bridge| {
+        if let Some(page) = bridge.page.as_mut() {
+            page.document.insert_child_before(parent, child, reference);
+            bridge.dirty = true;
+        }
+    });
+    Ok(args.first().cloned().unwrap_or_default())
+}
+
+fn remove_child(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(parent) = this_node(this, context)? else {
+        return Ok(JsValue::undefined());
+    };
+    let Some(argument) = args.first() else {
+        return Ok(JsValue::undefined());
+    };
+    let Some(child) = this_node(argument, context)? else {
+        return Ok(JsValue::undefined());
+    };
+    with_bridge(|bridge| {
+        let Some(page) = bridge.page.as_mut() else {
+            return;
+        };
+        // Only detach what is actually a child here (a stale or foreign
+        // node is a no-op instead of a NotFoundError — tolerated, like
+        // the rest of the bindings' error policy).
+        if page.document.parent(child) == Some(parent) {
+            page.document.detach(child);
+            bridge.dirty = true;
+        }
+    });
+    Ok(args.first().cloned().unwrap_or_default())
+}
+
+fn closest_(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let Some(node) = this_node(this, context)? else {
+        return Ok(JsValue::null());
+    };
+    let selector = string_arg(args, 0, context);
+    let found = with_bridge(|bridge| {
+        let page = bridge.page.as_ref()?;
+        let document = &page.document;
+        std::iter::once(node)
+            .chain(document.ancestors(node))
+            .find(|candidate| selector_matches(document, *candidate, selector.trim()))
+    });
+    Ok(optional_element_object(found, context))
 }
 
 fn element_query_selector(
@@ -3524,23 +3954,66 @@ fn id_get_(this: &JsValue, _args: &[JsValue], context: &mut Context) -> JsResult
     Ok(JsValue::from(js_string!(id.as_str())))
 }
 
+/// The `once` flag of an addEventListener options argument
+/// (boolean | { capture, passive, once }); a boolean third argument
+/// (capture) and the remaining flags are tolerated and ignored.
+fn listener_options_once(args: &[JsValue], context: &mut Context) -> bool {
+    let Some(options) = args.get(2) else {
+        return false;
+    };
+    options
+        .as_object()
+        .and_then(|options| options.get(js_string!("once"), context).ok())
+        .is_some_and(|value| value.to_boolean())
+}
+
+/// Shared addEventListener body: a null/undefined or non-callable
+/// listener is ignored silently (spec behavior for null; tolerance for
+/// the rest), and any options argument shape is accepted.
+fn register_listener(args: &[JsValue], context: &mut Context, node: NodeId) {
+    let event = string_arg(args, 0, context);
+    let Some(callback) = args.get(1).and_then(JsValue::as_callable) else {
+        return;
+    };
+    let once = listener_options_once(args, context);
+    with_bridge(|bridge| {
+        bridge
+            .pending_listeners
+            .push((node, event, Listener { callback, once }));
+    });
+}
+
+/// Shared removeEventListener body: queues the removal of the matching
+/// registration (identity comparison, like the spec).
+fn unregister_listener(args: &[JsValue], context: &mut Context, node: NodeId) {
+    let event = string_arg(args, 0, context);
+    let Some(callback) = args.get(1).and_then(JsValue::as_callable) else {
+        return;
+    };
+    with_bridge(|bridge| {
+        bridge.pending_removals.push((node, event, callback));
+    });
+}
+
 fn add_event_listener(
     this: &JsValue,
     args: &[JsValue],
     context: &mut Context,
 ) -> JsResult<JsValue> {
-    let Some(node) = this_node(this, context)? else {
-        return Ok(JsValue::undefined());
-    };
-    let event = string_arg(args, 0, context);
-    let Some(callback) = args.get(1).and_then(JsValue::as_object) else {
-        return Ok(JsValue::undefined());
-    };
-    with_bridge(|bridge| {
-        bridge
-            .pending_listeners
-            .push((node, event, callback.clone()));
-    });
+    if let Some(node) = this_node(this, context)? {
+        register_listener(args, context, node);
+    }
+    Ok(JsValue::undefined())
+}
+
+fn remove_event_listener(
+    this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    if let Some(node) = this_node(this, context)? {
+        unregister_listener(args, context, node);
+    }
     Ok(JsValue::undefined())
 }
 
@@ -4939,5 +5412,186 @@ mod tests {
         scripts.pump_network(&mut session);
         assert_eq!(out_text(&session), "slow-ok");
         assert!(!scripts.has_pending_network());
+    }
+
+    #[test]
+    fn gtm_pattern_get_elements_parent_node_insert_before() {
+        // The Google Tag Manager bootstrap: find the first <script>,
+        // then insertBefore a new one next to it.
+        let mut session = session_with(
+            "<p id='out'>-</p><script id='f'>\
+             const f = document.getElementsByTagName('script')[0];\
+             const j = document.createElement('script');\
+             j.setAttribute('id', 'j');\
+             f.parentNode.insertBefore(j, f);\
+             const tail = document.createElement('span');\
+             tail.setAttribute('id', 's');\
+             f.parentNode.insertBefore(tail, null);\
+             document.getElementById('out').textContent = [\
+               f.parentNode.childNodes.length,\
+               f.previousSibling.id,\
+               j.nextSibling.id,\
+               f.parentNode.firstChild.id,\
+               f.parentNode.lastChild.id\
+             ].join('|');\
+             </script>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        // body children: <p>, the inserted <script id=j>, <script id=f>;
+        // the null reference appended the span at the end.
+        assert_eq!(out_text(&session), "4|j|f|out|s");
+    }
+
+    #[test]
+    fn parent_node_remove_child_detaches_it() {
+        let mut session = session_with(
+            "<div id='parent'><span id='kid'>x</span></div><p id='out'>-</p><script>\
+             const parent = document.getElementById('parent');\
+             const kid = document.getElementById('kid');\
+             const removed = parent.removeChild(kid);\
+             document.getElementById('out').textContent = [\
+               parent.childNodes.length,\
+               String(kid.parentNode),\
+               removed.id\
+             ].join('|');\
+             </script>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "0|null|kid");
+    }
+
+    #[test]
+    fn checker_pattern_add_event_listener_tolerates_null_and_options() {
+        // The WP Rocket browser checker: null listeners and a full
+        // options object (capture/passive/once) must not throw.
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             window.addEventListener('test', null, { capture: true, passive: true });\
+             window.addEventListener('test', undefined, true);\
+             window.removeEventListener('test', null);\
+             window.addEventListener('test', () => {\
+               document.getElementById('out').textContent += 't';\
+             }, { capture: false, passive: true, once: false });\
+             </script>",
+        );
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert!(scripts.has_listener(0, "test"));
+        scripts.dispatch(&mut session, 0, "test");
+        scripts.dispatch(&mut session, 0, "test");
+        assert_eq!(out_text(&session), "-tt");
+    }
+
+    #[test]
+    fn remove_event_listener_drops_the_registration() {
+        let mut session = session_with(
+            "<button id='btn'>x</button><p id='out'>-</p><script>\
+             const out = document.getElementById('out');\
+             const handler = () => { out.textContent += 'h'; };\
+             const btn = document.getElementById('btn');\
+             btn.addEventListener('click', handler, true);\
+             btn.removeEventListener('click', handler);\
+             btn.removeEventListener('click', null);\
+             </script>",
+        );
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let button = session
+            .page()
+            .unwrap()
+            .document
+            .get_element_by_id("btn")
+            .unwrap();
+        assert!(!scripts.has_listener(button, "click"));
+        let outcome = scripts.dispatch(&mut session, button, "click");
+        assert!(!outcome.handled);
+        assert_eq!(out_text(&session), "-");
+    }
+
+    #[test]
+    fn once_listeners_run_a_single_time() {
+        let mut session = session_with(
+            "<button id='btn'>x</button><p id='out'>-</p><script>\
+             const out = document.getElementById('out');\
+             const btn = document.getElementById('btn');\
+             btn.addEventListener('click', () => { out.textContent += '1'; }, { once: true });\
+             btn.addEventListener('click', () => { out.textContent += 'k'; });\
+             </script>",
+        );
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let button = session
+            .page()
+            .unwrap()
+            .document
+            .get_element_by_id("btn")
+            .unwrap();
+        scripts.dispatch(&mut session, button, "click");
+        scripts.dispatch(&mut session, button, "click");
+        // The once listener fired only on the first dispatch.
+        assert_eq!(out_text(&session), "-1kk");
+    }
+
+    #[test]
+    fn event_target_closest_walks_the_ancestor_chain() {
+        let mut session = session_with(
+            "<a id='lnk'><span id='inner'>x</span></a><p id='out'>-</p><script>\
+             document.getElementById('lnk').addEventListener('click', (e) => {\
+               document.getElementById('out').textContent =\
+                 e.target.closest('a').id + '|' + String(e.target.closest('table'));\
+             });\
+             </script>",
+        );
+        let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
+        let inner = session
+            .page()
+            .unwrap()
+            .document
+            .get_element_by_id("inner")
+            .unwrap();
+        scripts.dispatch(&mut session, inner, "click");
+        // e.target is an element wrapper: closest('a') climbs to the
+        // link; a selector nothing matches yields null.
+        assert_eq!(out_text(&session), "lnk|null");
+    }
+
+    #[test]
+    fn document_exposes_head_root_and_ready_state() {
+        let mut session = session_with(
+            "<html><head><title>t</title></head><body><p id='out'>-</p><script>\
+             document.getElementById('out').textContent = [\
+               document.head !== null,\
+               document.documentElement !== null,\
+               document.body !== null,\
+               document.readyState\
+             ].join('|');\
+             </script></body></html>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "true|true|true|complete");
+    }
+
+    #[test]
+    fn an_iframe_browsing_context_is_null_not_undefined() {
+        // Cloudflare's challenge checks `iframe.contentDocument ===
+        // null` to bail out; undefined would crash it instead.
+        let mut session = session_with(
+            "<p id='out'>-</p><script>\
+             const frame = document.createElement('iframe');\
+             document.body.appendChild(frame);\
+             document.getElementById('out').textContent =\
+               String(frame.contentDocument) + '|' + String(frame.contentWindow);\
+             </script>",
+        );
+        let _scripts = PageScripts::new(&mut session).expect("page has scripts");
+        assert_eq!(out_text(&session), "null|null");
+    }
+
+    #[test]
+    fn repeated_script_errors_are_throttled_after_the_budget() {
+        let message = "TypeError: cannot convert 'null' or 'undefined' to object (throttle test)";
+        assert_eq!(tally_error(message), ErrorReport::Print);
+        assert_eq!(tally_error(message), ErrorReport::Print);
+        assert_eq!(tally_error(message), ErrorReport::Print);
+        assert_eq!(tally_error(message), ErrorReport::LastOne);
+        assert_eq!(tally_error(message), ErrorReport::Silent);
+        assert_eq!(tally_error(message), ErrorReport::Silent);
     }
 }

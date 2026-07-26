@@ -409,6 +409,38 @@ impl Document {
         self.nodes[parent].children.push(child);
     }
 
+    /// Attaches `child` under `parent`, right before `reference` — or as
+    /// the last child when `reference` is `None` (or is not a child of
+    /// `parent`, mirroring how lenient DOM implementations treat a stale
+    /// reference). Same detach-first and cycle-refusal rules as
+    /// [`Self::append_child`]. (The DOM's `Node.insertBefore`.)
+    pub fn insert_child_before(
+        &mut self,
+        parent: NodeId,
+        child: NodeId,
+        reference: Option<NodeId>,
+    ) {
+        if parent == child
+            || child == self.root
+            || std::iter::once(parent)
+                .chain(self.ancestors(parent))
+                .any(|ancestor| ancestor == child)
+        {
+            return;
+        }
+        self.detach(child);
+        self.nodes[child].parent = Some(parent);
+        let position = reference
+            .and_then(|reference| {
+                self.nodes[parent]
+                    .children
+                    .iter()
+                    .position(|existing| *existing == reference)
+            })
+            .unwrap_or(self.nodes[parent].children.len());
+        self.nodes[parent].children.insert(position, child);
+    }
+
     /// Detaches a node from its parent. The node stays in the arena (and
     /// can be re-appended); detached subtrees simply never render.
     pub fn detach(&mut self, node: NodeId) {

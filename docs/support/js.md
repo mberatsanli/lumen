@@ -21,17 +21,22 @@ loader thread); the whole world drops on navigation.
 | `document.getElementById` | ✅ | |
 | `document.querySelector(All)` | ⚠️ | `#id`, `.class`, `tag`, `tag.class` |
 | `document.getElementsByClassName/TagName` | ✅ | |
-| `document.body` / `document.addEventListener` | ✅ | window/document listeners land on the root; `DOMContentLoaded` and `load` fire after page scripts run |
+| `document.body` / `document.head` / `document.documentElement` | ✅ | fall back to the root when the literal element is missing |
+| `document.readyState` | ⚠️ | always `"complete"` (scripts only run after the parse) |
+| `document.addEventListener` / `removeEventListener` | ✅ | window/document listeners land on the root; `DOMContentLoaded` and `load` fire after page scripts run |
 | `localStorage` / `sessionStorage` | ✅ | localStorage persists per origin on disk (`<config>/lumen/storage/`, 5 MiB cap); sessionStorage lives with the page's script world; named-property access (`storage.x`) and unbound methods work |
 | `navigator` | ⚠️ | `userAgent`, `language`/`languages`, `platform`, `onLine` (always true) |
 | `matchMedia` / `requestAnimationFrame` / `getComputedStyle` | ⚠️ | survival stubs: matchMedia never matches, rAF is a 16ms timeout |
 | `element.textContent` / `innerText` | ✅ | live accessor properties; writes relayout the page |
 | `element.value` | ✅ | reads live form state, writes update the control |
 | `element.getAttribute` / `setAttribute` | ✅ | `setAttribute('style.color', …)` merges into the style attribute |
-| `element.addEventListener` | ⚠️ | `click` (bubbles to ancestors), `input`, and `submit` on forms; the handler gets `{ type, target, preventDefault, stopPropagation }` |
+| `element.addEventListener` / `removeEventListener` | ⚠️ | `click` (bubbles to ancestors), `input`, and `submit` on forms; the handler gets `{ type, target, preventDefault, stopPropagation }`; null listeners are ignored and the options argument (boolean or `{capture, passive, once}`) is tolerated — capture/passive are ignored, `once` works |
+| `event.target.closest(selector)` | ✅ | the target is a full element wrapper; `closest` walks self + ancestors with the selector subset |
 | `event.preventDefault` / `stopPropagation` | ✅ | cancels link follows, form submits and control activation |
 | `element.classList` / `className` | ✅ | add/remove/toggle/contains, writing through to the class attribute |
-| `document.createElement` / `el.appendChild` / `el.remove` | ✅ | detached nodes render nothing until appended; appends refuse cycles |
+| `document.createElement` / `el.appendChild` / `el.insertBefore` / `el.removeChild` / `el.remove` | ✅ | detached nodes render nothing until appended; appends/inserts refuse cycles; `insertBefore(new, null)` appends |
+| `el.parentNode` / `childNodes` / `firstChild` / `lastChild` / `nextSibling` / `previousSibling` | ✅ | node-level traversal (text nodes included), null at the edges |
+| `iframe.contentDocument` / `contentWindow` | ⚠️ | always null (no nested browsing contexts), so frame feature-detection bails out cleanly |
 | `el.innerHTML` | ✅ | set parses the fragment with the engine's own HTML parser (fragment scripts stay inert); get serializes |
 | `el.style.x` / `el.dataset.x` | ✅ | live proxies writing through to the style / data-* attributes (camelCase → kebab-case) |
 | `el.parentElement` / `el.children` / element `querySelector(All)` | ✅ | subtree-scoped queries |
@@ -51,7 +56,9 @@ fetched level by level, runtime `import()` goes through the network
 queue) run after parsing in document order. `type="application/ld+json"`,
 templates and import maps are skipped. Runtime errors abort the current
 script/handler with a `[js] script error: …` message and the page keeps
-working.
+working. One distinct error message prints at most four times (three
+plain, one with a "repeated; further occurrences suppressed" note), so a
+misfiring handler cannot flood the terminal.
 
 Known module limit: a **top-level `await` on the page's own `fetch()`
 promise never settles**. Boa's async-job future borrows the context for
