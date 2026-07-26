@@ -633,7 +633,11 @@ impl<L: ResourceLoader> Session<L> {
                 )),
             );
         }
-        url.set_query(if encoded.is_empty() { None } else { Some(&encoded) });
+        url.set_query(if encoded.is_empty() {
+            None
+        } else {
+            Some(&encoded)
+        });
         self.load(url)
     }
 }
@@ -683,12 +687,19 @@ mod tests {
                 height: 600.0,
             },
         );
-        session.load(Url::parse("https://a.test/").unwrap()).unwrap();
+        session
+            .load(Url::parse("https://a.test/").unwrap())
+            .unwrap();
         session
     }
 
     fn by_id(session: &Session<FakeLoader>, id: &str) -> NodeId {
-        session.page().unwrap().document.get_element_by_id(id).unwrap()
+        session
+            .page()
+            .unwrap()
+            .document
+            .get_element_by_id(id)
+            .unwrap()
     }
 
     #[test]

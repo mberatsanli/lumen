@@ -166,7 +166,8 @@ mod tests {
 
     #[test]
     fn meta_http_equiv_content_attribute_is_prescanned() {
-        let body = b"<meta http-equiv=\"Content-Type\" content=\"text/html; charset=iso-8859-9\"><p>\xFD";
+        let body =
+            b"<meta http-equiv=\"Content-Type\" content=\"text/html; charset=iso-8859-9\"><p>\xFD";
         assert_eq!(
             decode_text(body, None),
             "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=iso-8859-9\"><p>ı"
@@ -200,6 +201,9 @@ mod tests {
     #[test]
     fn unknown_charset_labels_fall_back_to_utf8() {
         let body = b"<meta charset=\"klingon\">hi";
-        assert_eq!(decode_text(body, Some("text/html; charset=klingon")), "<meta charset=\"klingon\">hi");
+        assert_eq!(
+            decode_text(body, Some("text/html; charset=klingon")),
+            "<meta charset=\"klingon\">hi"
+        );
     }
 }

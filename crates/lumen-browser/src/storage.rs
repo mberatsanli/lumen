@@ -323,7 +323,10 @@ mod tests {
         storage.set_root(root.clone());
         storage.save(origin, &map);
         // In memory the value is there…
-        assert_eq!(storage.load(origin).get("huge").map(String::len), Some(MAX_STORAGE_BYTES));
+        assert_eq!(
+            storage.load(origin).get("huge").map(String::len),
+            Some(MAX_STORAGE_BYTES)
+        );
         // …but nothing was written to disk.
         assert!(!root.join(format!("{}.json", slug(origin))).exists());
         let _ = std::fs::remove_dir_all(root);

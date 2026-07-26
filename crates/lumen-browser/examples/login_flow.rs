@@ -22,8 +22,12 @@ fn main() {
     let url = "https://the-internet.herokuapp.com/login".parse().unwrap();
     session.load(url).expect("login page loads");
     let document = &session.page().expect("page").document;
-    let username = document.get_element_by_id("username").expect("username field");
-    let password = document.get_element_by_id("password").expect("password field");
+    let username = document
+        .get_element_by_id("username")
+        .expect("username field");
+    let password = document
+        .get_element_by_id("password")
+        .expect("password field");
     session.set_form_value(username, "tomsmith");
     session.set_form_value(password, "SuperSecretPassword!");
     session.submit_form(username).expect("submit");
@@ -32,14 +36,15 @@ fn main() {
     let document = &session.page().expect("page").document;
     let body_text = document.text_content(document.root());
     println!("final url: {final_url}");
-    let success = final_url.contains("/secure")
-        && body_text.contains("You logged into a secure area");
-    println!(
-        "login: {}",
-        if success { "SUCCESS" } else { "FAILED" }
-    );
+    let success =
+        final_url.contains("/secure") && body_text.contains("You logged into a secure area");
+    println!("login: {}", if success { "SUCCESS" } else { "FAILED" });
     if !success {
-        let head: String = body_text.split_whitespace().take(40).collect::<Vec<_>>().join(" ");
+        let head: String = body_text
+            .split_whitespace()
+            .take(40)
+            .collect::<Vec<_>>()
+            .join(" ");
         println!("page text: {head}");
     }
 }

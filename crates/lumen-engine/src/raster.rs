@@ -1792,7 +1792,12 @@ mod tests {
             color: Color::rgb(0, 0, 255),
             radius: Corners::uniform(0.0),
         };
-        let commands = vec![tall, DisplayCommand::PushFixed, badge, DisplayCommand::PopFixed];
+        let commands = vec![
+            tall,
+            DisplayCommand::PushFixed,
+            badge,
+            DisplayCommand::PopFixed,
+        ];
         let top = rasterize(&commands, 100, 100, 0.0);
         let scrolled = rasterize(&commands, 100, 100, 200.0);
         // The fixed badge stays at its viewport position...

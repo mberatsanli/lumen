@@ -158,12 +158,14 @@ mod tests {
         );
         // Sibling subdomain: only the Domain=example.com cookie.
         assert_eq!(
-            jar.header_for_http(&url("https://blog.example.com/")).unwrap(),
+            jar.header_for_http(&url("https://blog.example.com/"))
+                .unwrap(),
             "theme=dark"
         );
         // Plain http: the Secure cookie stays home.
         assert_eq!(
-            jar.header_for_http(&url("http://shop.example.com/")).unwrap(),
+            jar.header_for_http(&url("http://shop.example.com/"))
+                .unwrap(),
             "sid=abc123; theme=dark"
         );
         // Foreign domain: nothing.
@@ -199,14 +201,20 @@ mod tests {
         jar.store(&page, "a=1; Path=/docs");
         jar.store(&page, "b=2; Path=/docs/");
         // Exact match; "/docs/" does not match "/docs".
-        assert_eq!(jar.header_for_http(&url("https://a.test/docs")).unwrap(), "a=1");
+        assert_eq!(
+            jar.header_for_http(&url("https://a.test/docs")).unwrap(),
+            "a=1"
+        );
         // Prefix + next char '/', plus the cookie path ending in '/'.
         assert_eq!(
             jar.header_for_http(&url("https://a.test/docs/x")).unwrap(),
             "a=1; b=2"
         );
         // A bare string prefix is NOT a match.
-        assert!(jar.header_for_http(&url("https://a.test/docsify")).is_none());
+        assert!(
+            jar.header_for_http(&url("https://a.test/docsify"))
+                .is_none()
+        );
     }
 
     #[test]
@@ -215,7 +223,8 @@ mod tests {
         jar.store(&url("https://a.test/dir/page"), "x=1; Path=relative");
         // The default path of /dir/page is /dir.
         assert_eq!(
-            jar.header_for_http(&url("https://a.test/dir/other")).unwrap(),
+            jar.header_for_http(&url("https://a.test/dir/other"))
+                .unwrap(),
             "x=1"
         );
         assert!(jar.header_for_http(&url("https://a.test/")).is_none());
