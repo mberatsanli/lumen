@@ -101,6 +101,96 @@ pub(crate) fn subject_key(selector: &Selector) -> BucketKey {
     }
 }
 
+/// Whether `selector`'s match result depends only on the element's own
+/// identity and its element ancestors' identities — the condition under
+/// which the style-sharing cache may memoize it. Anything that reads
+/// siblings (sibling combinators, positional pseudo-classes), the
+/// subtree (`:has()`, `:empty`), or live form state makes it unsafe.
+/// Child/descendant combinators are safe: the share key covers
+/// ancestors recursively. `:root`/`:scope` are safe: with no scope
+/// element both reduce to `is_root()`, which the key's root bit covers.
+pub(crate) fn share_safe(selector: &Selector) -> bool {
+    selector.iter_raw_match_order().all(component_share_safe)
+}
+
+fn component_share_safe(component: &Component<'static, Selectors>) -> bool {
+    match component {
+        Component::Combinator(Combinator::NextSibling | Combinator::LaterSibling) => false,
+        Component::Has(_) | Component::Nth(_) | Component::NthOf(_) => false,
+        Component::Empty => false,
+        Component::NonTSPseudoClass(
+            PseudoClass::Checked | PseudoClass::Enabled | PseudoClass::Disabled,
+        ) => false,
+        Component::Negation(list)
+        | Component::Is(list)
+        | Component::Where(list)
+        | Component::Any(_, list) => list.iter().all(share_safe),
+        _ => true,
+    }
+}
+
+/// Collects the attribute names read by attribute selectors, split by
+/// WHERE they are read: the subject compound reads the element itself
+/// (`subject`); every other compound reads one of its ancestors
+/// (`ancestors`). Nested selector lists (`:is()`/`:not()`/...) keep the
+/// same split: their subject is the element, their left-hand compounds
+/// its ancestors. `:has()`/`:nth-child(of)` arguments are skipped —
+/// those selectors are share-unsafe and never reach the cache. The
+/// style-sharing key carries the element's values for these names, so
+/// ancestor-only attributes (link `href`s, `title`s) do not fragment
+/// the keys of whole subtrees.
+pub(crate) fn collect_attr_names(
+    selector: &Selector,
+    subject: &mut Vec<String>,
+    ancestors: &mut Vec<String>,
+) {
+    let mut in_subject = true;
+    for component in selector.iter_raw_match_order() {
+        match component {
+            Component::Combinator(Combinator::PseudoElement) => {}
+            Component::Combinator(_) => in_subject = false,
+            Component::AttributeInNoNamespaceExists {
+                local_name,
+                local_name_lower,
+            } => {
+                let out = if in_subject {
+                    &mut *subject
+                } else {
+                    &mut *ancestors
+                };
+                out.push(local_name.as_str().to_string());
+                out.push(local_name_lower.as_str().to_string());
+            }
+            Component::AttributeInNoNamespace { local_name, .. } => {
+                let out = if in_subject {
+                    &mut *subject
+                } else {
+                    &mut *ancestors
+                };
+                out.push(local_name.as_str().to_string());
+            }
+            Component::AttributeOther(attr) => {
+                let out = if in_subject {
+                    &mut *subject
+                } else {
+                    &mut *ancestors
+                };
+                out.push(attr.local_name.as_str().to_string());
+                out.push(attr.local_name_lower.as_str().to_string());
+            }
+            Component::Negation(list)
+            | Component::Is(list)
+            | Component::Where(list)
+            | Component::Any(_, list) => {
+                for inner in list.iter() {
+                    collect_attr_names(inner, subject, ancestors);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// A DOM element presented to parcel's matcher, carrying the document
 /// and interaction state its pseudo-class answers depend on.
 #[derive(Clone)]

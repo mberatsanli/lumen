@@ -18,8 +18,10 @@ use lumen_css::selector::PseudoElement;
 use lumen_css::{Color, CssValue, Stylesheet};
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::hash::{BuildHasherDefault, Hasher};
+use std::hash::{BuildHasherDefault, Hash, Hasher};
+use std::rc::Rc;
 
 mod interaction;
 mod matching;
@@ -201,6 +203,7 @@ pub fn compute_styles_interactive(
         &mut pseudo_texts,
         &mut first_letter,
         &mut first_line,
+        None,
         0,
     );
     StyleMap {
@@ -221,8 +224,10 @@ pub fn compute_styles_interactive(
 struct CascadeSheet<'a> {
     sheet: &'a Stylesheet,
     /// `selectors[rule][selector]`, aligned with `sheet.rules`: parcel's
-    /// layered specificity plus the prepared `:has()` clauses.
-    selectors: Vec<Vec<(u32, matching::PreparedSelector)>>,
+    /// layered specificity, the prepared `:has()` clauses, and whether
+    /// the selector's match depends only on element-and-ancestor
+    /// identities (see [`matching::share_safe`]).
+    selectors: Vec<Vec<(u32, matching::PreparedSelector, bool)>>,
     buckets: RuleBuckets,
     has_before: bool,
     has_after: bool,
@@ -312,7 +317,11 @@ impl<'a> CascadeSheet<'a> {
                             matching::subject_key(selector),
                             (rule_index, selector_index, passes),
                         );
-                        (selector.specificity(), matching::prepare_selector(selector))
+                        (
+                            selector.specificity(),
+                            matching::prepare_selector(selector),
+                            matching::share_safe(selector),
+                        )
                     })
                     .collect()
             })
@@ -340,6 +349,71 @@ impl<'a> CascadeSheet<'a> {
     }
 }
 
+/// Everything selector matching on an element may read, made explicit
+/// so identical keys guarantee identical matched declarations: the
+/// element's own identity plus, recursively, its element ancestors'
+/// (child/descendant combinators read those). Selectors that read
+/// siblings or the subtree never reach the cache — they mark their
+/// candidates cache-ineligible instead (see [`matching::share_safe`]).
+#[derive(Clone)]
+struct ShareKey {
+    tag: Box<str>,
+    id: Option<Box<str>>,
+    /// Sorted and deduplicated: class matching is set membership, so
+    /// attribute order and repeats are not part of the identity.
+    classes: Rc<[Box<str>]>,
+    /// Values of the attributes read by subject-compound attribute
+    /// selectors: `(index into StyleContext::subject_attr_names, value)`
+    /// pairs, in index order.
+    attrs: Rc<[(u16, Box<str>)]>,
+    /// Values of the attributes read by ancestor-compound attribute
+    /// selectors — this element in its role as someone else's ancestor.
+    /// `(index into StyleContext::ancestor_attr_names, value)` pairs.
+    ancestor_attrs: Rc<[(u16, Box<str>)]>,
+    /// Bit 0: has `href` (`:link`/`:visited` candidate); bit 1: visited;
+    /// bit 2: no element parent (`:root`/`:scope` candidate).
+    state: u8,
+    parent: Option<Rc<ShareKey>>,
+    /// Precomputed at build; the `Hash` impl just writes it.
+    hash: u64,
+}
+
+impl PartialEq for ShareKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash == other.hash
+            && self.state == other.state
+            && self.tag == other.tag
+            && self.id == other.id
+            && self.classes == other.classes
+            && self.attrs == other.attrs
+            && self.ancestor_attrs == other.ancestor_attrs
+            && match (&self.parent, &other.parent) {
+                (None, None) => true,
+                // Ancestor keys are shared `Rc`s down a tree walk, so
+                // siblings compare parents by pointer.
+                (Some(a), Some(b)) => Rc::ptr_eq(a, b) || **a == **b,
+                _ => false,
+            }
+    }
+}
+
+impl Eq for ShareKey {}
+
+impl Hash for ShareKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash);
+    }
+}
+
+/// The sheet layer of one element's cascade: both sheets' winning
+/// declarations merged by cascade rank, replayed with the same rank
+/// checks on a cache hit. Everything after — inline styles, var()
+/// substitution, CSS-wide keywords, rem/calc resolution, inheritance,
+/// pseudo passes, `to_computed` — runs per element as usual.
+struct SheetLayer {
+    entries: Vec<(Cow<'static, str>, CssValue, CascadeRank)>,
+}
+
 /// Per-style-pass shared state: the document under styling, the
 /// interaction state, and the cascade sheets, weakest origin (UA) first.
 struct StyleContext<'a> {
@@ -349,6 +423,17 @@ struct StyleContext<'a> {
     /// Pre-split class attributes, shared by bucket lookups and parcel's
     /// `has_class` (see [`matching::ClassCache`]).
     class_cache: matching::ClassCache,
+    /// Attribute names read by subject-compound (ancestor-compound)
+    /// attribute selectors in either sheet, sorted and deduplicated; a
+    /// [`ShareKey`] carries the element's values for exactly these, as
+    /// indices into these lists.
+    subject_attr_names: Vec<Box<str>>,
+    ancestor_attr_names: Vec<Box<str>>,
+    /// Matched-declarations cache (Blink-style style sharing). `None`
+    /// when the interaction state is non-default (hover/active/focus):
+    /// per-element pseudo-class answers make sharing unsound there, so
+    /// interaction restyles always take the normal path.
+    share_cache: Option<RefCell<FxHashMap<ShareKey, Rc<SheetLayer>>>>,
 }
 
 impl<'a> StyleContext<'a> {
@@ -357,14 +442,37 @@ impl<'a> StyleContext<'a> {
         author: &'a Stylesheet,
         interaction: &'a InteractionState,
     ) -> Self {
+        let sheets = [
+            CascadeSheet::new(user_agent_stylesheet()),
+            CascadeSheet::new(author),
+        ];
+        let mut subject_names: Vec<String> = Vec::new();
+        let mut ancestor_names: Vec<String> = Vec::new();
+        for sheet in &sheets {
+            for rule in sheet.sheet.rules.iter() {
+                for selector in rule.selectors.iter() {
+                    matching::collect_attr_names(selector, &mut subject_names, &mut ancestor_names);
+                }
+            }
+        }
+        subject_names.sort_unstable();
+        subject_names.dedup();
+        ancestor_names.sort_unstable();
+        ancestor_names.dedup();
+        let subject_attr_names = subject_names.into_iter().map(Box::from).collect();
+        let ancestor_attr_names = ancestor_names.into_iter().map(Box::from).collect();
+        let interactive = !interaction.hover_chain.is_empty()
+            || !interaction.active_chain.is_empty()
+            || interaction.focused.is_some()
+            || !interaction.focus_chain.is_empty();
         Self {
             document,
             interaction,
-            sheets: [
-                CascadeSheet::new(user_agent_stylesheet()),
-                CascadeSheet::new(author),
-            ],
+            sheets,
             class_cache: matching::ClassCache::default(),
+            subject_attr_names,
+            ancestor_attr_names,
+            share_cache: (!interactive).then(RefCell::default),
         }
     }
 }
@@ -706,6 +814,7 @@ fn compute_node(
     pseudo_texts: &mut Vec<PseudoText>,
     first_letter: &mut HashMap<NodeId, ComputedStyle>,
     first_line: &mut HashMap<NodeId, ComputedStyle>,
+    parent_share_key: Option<Rc<ShareKey>>,
     depth: usize,
 ) {
     // Depth guard: absurdly nested documents stop here; the skipped
@@ -713,8 +822,10 @@ fn compute_node(
     if depth >= crate::MAX_DEPTH {
         return;
     }
-    let mut raw = RawStyle::default();
-    let mut meta = CascadeMeta::default();
+    // Pre-sized: real elements carry dozens of declarations, and map
+    // growth dominated malloc profiles.
+    let mut raw = RawStyle::with_capacity_and_hasher(96, FxBuildHasher::default());
+    let mut meta = CascadeMeta::with_capacity_and_hasher(64, FxBuildHasher::default());
     for property in lumen_css::properties::inherited() {
         if let Some(value) = parent_raw.get(property) {
             raw.insert(Cow::Borrowed(property), value.clone());
@@ -731,6 +842,19 @@ fn compute_node(
         NodeKind::Element(element) => Some(element),
         _ => None,
     };
+
+    // Style sharing: when the cache is active, every element gets a
+    // share key; children inherit it as their ancestor identity.
+    let self_share_key = match (element, &context.share_cache) {
+        (Some(element), Some(_)) => Some(Rc::new(build_share_key(
+            node_id,
+            element,
+            context,
+            parent_share_key.clone(),
+        ))),
+        _ => None,
+    };
+    let child_share_key = self_share_key.clone().or(parent_share_key);
 
     // Bucket candidates are gathered once per element per sheet and
     // shared by the element pass and all four pseudo passes.
@@ -756,26 +880,47 @@ fn compute_node(
 
     if let Some(element) = element {
         let candidates = candidates.as_ref().expect("element nodes have candidates");
-        // Weakest origin first; a declaration replaces the current value
-        // only when its cascade rank (level, specificity, source order)
-        // is at least the current winner's.
-        for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
-            for (name, (is_important, specificity, source_order, value)) in
-                winning_declarations(&candidates[origin], cascade_sheet, context, node_id, None)
-            {
-                let rank = (
-                    cascade_level(origin, is_important),
-                    specificity,
-                    source_order,
-                );
-                if meta
-                    .get(name.as_str())
-                    .is_none_or(|current| rank >= *current)
-                {
-                    meta.insert(Cow::Owned(name.clone()), rank);
-                    raw.insert(Cow::Owned(name), value);
+        // Split for style sharing: the cache stores only the share-safe
+        // part of the layer (whose match results the key determines);
+        // share-unsafe candidates (sibling/structural/`:has` rules) are
+        // matched live on every path. The rank-checked merge makes the
+        // order of the two parts irrelevant.
+        let mut safe: [Vec<(usize, usize, u8)>; 2] = [Vec::new(), Vec::new()];
+        let mut unsafe_: [Vec<(usize, usize, u8)>; 2] = [Vec::new(), Vec::new()];
+        for (origin, sheet) in context.sheets.iter().enumerate() {
+            for &entry in &candidates[origin] {
+                if sheet.selectors[entry.0][entry.1].2 {
+                    safe[origin].push(entry);
+                } else {
+                    unsafe_[origin].push(entry);
                 }
             }
+        }
+        let layer = share_layer(node_id, &safe, context, self_share_key.as_ref());
+        // Weakest origin first; a declaration replaces the current value
+        // only when its cascade rank (level, specificity, source order)
+        // is at least the current winner's. `meta` holds no entries yet,
+        // so replaying the merged layer is the same merge as before.
+        for (name, value, rank) in &layer.entries {
+            if meta
+                .get(name.as_ref())
+                .is_none_or(|current| rank >= current)
+            {
+                meta.insert(name.clone(), *rank);
+                raw.insert(name.clone(), value.clone());
+            }
+        }
+        for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
+            apply_matching_declarations(
+                &unsafe_[origin],
+                cascade_sheet,
+                context,
+                node_id,
+                origin,
+                None,
+                &mut raw,
+                &mut meta,
+            );
         }
         if let Some(inline) = element.attributes.get("style") {
             for (index, declaration) in lumen_css::parse_declarations(inline)
@@ -923,9 +1068,226 @@ fn compute_node(
             pseudo_texts,
             first_letter,
             first_line,
+            child_share_key.clone(),
             depth + 1,
         );
     }
+}
+
+/// The element's [`ShareKey`]: its own identity (tag, id, sorted
+/// classes, selector-read attribute values, link state) chained to its
+/// element ancestors' keys. Built only when the share cache is active.
+fn build_share_key(
+    node_id: NodeId,
+    element: &ElementData,
+    context: &StyleContext<'_>,
+    parent: Option<Rc<ShareKey>>,
+) -> ShareKey {
+    let mut classes =
+        matching::cached_classes(context.document, &context.class_cache, node_id).to_vec();
+    classes.sort_unstable();
+    classes.dedup();
+    // Attribute values enter the key as indices into the context's name
+    // lists; ancestor-only attributes go to a separate list so an
+    // element's descendants are keyed by its ancestor-relevant identity
+    // alone.
+    let attr_values = |names: &[Box<str>]| -> Vec<(u16, Box<str>)> {
+        names
+            .iter()
+            .enumerate()
+            .filter_map(|(index, name)| {
+                element
+                    .attributes
+                    .get(name.as_ref())
+                    .map(|value| (index as u16, Box::from(value)))
+            })
+            .collect()
+    };
+    let attrs = attr_values(&context.subject_attr_names);
+    let ancestor_attrs = attr_values(&context.ancestor_attr_names);
+    let mut state = 0u8;
+    if element.attributes.contains("href") {
+        state |= 1;
+    }
+    if context.interaction.visited_links.contains(&node_id) {
+        state |= 2;
+    }
+    // `:root`/`:scope` reduce to `is_root()`: an element is the root
+    // exactly when it has no element parent.
+    if parent.is_none() {
+        state |= 4;
+    }
+    let mut hasher = FxHasher::default();
+    element.tag_name.hash(&mut hasher);
+    element.id().hash(&mut hasher);
+    for class in &classes {
+        class.hash(&mut hasher);
+    }
+    for (index, value) in attrs.iter().chain(&ancestor_attrs) {
+        index.hash(&mut hasher);
+        value.hash(&mut hasher);
+    }
+    state.hash(&mut hasher);
+    if let Some(parent) = &parent {
+        hasher.write_u64(parent.hash);
+    }
+    ShareKey {
+        tag: Box::from(element.tag_name.as_str()),
+        id: element.id().map(Box::from),
+        classes: classes.into(),
+        attrs: attrs.into(),
+        ancestor_attrs: ancestor_attrs.into(),
+        state,
+        parent,
+        hash: hasher.finish(),
+    }
+}
+
+/// The share-safe part of the element's sheet layer, from the share
+/// cache on a hit; on a miss the normal per-sheet winner selection over
+/// the safe candidates runs and the result is memoized. Share-unsafe
+/// candidates never reach here — they are matched live by the caller —
+/// so a hit skips only matching whose outcome the key fully determines.
+fn share_layer(
+    node_id: NodeId,
+    safe: &[Vec<(usize, usize, u8)>; 2],
+    context: &StyleContext<'_>,
+    share_key: Option<&Rc<ShareKey>>,
+) -> Rc<SheetLayer> {
+    let Some(key) = share_key else {
+        return Rc::new(build_layer(node_id, safe, context));
+    };
+    let cache = context.share_cache.as_ref().expect("key implies cache");
+    if let Some(layer) = cache.borrow().get(key.as_ref()) {
+        #[cfg(test)]
+        SHARE_HITS.with(|hits| hits.set(hits.get() + 1));
+        return Rc::clone(layer);
+    }
+    let layer = Rc::new(build_layer(node_id, safe, context));
+    cache
+        .borrow_mut()
+        .insert((**key).clone(), Rc::clone(&layer));
+    layer
+}
+
+/// Matches `candidates` against `node_id` and merges the matching
+/// rules' declarations into `raw`/`meta` under `origin`'s cascade
+/// level, with the usual rank check (a declaration replaces the current
+/// value only when its rank is at least the current winner's). This is
+/// the element and pseudo passes' hot path; fusing match and merge
+/// skips the intermediate per-sheet winners map.
+#[allow(clippy::too_many_arguments)]
+fn apply_matching_declarations(
+    candidates: &[(usize, usize, u8)],
+    cascade_sheet: &CascadeSheet<'_>,
+    context: &StyleContext<'_>,
+    node_id: NodeId,
+    origin: usize,
+    pseudo: Option<&str>,
+    raw: &mut RawStyle,
+    meta: &mut CascadeMeta,
+) {
+    let wanted = pass_mask(pseudo);
+    for &(rule_index, selector_index, passes) in candidates {
+        // Selectors for other passes (e.g. `::before` rules in the
+        // element pass) can never contribute: skip the matcher call.
+        if passes & wanted == 0 {
+            continue;
+        }
+        let rule = &cascade_sheet.sheet.rules[rule_index];
+        let selector = &rule.selectors[selector_index];
+        let (specificity, prepared, _) = &cascade_sheet.selectors[rule_index][selector_index];
+        if !matching::selector_matches(
+            context.document,
+            context.interaction,
+            &context.class_cache,
+            node_id,
+            selector,
+            prepared,
+        ) {
+            continue;
+        }
+        // `::selection` rules style the highlight, not the element:
+        // only their background-color/color apply, under internal
+        // property names.
+        let pseudo_element = selector.pseudo_element();
+        for declaration in &rule.declarations {
+            let name: Cow<'static, str> = match (pseudo, pseudo_element) {
+                // Element pass: plain rules apply; `::selection`
+                // rules route under internal property names.
+                (None, None) => Cow::Owned(declaration.name.clone()),
+                (None, Some(PseudoElement::Selection)) => match declaration.name.as_str() {
+                    "background-color" => Cow::Borrowed("::selection-background"),
+                    "color" => Cow::Borrowed("::selection-color"),
+                    _ => continue,
+                },
+                // Pseudo pass: only rules for that pseudo-element.
+                (Some("before"), Some(PseudoElement::Before))
+                | (Some("after"), Some(PseudoElement::After))
+                | (Some("first-letter"), Some(PseudoElement::FirstLetter))
+                | (Some("first-line"), Some(PseudoElement::FirstLine)) => {
+                    Cow::Owned(declaration.name.clone())
+                }
+                _ => continue,
+            };
+            let rank = (
+                cascade_level(origin, declaration.important),
+                *specificity,
+                rule.source_order,
+            );
+            if meta
+                .get(name.as_ref())
+                .is_none_or(|current| rank >= *current)
+            {
+                meta.insert(name.clone(), rank);
+                raw.insert(name, declaration.value.clone());
+            }
+        }
+    }
+}
+
+/// Both sheets' winning declarations over the given candidates, merged
+/// by cascade rank — the pre-sharing element pass, factored out so the
+/// share cache can store and replay its result.
+fn build_layer(
+    node_id: NodeId,
+    candidates: &[Vec<(usize, usize, u8)>; 2],
+    context: &StyleContext<'_>,
+) -> SheetLayer {
+    let mut layer_raw = RawStyle::with_capacity_and_hasher(64, FxBuildHasher::default());
+    let mut layer_meta = CascadeMeta::with_capacity_and_hasher(64, FxBuildHasher::default());
+    for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
+        apply_matching_declarations(
+            &candidates[origin],
+            cascade_sheet,
+            context,
+            node_id,
+            origin,
+            None,
+            &mut layer_raw,
+            &mut layer_meta,
+        );
+    }
+    // Entry order is irrelevant: replay re-checks ranks per property.
+    let entries = layer_meta
+        .into_iter()
+        .map(|(name, rank)| {
+            let value = layer_raw
+                .get(&name)
+                .expect("meta and raw stay in sync")
+                .clone();
+            (name, value, rank)
+        })
+        .collect();
+    SheetLayer { entries }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Cache hits in the current style pass; the sharing equivalence
+    /// test asserts both engagement (hits on repetitive documents) and
+    /// fallback (no hits with structural selectors).
+    static SHARE_HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Builds the raw style for one pseudo-element pass: applies the
@@ -949,28 +1311,18 @@ fn pseudo_raw_style(
     let mut meta = CascadeMeta::default();
     let mut matched = RawStyle::default();
     for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
-        for (name, (is_important, specificity, source_order, value)) in winning_declarations(
+        // Same cascade ranking as the element pass: important
+        // declarations win across origins as well.
+        apply_matching_declarations(
             &candidates[origin],
             cascade_sheet,
             context,
             node_id,
+            origin,
             Some(kind),
-        ) {
-            // Same cascade ranking as the element pass: important
-            // declarations win across origins as well.
-            let rank = (
-                cascade_level(origin, is_important),
-                specificity,
-                source_order,
-            );
-            if meta
-                .get(name.as_str())
-                .is_none_or(|current| rank >= *current)
-            {
-                meta.insert(Cow::Owned(name.clone()), rank);
-                matched.insert(Cow::Owned(name), value);
-            }
-        }
+            &mut matched,
+            &mut meta,
+        );
     }
     if matched.is_empty() {
         // Nothing matched: skip the inheritance copy. Real sheets with
@@ -1057,7 +1409,10 @@ fn gather_candidates(
 /// Specificities come precomputed from the [`CascadeSheet`], and the
 /// tested selectors come from its buckets via [`gather_candidates`];
 /// candidates tagged for other passes (a `::before` rule in the element
-/// pass) are skipped without invoking the matcher.
+/// pass) are skipped without invoking the matcher. Only the bucket
+/// equivalence test uses this unfused form; the passes themselves run
+/// [`apply_matching_declarations`].
+#[cfg(test)]
 fn winning_declarations(
     candidates: &[(usize, usize, u8)],
     cascade_sheet: &CascadeSheet<'_>,
@@ -1075,7 +1430,7 @@ fn winning_declarations(
         }
         let rule = &cascade_sheet.sheet.rules[rule_index];
         let selector = &rule.selectors[selector_index];
-        let (specificity, prepared) = &cascade_sheet.selectors[rule_index][selector_index];
+        let (specificity, prepared, _) = &cascade_sheet.selectors[rule_index][selector_index];
         if matching::selector_matches(
             context.document,
             context.interaction,
@@ -4103,5 +4458,109 @@ mod tests {
             pseudo_nonempty > 20,
             "pseudo passes barely matched: {pseudo_nonempty}"
         );
+    }
+
+    /// Drives the style pass with the share cache force-disabled, for
+    /// A/B comparison against the shared path.
+    fn styles_without_sharing(document: &Document, author: &Stylesheet) -> StyleMap {
+        let interaction = InteractionState::new(document, None, None, None);
+        let mut context = StyleContext::new(document, author, &interaction);
+        context.share_cache = None;
+        let mut by_node = HashMap::new();
+        let mut pseudo_texts = Vec::new();
+        let mut first_letter = HashMap::new();
+        let mut first_line = HashMap::new();
+        let inherited = RawStyle::default();
+        compute_node(
+            document,
+            document.root(),
+            &context,
+            &inherited,
+            DEFAULT_FONT_SIZE,
+            &mut by_node,
+            &mut pseudo_texts,
+            &mut first_letter,
+            &mut first_line,
+            None,
+            0,
+        );
+        StyleMap {
+            by_node,
+            pseudo_texts,
+            first_letter,
+            first_line,
+        }
+    }
+
+    /// Style sharing must be a pure memoization: over random documents
+    /// and sheets — including sibling-combinator, structural-pseudo and
+    /// `:has()` rules, which are matched live — the shared and unshared
+    /// passes must produce identical style maps. A repetitive document
+    /// also asserts the cache actually engages, and a sheet of
+    /// share-unsafe selectors that it stays correct then.
+    #[test]
+    fn style_sharing_matches_unshared() {
+        // Repetitive-but-varied markup: many shareable elements plus
+        // attribute and position variations.
+        let mut html = String::from("<body><ul>");
+        for index in 0..40 {
+            html.push_str(&format!(
+                "<li class=\"item c{}\"><a href=\"/p{}\" title=\"t{}\">x</a>\
+                 <span class=\"label\">y</span></li>",
+                index % 4,
+                index % 3,
+                index % 5,
+            ));
+        }
+        html.push_str("</ul><p class=\"item\">z</p><p class=\"item\">w</p></body>");
+        // One sheet mixes share-safe and share-unsafe selectors; the
+        // other is entirely share-unsafe and must take the live path.
+        let sheets = [
+            ".item { color: rgb(1, 2, 3); margin-top: 2px; } \
+             .label { color: rgb(4, 5, 6); } \
+             li.item > a[title] { color: rgb(7, 8, 9); } \
+             ul .c1 .label { color: rgb(10, 11, 12); } \
+             li + li .label { color: rgb(13, 14, 15); } \
+             li:first-child { margin-top: 9px; } \
+             li:nth-child(2n+1) .item { color: rgb(16, 17, 18); } \
+             li:has(> a[href=\"/p1\"]) { color: rgb(19, 20, 21); } \
+             p.item::before { content: \"b\"; color: rgb(22, 23, 24); } \
+             input:enabled { color: rgb(25, 26, 27); }",
+            "li + li { color: rgb(1, 1, 1); } \
+             li:nth-child(3n) { color: rgb(2, 2, 2); } \
+             li:has(span) { margin-top: 4px; } \
+             * ~ span { color: rgb(3, 3, 3); }",
+        ];
+        for css in sheets {
+            let document = parse_document(&html);
+            let author = lumen_css::parse_stylesheet(css);
+            let shared = compute_styles(&document, &author);
+            let unshared = styles_without_sharing(&document, &author);
+            assert_eq!(shared, unshared, "css: {css}");
+        }
+
+        // The cache must actually engage on repetitive documents...
+        let document = parse_document(&html);
+        let author = lumen_css::parse_stylesheet(sheets[0]);
+        SHARE_HITS.with(|hits| hits.set(0));
+        let _shared = compute_styles(&document, &author);
+        let hits = SHARE_HITS.with(|hits| hits.get());
+        assert!(hits > 50, "share cache barely engaged: {hits} hits");
+
+        // ...and stay correct when the interaction state disables it:
+        // hover styles come from the live path by construction.
+        let css = ".item { color: rgb(1, 2, 3); } .item:hover { color: rgb(9, 9, 9); }";
+        let document = parse_document("<body><p class=\"item\">x</p></body>");
+        let author = lumen_css::parse_stylesheet(css);
+        let p = document
+            .descendants(document.root())
+            .find(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "p")
+            })
+            .unwrap();
+        let hovered = compute_styles_hovered(&document, &author, Some(p));
+        assert_eq!(hovered.by_node[&p].color, Color::rgb(9, 9, 9));
     }
 }
