@@ -1577,10 +1577,11 @@ impl JobExecutor for BoundedJobExecutor {
 
 fn install_globals(context: &mut Context) {
     let log = NativeFunction::from_fn_ptr(console_log).to_js_function(context.realm());
+    let error_log = NativeFunction::from_fn_ptr(console_error_log).to_js_function(context.realm());
     let console = ObjectInitializer::new(context)
         .property(js_string!("log"), log.clone(), Attribute::all())
-        .property(js_string!("warn"), log.clone(), Attribute::all())
-        .property(js_string!("error"), log, Attribute::all())
+        .property(js_string!("warn"), error_log.clone(), Attribute::all())
+        .property(js_string!("error"), error_log, Attribute::all())
         .build();
     context
         .register_global_property(js_string!("console"), console, Attribute::all())
@@ -2769,17 +2770,48 @@ fn location_reload(
 }
 
 fn console_log(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let message = args
-        .iter()
+    let message = console_message(args, context);
+    eprintln!("[js] {message}");
+    Ok(JsValue::undefined())
+}
+
+/// `console.warn`/`console.error`: same output as `console.log`, but
+/// throttled like other error reporting — a page retry-loop calling
+/// console.error every frame must not flood the terminal. With
+/// `LUMEN_JS_TRACE=1` the top JS stack frames print too (diagnosing
+/// which script is erroring on real sites).
+fn console_error_log(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let message = console_message(args, context);
+    match tally_error(&message) {
+        ErrorReport::Print => eprintln!("[js] {message}"),
+        ErrorReport::LastOne => {
+            eprintln!("[js] {message} (repeated; further occurrences suppressed)")
+        }
+        ErrorReport::Silent => {}
+    }
+    if std::env::var_os("LUMEN_JS_TRACE").is_some() {
+        for frame in context.stack_trace().take(5) {
+            let location = frame.position();
+            eprintln!(
+                "[js-trace]   at {} ({:?}, {:?})",
+                location.function_name.to_std_string_escaped(),
+                location.path,
+                location.position
+            );
+        }
+    }
+    Ok(JsValue::undefined())
+}
+
+fn console_message(args: &[JsValue], context: &mut Context) -> String {
+    args.iter()
         .map(|value| {
             value
                 .to_string(context)
                 .map_or_else(|_| "?".to_string(), |s| s.to_std_string_escaped())
         })
         .collect::<Vec<_>>()
-        .join(" ");
-    eprintln!("[js] {message}");
-    Ok(JsValue::undefined())
+        .join(" ")
 }
 
 // ---- error flood control ----
