@@ -11,4 +11,4 @@ pub mod dom;
 mod sink;
 
 pub use dom::{AttributeMap, Document, ElementData, Node, NodeId, NodeKind};
-pub use sink::{parse_document, parse_fragment};
+pub use sink::{StreamingParser, parse_document, parse_fragment};

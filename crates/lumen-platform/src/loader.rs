@@ -22,6 +22,28 @@ fn read_body_capped(reader: impl std::io::Read, limit: u64) -> std::io::Result<V
     Ok(bytes)
 }
 
+/// [`read_body_capped`] that additionally reports each chunk as it
+/// arrives, so callers can start parsing before the body completes.
+/// Chunks are delivered in order and concatenate to the returned body.
+fn read_body_streaming(
+    reader: impl std::io::Read,
+    limit: u64,
+    mut on_chunk: impl FnMut(&[u8]),
+) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let mut reader = reader.take(limit);
+    let mut buffer = [0u8; 16 * 1024];
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+        on_chunk(&buffer[..read]);
+    }
+    Ok(bytes)
+}
+
 /// A request for one resource.
 #[derive(Debug, Clone)]
 pub struct ResourceRequest {
@@ -110,6 +132,21 @@ impl From<std::io::Error> for LoadError {
 /// Loads resources by URL.
 pub trait ResourceLoader: Send + Sync {
     fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError>;
+
+    /// [`Self::load`] that reports response-body chunks as they arrive
+    /// (in order, concatenating to the final body), letting callers
+    /// parse progressively. The default reports the whole body in one
+    /// call after loading — loaders with real streaming (HTTP) override
+    /// this. Only the final hop's body is reported, never a redirect's.
+    fn load_reporting(
+        &self,
+        request: &ResourceRequest,
+        on_body: &mut dyn FnMut(&[u8]),
+    ) -> Result<ResourceResponse, LoadError> {
+        let response = self.load(request)?;
+        on_body(&response.body);
+        Ok(response)
+    }
 
     /// Answers a CORS preflight probe (HTTP OPTIONS). The default
     /// refuses: a loader without HTTP semantics cannot grant a
@@ -252,8 +289,18 @@ fn chain_cookie_header(base: Option<&str>, chain: &[(String, String)]) -> Option
     })
 }
 
-impl ResourceLoader for HttpLoader {
-    fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
+/// The chunk callback of a streaming body read (see
+/// [`ResourceLoader::load_reporting`]).
+type BodyReporter<'a> = Option<&'a mut dyn FnMut(&[u8])>;
+
+impl HttpLoader {
+    /// The shared request loop; `on_body`, when given, receives the
+    /// final response's body chunk by chunk as it streams in.
+    fn load_inner(
+        &self,
+        request: &ResourceRequest,
+        mut on_body: BodyReporter<'_>,
+    ) -> Result<ResourceResponse, LoadError> {
         use ureq::ResponseExt as _;
         let mut url = request.url.clone();
         // POST body only rides the first hop; a 301/302/303 turns the
@@ -345,8 +392,12 @@ impl ResourceLoader for HttpLoader {
                 .get("content-type")
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_string);
-            let bytes = read_body_capped(response.body_mut().as_reader(), MAX_BODY_BYTES)
-                .map_err(|error| LoadError::Http(error.to_string()))?;
+            let reader = response.body_mut().as_reader();
+            let bytes = match &mut on_body {
+                Some(on_chunk) => read_body_streaming(reader, MAX_BODY_BYTES, on_chunk),
+                None => read_body_capped(reader, MAX_BODY_BYTES),
+            }
+            .map_err(|error| LoadError::Http(error.to_string()))?;
             let access_control_allow_origin = response
                 .headers()
                 .get("access-control-allow-origin")
@@ -363,6 +414,20 @@ impl ResourceLoader for HttpLoader {
         Err(LoadError::Http(format!(
             "too many redirects (>{MAX_REDIRECTS})"
         )))
+    }
+}
+
+impl ResourceLoader for HttpLoader {
+    fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
+        self.load_inner(request, None)
+    }
+
+    fn load_reporting(
+        &self,
+        request: &ResourceRequest,
+        on_body: &mut dyn FnMut(&[u8]),
+    ) -> Result<ResourceResponse, LoadError> {
+        self.load_inner(request, Some(on_body))
     }
 
     fn preflight(&self, probe: &CorsPreflight) -> Result<CorsGrant, LoadError> {
@@ -421,6 +486,18 @@ impl ResourceLoader for DefaultLoader {
         match request.url.scheme() {
             "file" => FileLoader.load(request),
             "http" | "https" => HttpLoader.load(request),
+            scheme => Err(LoadError::UnsupportedScheme(scheme.to_string())),
+        }
+    }
+
+    fn load_reporting(
+        &self,
+        request: &ResourceRequest,
+        on_body: &mut dyn FnMut(&[u8]),
+    ) -> Result<ResourceResponse, LoadError> {
+        match request.url.scheme() {
+            "file" => FileLoader.load_reporting(request, on_body),
+            "http" | "https" => HttpLoader.load_reporting(request, on_body),
             scheme => Err(LoadError::UnsupportedScheme(scheme.to_string())),
         }
     }
@@ -706,5 +783,43 @@ mod tests {
             read_body_capped(&data[..], MAX_BODY_BYTES).unwrap().len(),
             1024
         );
+    }
+
+    #[test]
+    fn streaming_read_reports_chunks_concatenating_to_the_body() {
+        let data: Vec<u8> = (0..100_000u32).map(|index| (index % 251) as u8).collect();
+        let mut reported = Vec::new();
+        let body = read_body_streaming(&data[..], MAX_BODY_BYTES, |chunk| {
+            reported.extend_from_slice(chunk);
+        })
+        .unwrap();
+        assert_eq!(body, data);
+        assert_eq!(reported, data);
+        // The cap truncates the reported stream too.
+        let mut reported = Vec::new();
+        let body =
+            read_body_streaming(&data[..], 10, |chunk| reported.extend_from_slice(chunk)).unwrap();
+        assert_eq!(body.len(), 10);
+        assert_eq!(reported, body);
+    }
+
+    #[test]
+    fn load_reporting_streams_the_response_body() {
+        let body = "lumen-streaming ".repeat(8_000);
+        let (base, rx) = serve(vec![format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )]);
+        let mut reassembled = Vec::new();
+        let response = HttpLoader
+            .load_reporting(
+                &ResourceRequest::get(Url::parse(&base).unwrap()),
+                &mut |chunk| reassembled.extend_from_slice(chunk),
+            )
+            .unwrap();
+        assert_eq!(response.body, body.as_bytes());
+        assert_eq!(reassembled, response.body);
+        seen(rx);
     }
 }

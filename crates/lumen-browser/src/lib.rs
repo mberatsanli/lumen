@@ -378,6 +378,12 @@ impl<L: ResourceLoader> Session<L> {
         body: Option<(String, Vec<u8>)>,
     ) -> Result<&Page, LoadError> {
         let final_url = self.fetch_and_render_with(url, body)?;
+        Ok(self.record_navigation(final_url))
+    }
+
+    /// Records a successful navigation in history, dropping forward
+    /// entries, and returns the freshly rendered page.
+    fn record_navigation(&mut self, final_url: Url) -> &Page {
         if let Some(index) = self.index {
             self.history.truncate(index + 1);
             self.history_states.truncate(index + 1);
@@ -387,7 +393,36 @@ impl<L: ResourceLoader> Session<L> {
         self.history_states.push(None);
         self.index = Some(self.history.len() - 1);
         self.traversed = false;
-        Ok(self.page.as_ref().expect("fetch_and_render set the page"))
+        self.page.as_ref().expect("fetch_and_render set the page")
+    }
+
+    /// [`Self::load`] with progressive rendering: while the response
+    /// body streams in, `on_snapshot` is invoked (on the caller's
+    /// thread) with partially parsed, fully laid-out pages — the shell
+    /// paints them so the first screenful appears before the download
+    /// completes. Snapshots cover the document parsed so far with only
+    /// the inline `<style>` sheets applied (external CSS is fetched
+    /// after the full parse, as before); scripts and image fetches run
+    /// only after the full parse, exactly as in [`Self::load`].
+    pub fn load_streaming(
+        &mut self,
+        url: Url,
+        on_snapshot: &mut dyn FnMut(Page),
+    ) -> Result<&Page, LoadError> {
+        let final_url = self.fetch_and_render_streaming(url, None, on_snapshot)?;
+        Ok(self.record_navigation(final_url))
+    }
+
+    /// [`Self::follow`] with the progressive rendering of
+    /// [`Self::load_streaming`].
+    pub fn follow_streaming(
+        &mut self,
+        href: &str,
+        on_snapshot: &mut dyn FnMut(Page),
+    ) -> Result<&Page, LoadError> {
+        let base = self.require_current()?;
+        let url = resolve(&base, href)?;
+        self.load_streaming(url, on_snapshot)
     }
 
     /// Re-fetches the current entry.
@@ -1365,11 +1400,81 @@ impl<L: ResourceLoader> Session<L> {
         body: Option<(String, Vec<u8>)>,
     ) -> Result<Url, LoadError> {
         let response = self.fetch_resource(url, body)?;
+        let source = response.text();
+        let document = lumen_html::parse_document(&source);
+        self.render_fetched(response, source, document)
+    }
+
+    /// [`Self::fetch_and_render_with`] with progressive rendering: the
+    /// body feeds an incremental parser as it arrives, and every
+    /// milestone (64KiB received, doubling after each snapshot, so a
+    /// huge page costs only a handful of intermediate renders)
+    /// `on_snapshot` receives the partial document rendered with the
+    /// session's viewport and measurer. The final page is identical to
+    /// the one-shot path.
+    fn fetch_and_render_streaming(
+        &mut self,
+        url: Url,
+        body: Option<(String, Vec<u8>)>,
+        on_snapshot: &mut dyn FnMut(Page),
+    ) -> Result<Url, LoadError> {
+        /// First snapshot milestone, in received bytes; doubles per
+        /// snapshot (64K, 128K, 256K, ...) — early snapshots come fast,
+        /// late ones stay cheap relative to the remaining download.
+        const FIRST_SNAPSHOT_BYTES: usize = 64 * 1024;
+        let request = self.prepare_request(url, body)?;
+        let loader = Arc::clone(&self.loader);
+        let viewport = self.viewport;
+        let measurer = self.effective_measurer();
+        let mut parser = lumen_html::StreamingParser::new();
+        let mut next_snapshot = FIRST_SNAPSHOT_BYTES;
+        let mut received = 0usize;
+        let response = loader.load_reporting(&request, &mut |chunk| {
+            parser.feed(chunk);
+            received += chunk.len();
+            if received >= next_snapshot {
+                next_snapshot = next_snapshot.saturating_mul(2);
+                let document = parser.snapshot();
+                // Partial pages apply inline <style> only: external
+                // sheets are fetched after the full parse, and blocking
+                // the stream on them here would defeat the milestone.
+                let inline = collect_author_css(&document, |_| None);
+                let page = lumen_engine::page_from_document_interactive(
+                    document,
+                    Arc::new(lumen_css::parse_stylesheet(&inline)),
+                    Arc::new(ImageMap::new()),
+                    viewport,
+                    measurer,
+                    &lumen_engine::InteractionState::default(),
+                );
+                on_snapshot(page);
+            }
+        })?;
+        self.store_response_cookies(&response);
+        let source = response.text();
+        // The incremental parser decoded lossy UTF-8; its final tree is
+        // byte-exact with the one-shot parse only when the real
+        // (sniffed) decoding round-trips — i.e. plain UTF-8 input.
+        // Anything else is reparsed from the decoded source.
+        let document = if source.as_bytes() == response.body.as_slice() {
+            parser.finish()
+        } else {
+            lumen_html::parse_document(&source)
+        };
+        self.render_fetched(response, source, document)
+    }
+
+    /// The shared post-fetch pipeline: stylesheets, fonts, image
+    /// discovery and the final render of `document`.
+    fn render_fetched(
+        &mut self,
+        response: ResourceResponse,
+        source: String,
+        document: lumen_html::Document,
+    ) -> Result<Url, LoadError> {
         // Subresources of a remote page may not escape to file:; history
         // is only updated once this page rendered, so remember it here.
         self.loading_page = Some(response.final_url.clone());
-        let source = response.text();
-        let document = lumen_html::parse_document(&source);
 
         // External stylesheets: resolved against the final URL, fetched in
         // document order; failures skip that sheet without failing the page.
@@ -3711,5 +3816,105 @@ mod tests {
         assert_eq!(session.page().unwrap().viewport.width, 400.0);
         // Only the initial load hit the loader.
         assert_eq!(session.loader.loads.lock().unwrap().len(), 1);
+    }
+
+    // -- Streaming (progressive) rendering ---------------------------------
+
+    /// Serves its single page and reports the body in 1KiB chunks via
+    /// `load_reporting`, like the HTTP loader does off the wire.
+    struct ChunkedLoader {
+        page: Vec<u8>,
+    }
+
+    impl ResourceLoader for ChunkedLoader {
+        fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError> {
+            Ok(ResourceResponse {
+                final_url: request.url.clone(),
+                content_type: None,
+                body: self.page.clone(),
+                set_cookies: Vec::new(),
+                access_control_allow_origin: None,
+            })
+        }
+
+        fn load_reporting(
+            &self,
+            request: &ResourceRequest,
+            on_body: &mut dyn FnMut(&[u8]),
+        ) -> Result<ResourceResponse, LoadError> {
+            let response = self.load(request)?;
+            for chunk in response.body.clone().chunks(1024) {
+                on_body(chunk);
+            }
+            Ok(response)
+        }
+    }
+
+    #[test]
+    fn streaming_load_renders_partial_snapshots_without_panicking() {
+        // ~250KB of markup, past several snapshot milestones.
+        let row = "<p>satır çğıöşü ve <b>kalın</b> metin</p>";
+        let html = format!(
+            "<style>p{{margin:2px}}</style><div>{}</div>",
+            row.repeat(5_000)
+        );
+        assert!(html.len() > 200_000);
+        let mut session = Session::new(
+            ChunkedLoader {
+                page: html.clone().into_bytes(),
+            },
+            VIEWPORT,
+        );
+        let mut snapshots: Vec<Page> = Vec::new();
+        session
+            .load_streaming(url("https://s.test/"), &mut |page| snapshots.push(page))
+            .unwrap();
+        // 64KiB milestone doubling: 64K, 128K — a ~250KB page snapshots
+        // exactly twice before finishing.
+        assert_eq!(snapshots.len(), 2);
+        // Every milestone produced a real render (laid out + painted,
+        // no panic on the still-open tags of the partial document).
+        for snapshot in &snapshots {
+            assert!(!snapshot.display_list.is_empty());
+        }
+        // Snapshots are proper prefixes: they grow toward the final page.
+        let nodes = |page: &Page| page.document.descendants(page.document.root()).count();
+        let final_nodes = nodes(session.page().unwrap());
+        assert!(nodes(&snapshots[0]) < nodes(&snapshots[1]));
+        assert!(nodes(&snapshots[1]) < final_nodes);
+        // The final page is byte-identical to the one-shot pipeline.
+        let mut sync_session = Session::new(
+            ChunkedLoader {
+                page: html.into_bytes(),
+            },
+            VIEWPORT,
+        );
+        sync_session.load(url("https://s.test/")).unwrap();
+        assert_eq!(
+            session.page().unwrap().document,
+            sync_session.page().unwrap().document
+        );
+    }
+
+    #[test]
+    fn streaming_load_below_the_first_milestone_snapshots_nothing() {
+        let html = "<style>h1{color:red}</style><h1>Stream</h1><p>çok metin</p>";
+        let loader = || ChunkedLoader {
+            page: html.as_bytes().to_vec(),
+        };
+        let mut session = Session::new(loader(), VIEWPORT);
+        let mut snapshots = 0;
+        session
+            .load_streaming(url("https://s.test/"), &mut |_| snapshots += 1)
+            .unwrap();
+        assert_eq!(snapshots, 0);
+        // Same final page as the sync path, including history recording.
+        let mut sync_session = Session::new(loader(), VIEWPORT);
+        sync_session.load(url("https://s.test/")).unwrap();
+        assert_eq!(
+            session.page().unwrap().document,
+            sync_session.page().unwrap().document
+        );
+        assert_eq!(session.history_len(), sync_session.history_len());
     }
 }

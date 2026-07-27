@@ -21,9 +21,10 @@
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use html5ever::interface::{ElemName, ElementFlags, NodeOrText, QuirksMode, TreeSink};
-use html5ever::tendril::{StrTendril, TendrilSink};
+use html5ever::tendril::{ByteTendril, StrTendril, TendrilSink};
 use html5ever::{Attribute, LocalName, Namespace, ParseOpts, QualName, ns};
 
 use crate::dom::{Document, NodeId, NodeKind};
@@ -37,6 +38,70 @@ use crate::dom::{Document, NodeId, NodeKind};
 #[must_use]
 pub fn parse_document(source: &str) -> Document {
     html5ever::parse_document(ArenaSink::new(), ParseOpts::default()).one(source)
+}
+
+/// An incremental document parser: byte chunks are fed as they arrive
+/// (from a streaming network read), and the partial [`Document`] can be
+/// snapshotted at any point for progressive rendering — elements not yet
+/// closed by the source stay open, exactly the state a browser renders
+/// mid-load. Input is decoded as lossy UTF-8; multi-byte sequences split
+/// across chunk boundaries are reassembled by the decoder.
+///
+/// Feeding [`Self::finish`] the same bytes as [`parse_document`] receives
+/// yields the identical tree (chunk boundaries are invisible to the
+/// tokenizer), as long as the source was valid UTF-8.
+pub struct StreamingParser {
+    parser: html5ever::tendril::stream::Utf8LossyDecoder<html5ever::driver::Parser<ArenaSink>>,
+    /// Shared with the sink, so snapshots can read the arena while the
+    /// parser still owns the sink itself.
+    document: Rc<RefCell<Document>>,
+    parse_errors: Rc<Cell<usize>>,
+}
+
+impl StreamingParser {
+    #[must_use]
+    pub fn new() -> Self {
+        let document = Rc::new(RefCell::new(Document::new()));
+        let parse_errors = Rc::new(Cell::new(0));
+        let sink = ArenaSink {
+            document: Rc::clone(&document),
+            parse_errors: Rc::clone(&parse_errors),
+            dropped: RefCell::new(HashSet::new()),
+        };
+        Self {
+            parser: html5ever::driver::parse_document(sink, ParseOpts::default()).from_utf8(),
+            document,
+            parse_errors,
+        }
+    }
+
+    /// Feeds one chunk of the source. Infallible: malformed bytes are
+    /// replaced (lossy decoding), malformed markup is recovered from.
+    pub fn feed(&mut self, bytes: &[u8]) {
+        self.parser.process(ByteTendril::from_slice(bytes));
+    }
+
+    /// A point-in-time copy of the document parsed so far. Cheap enough
+    /// per milestone (the arena is a flat `Vec`), but not free — callers
+    /// throttle snapshots instead of taking one per chunk.
+    #[must_use]
+    pub fn snapshot(&self) -> Document {
+        let mut document = self.document.borrow().clone();
+        document.set_parse_error_count(self.parse_errors.get());
+        document
+    }
+
+    /// Ends the input and returns the final document.
+    #[must_use]
+    pub fn finish(self) -> Document {
+        self.parser.finish()
+    }
+}
+
+impl Default for StreamingParser {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Parses an HTML fragment in the context of `context_tag` (the
@@ -57,10 +122,13 @@ pub fn parse_fragment(context_tag: &str, source: &str) -> Document {
 }
 
 /// The tree sink: every callback mutates the arena through a `RefCell`
-/// because the [`TreeSink`] trait takes `&self` throughout.
+/// because the [`TreeSink`] trait takes `&self` throughout. The arena
+/// and the error count sit behind an `Rc` so a [`StreamingParser`] can
+/// snapshot the partial document while the html5ever parser still owns
+/// the sink (it only hands it back on `finish`).
 struct ArenaSink {
-    document: RefCell<Document>,
-    parse_errors: Cell<usize>,
+    document: Rc<RefCell<Document>>,
+    parse_errors: Rc<Cell<usize>>,
     /// Dummy handles handed out for comments and processing
     /// instructions; appends targeting them are skipped.
     dropped: RefCell<HashSet<NodeId>>,
@@ -69,8 +137,8 @@ struct ArenaSink {
 impl ArenaSink {
     fn new() -> Self {
         Self {
-            document: RefCell::new(Document::new()),
-            parse_errors: Cell::new(0),
+            document: Rc::new(RefCell::new(Document::new())),
+            parse_errors: Rc::new(Cell::new(0)),
             dropped: RefCell::new(HashSet::new()),
         }
     }
@@ -114,7 +182,7 @@ impl TreeSink for ArenaSink {
     type ElemName<'a> = SinkElemName;
 
     fn finish(self) -> Document {
-        let mut document = self.document.into_inner();
+        let mut document = std::mem::take(&mut *self.document.borrow_mut());
         document.set_parse_error_count(self.parse_errors.get());
         document
     }
@@ -588,5 +656,104 @@ mod tests {
         assert_eq!(document.text_content(script), script_body);
         let first_row = document.children(section)[0];
         assert_eq!(document.text_content(first_row), "metin & devam");
+    }
+
+    // -- Streaming (incremental) parsing -----------------------------------
+
+    /// A document mixing structure, entities, raw text and multi-byte
+    /// UTF-8, so chunk boundaries fall on every kind of tokenizer state.
+    fn streaming_fixture() -> String {
+        let mut html = String::from("<!doctype html><title>şık &amp; güzel</title><div class='a'>");
+        for index in 0..50 {
+            html.push_str(&format!(
+                "<p data-i=\"{index}\">metin çğıöşü &copy; <b>kalın {index}</b></p>"
+            ));
+        }
+        html.push_str("<script>if (x < y && y > 0) { s = '</p>'; }</script>");
+        html.push_str("<table>stray<tr><td>hücre</td></tr></table><ul><li>a<li>b</ul>");
+        html
+    }
+
+    #[test]
+    fn streaming_matches_one_shot_at_every_split_point() {
+        // Every two-chunk split of a tricky document must produce the
+        // one-shot tree, byte-exact (Document: PartialEq).
+        let html = streaming_fixture();
+        let expected = parse_document(&html);
+        for split in 0..=html.len() {
+            let mut parser = StreamingParser::new();
+            parser.feed(&html.as_bytes()[..split]);
+            parser.feed(&html.as_bytes()[split..]);
+            assert_eq!(parser.finish(), expected, "split at byte {split}");
+        }
+    }
+
+    #[test]
+    fn streaming_matches_one_shot_for_random_chunkings() {
+        // Property-style test: pseudo-random chunk sizes (deterministic
+        // LCG) over several fixtures, including a large one.
+        let mut fixtures = vec![
+            String::new(),
+            "<p>x</p>".to_string(),
+            streaming_fixture(),
+            "<div>tail".to_string(),
+        ];
+        let row = "<div class=\"row\"><span>metin &amp; devam çğıöşü</span><br></div>";
+        fixtures.push(row.repeat(2_000));
+        for html in &fixtures {
+            let expected = parse_document(html);
+            // Several seeds → different chunk-size sequences per fixture.
+            for mut state in [1u64, 42, 0xdead_beef, 9_999] {
+                let mut parser = StreamingParser::new();
+                let mut offset = 0;
+                let bytes = html.as_bytes();
+                while offset < bytes.len() {
+                    // LCG; chunk sizes 1..=97 bytes split multi-byte
+                    // UTF-8 sequences constantly.
+                    state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    let size = (state >> 33) as usize % 97 + 1;
+                    let end = (offset + size).min(bytes.len());
+                    parser.feed(&bytes[offset..end]);
+                    offset = end;
+                }
+                assert_eq!(parser.finish(), expected, "fixture of {} bytes", html.len());
+            }
+        }
+    }
+
+    #[test]
+    fn mid_parse_snapshot_is_a_valid_partial_document() {
+        let html = streaming_fixture();
+        let half = html.len() / 2;
+        let mut parser = StreamingParser::new();
+        parser.feed(&html.as_bytes()[..half]);
+        let partial = parser.snapshot();
+        // The skeleton is synthesized up front; the elements fed so far
+        // are present (still-open ones included) and nothing panics.
+        let tags = tags_in_order(&partial);
+        assert!(tags.first().is_some_and(|tag| tag == "html"));
+        assert!(tags.contains(&"title".to_string()));
+        assert!(tags.contains(&"p".to_string()));
+        assert!(!tags.contains(&"table".to_string()));
+        // Snapshots do not disturb the parser: finishing still yields
+        // the one-shot tree.
+        parser.feed(&html.as_bytes()[half..]);
+        assert_eq!(parser.finish(), parse_document(&html));
+    }
+
+    #[test]
+    fn streaming_recovers_from_lossy_utf8_like_one_shot() {
+        // Invalid bytes become U+FFFD in both paths.
+        let bytes = b"<p>a\xff\xfez</p>";
+        let mut parser = StreamingParser::new();
+        parser.feed(&bytes[..4]);
+        parser.feed(&bytes[4..]);
+        let mut streamed = parser.finish();
+        let mut one_shot = parse_document(&String::from_utf8_lossy(bytes));
+        // The lossy decoder counts decode errors per chunk, the one-shot
+        // path per input — only the trees must match.
+        streamed.set_parse_error_count(0);
+        one_shot.set_parse_error_count(0);
+        assert_eq!(streamed, one_shot);
     }
 }

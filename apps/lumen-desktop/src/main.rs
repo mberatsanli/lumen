@@ -96,6 +96,15 @@ struct NavDone {
 enum ShellEvent {
     /// A background navigation finished (boxed: it carries a session).
     NavDone(Box<NavDone>),
+    /// A milestone of an in-flight navigation: the partially parsed
+    /// document, fully laid out and painted by the loader thread
+    /// (streaming render). Rendered in place of the blank loading
+    /// screen; the progress bar stays until [`NavDone`]. Carries the
+    /// tab id like [`NavDone`].
+    PartialPage {
+        tab: u64,
+        page: Box<lumen_engine::Page>,
+    },
     /// A tab's script network queue (fetch/XHR/module load) delivered
     /// a result on a worker thread: the tab's `PageScripts` should be
     /// pumped so the waiting promises settle. Carries the tab id like
@@ -147,10 +156,18 @@ fn spawn_loader(
     let proxy = proxy.clone();
     std::thread::spawn(move || {
         session.set_viewport(viewport);
+        // Milestones of a streaming navigation land on the event loop
+        // as partial pages (see [`ShellEvent::PartialPage`]).
+        let mut snapshot = |page: lumen_engine::Page| {
+            let _ = proxy.send_event(ShellEvent::PartialPage {
+                tab,
+                page: Box::new(page),
+            });
+        };
         let result = match nav {
             Nav::Submit(node) => session.submit_form(node).map(|_| ()),
-            Nav::Load(url) => session.load(url).map(|_| ()),
-            Nav::Follow(href) => session.follow(&href).map(|_| ()),
+            Nav::Load(url) => session.load_streaming(url, &mut snapshot).map(|_| ()),
+            Nav::Follow(href) => session.follow_streaming(&href, &mut snapshot).map(|_| ()),
             Nav::Back => session.back().map(|_| ()),
             Nav::Forward => session.forward().map(|_| ()),
             Nav::Refresh => session.refresh().map(|_| ()),
@@ -649,6 +666,11 @@ struct App {
     /// The current page's JavaScript world (main-thread only: Boa's GC
     /// handles cannot cross the loader thread).
     page_scripts: Option<lumen_browser::PageScripts>,
+    /// Latest streaming-render milestone of the in-flight navigation
+    /// (see [`ShellEvent::PartialPage`]); painted while the session is
+    /// away on the loader thread. Dropped on tab switches — it belongs
+    /// to the active tab's load, and its tab keeps loading regardless.
+    partial_page: Option<lumen_engine::Page>,
     /// Navigation queued while the active tab was loading (see
     /// [`start_or_queue`]); parked into the tab on switching.
     pending_nav: Option<Nav>,
@@ -742,6 +764,7 @@ impl App {
             color_popup: None,
             violation_popup: None,
             page_scripts: None,
+            partial_page: None,
             pending_nav: None,
             range_drag: None,
             find_matches: Vec::new(),
@@ -827,6 +850,7 @@ impl App {
         self.color_popup = None;
         self.violation_popup = None;
         self.range_drag = None;
+        self.partial_page = None;
         self.page_frame = None;
         self.invalidate_page();
         self.request_redraw();
@@ -1006,6 +1030,31 @@ impl App {
         }
     }
 
+    /// The page currently on screen: the loaded one, or the latest
+    /// streaming milestone while its navigation is still in flight.
+    fn current_page(&self) -> Option<&lumen_engine::Page> {
+        match &self.state {
+            SessionState::Ready(session) => session.page(),
+            SessionState::Loading { .. } => self.partial_page.as_ref(),
+        }
+    }
+
+    /// A streaming-render milestone arrived (see
+    /// [`ShellEvent::PartialPage`]): show it in place of the blank
+    /// loading screen. Milestones for a backgrounded or closed tab are
+    /// dropped — the tab keeps loading and its full page lands via
+    /// [`NavDone`] regardless.
+    fn partial_page_arrived(&mut self, tab: u64, page: lumen_engine::Page) {
+        if tab_position(&self.tabs, tab) != Some(self.active)
+            || !matches!(self.state, SessionState::Loading { .. })
+        {
+            return;
+        }
+        self.partial_page = Some(page);
+        self.invalidate_page();
+        self.request_redraw();
+    }
+
     /// Runs a navigation on a background thread; the session comes back
     /// through a user event. While a navigation is already running the
     /// request is queued instead of dropped — see [`start_or_queue`].
@@ -1021,6 +1070,7 @@ impl App {
         self.color_popup = None;
         self.violation_popup = None;
         self.range_drag = None;
+        self.partial_page = None;
         let SessionState::Ready(session) =
             std::mem::replace(&mut self.state, SessionState::Loading { target })
         else {
@@ -2318,6 +2368,8 @@ impl App {
             // The tab closed while loading; drop the result.
             return;
         };
+        // The load is over; its streaming milestones are stale.
+        self.partial_page = None;
         let mut session = done.session;
         // The window may have resized while the session was away.
         session.set_viewport(self.viewport());
@@ -3140,11 +3192,15 @@ impl App {
             None
         };
         let sticky = self.sticky_display_list();
+        // Field-level borrows (not `current_page()`): `self.gpu` is taken
+        // mutably below while the passes still borrow the display list.
         let page: Option<&Vec<DisplayCommand>> = match &sticky {
             Some(list) => Some(list.as_ref()),
             None => match &self.state {
                 SessionState::Ready(session) => session.page().map(|page| &page.display_list),
-                _ => None,
+                SessionState::Loading { .. } => {
+                    self.partial_page.as_ref().map(|page| &page.display_list)
+                }
             },
         };
         let mut passes: Vec<lumen_gpu::Pass> = Vec::new();
@@ -3373,7 +3429,7 @@ impl App {
                                 scale,
                                 self.effective_font().as_deref(),
                             ),
-                            None => match self.session().and_then(Session::page) {
+                            None => match self.current_page() {
                                 Some(page) => rasterize_with_fixed_origin(
                                     &page.display_list,
                                     size.width,
@@ -3936,6 +3992,7 @@ impl ApplicationHandler<ShellEvent> for App {
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: ShellEvent) {
         match event {
             ShellEvent::NavDone(done) => self.navigation_done(*done),
+            ShellEvent::PartialPage { tab, page } => self.partial_page_arrived(tab, *page),
             ShellEvent::FetchReady { tab } => self.fetch_ready(tab),
             ShellEvent::ImagesReady {
                 tab,
