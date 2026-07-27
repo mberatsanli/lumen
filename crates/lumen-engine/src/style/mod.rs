@@ -19,6 +19,7 @@ use lumen_css::{Color, CssValue, Stylesheet};
 use lumen_html::{Document, ElementData, NodeId, NodeKind};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 
 mod interaction;
 mod matching;
@@ -30,10 +31,60 @@ pub use interaction::{
 };
 pub use model::*;
 
+/// A fast, non-cryptographic hasher (FxHash, as in rustc-hash) for the
+/// cascade's internal maps. The default SipHash was the top self-time
+/// in style-pass profiles, and these keys (property names, node ids)
+/// are not adversarial.
+#[derive(Default)]
+pub(crate) struct FxHasher {
+    hash: u64,
+}
+
+impl FxHasher {
+    #[inline]
+    fn add_to_hash(&mut self, word: u64) {
+        self.hash = (self.hash.rotate_left(5) ^ word).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+}
+
+impl Hasher for FxHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut chunks = bytes.chunks_exact(8);
+        for chunk in &mut chunks {
+            self.add_to_hash(u64::from_ne_bytes(chunk.try_into().expect("8-byte chunk")));
+        }
+        let remainder = chunks.remainder();
+        if !remainder.is_empty() {
+            let mut word = [0u8; 8];
+            word[..remainder.len()].copy_from_slice(remainder);
+            self.add_to_hash(u64::from_ne_bytes(word));
+        }
+    }
+
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        self.add_to_hash(value);
+    }
+
+    #[inline]
+    fn write_usize(&mut self, value: usize) {
+        self.add_to_hash(value as u64);
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.hash
+    }
+}
+
+pub(crate) type FxBuildHasher = BuildHasherDefault<FxHasher>;
+pub(crate) type FxHashMap<K, V> = HashMap<K, V, FxBuildHasher>;
+
 /// Declared values keyed by property name. `Cow` keys let the fixed
 /// property names (inherited copies, internal inserts) avoid per-node
 /// string allocations during the cascade.
-type RawStyle = HashMap<Cow<'static, str>, CssValue>;
+type RawStyle = FxHashMap<Cow<'static, str>, CssValue>;
 
 /// One declaration's position in the cascade: (level, specificity,
 /// source order). Compared lexicographically; higher wins, ties keep the
@@ -43,7 +94,7 @@ type CascadeRank = (u8, u32, usize);
 /// Per-property cascade ranks of the winning declarations, tracked so a
 /// `var()`-carrying shorthand expanded after substitution can lose to a
 /// higher-ranked longhand instead of blindly overwriting it.
-type CascadeMeta = HashMap<Cow<'static, str>, CascadeRank>;
+type CascadeMeta = FxHashMap<Cow<'static, str>, CascadeRank>;
 
 /// Total cascade order across origins and importance (higher wins).
 /// Origin 0 is the UA sheet, 1 the author sheet, 2 inline `style=`.
@@ -138,7 +189,7 @@ pub fn compute_styles_interactive(
     let mut pseudo_texts = Vec::new();
     let mut first_letter = HashMap::new();
     let mut first_line = HashMap::new();
-    let inherited = HashMap::new();
+    let inherited = RawStyle::default();
     let context = StyleContext::new(document, author, interaction);
     compute_node(
         document,
@@ -162,18 +213,69 @@ pub fn compute_styles_interactive(
 
 /// One stylesheet in the cascade with data precomputed once per style
 /// pass instead of per element: selector specificities, prepared
-/// `:has()` forms, and whether any selector targets `::before`/`::after`
-/// (so pseudo passes on sheets without such rules — the common case —
-/// are skipped entirely).
+/// `:has()` forms, a rule index keyed by each selector's subject
+/// compound (so an element only ever tests selectors whose subject
+/// id/class/tag it carries, plus the always-candidates), and whether
+/// any selector targets `::before`/`::after` (so pseudo passes on
+/// sheets without such rules — the common case — are skipped entirely).
 struct CascadeSheet<'a> {
     sheet: &'a Stylesheet,
     /// `selectors[rule][selector]`, aligned with `sheet.rules`: parcel's
     /// layered specificity plus the prepared `:has()` clauses.
     selectors: Vec<Vec<(u32, matching::PreparedSelector)>>,
+    buckets: RuleBuckets,
     has_before: bool,
     has_after: bool,
     has_first_letter: bool,
     has_first_line: bool,
+}
+
+/// Which cascade passes a selector participates in, as a bitmask over
+/// [`PASS_ELEMENT`] and friends. A `p::before` selector can never
+/// contribute to the element pass, so pseudo passes skip it (and vice
+/// versa) without ever invoking the matcher.
+const PASS_ELEMENT: u8 = 1;
+const PASS_BEFORE: u8 = 1 << 1;
+const PASS_AFTER: u8 = 1 << 2;
+const PASS_FIRST_LETTER: u8 = 1 << 3;
+const PASS_FIRST_LINE: u8 = 1 << 4;
+
+/// The pass bit for a pseudo pass name, as used by
+/// [`winning_declarations`].
+fn pass_mask(pseudo: Option<&str>) -> u8 {
+    match pseudo {
+        None => PASS_ELEMENT,
+        Some("before") => PASS_BEFORE,
+        Some("after") => PASS_AFTER,
+        Some("first-letter") => PASS_FIRST_LETTER,
+        Some("first-line") => PASS_FIRST_LINE,
+        Some(_) => 0,
+    }
+}
+
+/// Selectors of a sheet bucketed by their subject compound's
+/// positively-required key. An element is only tested against the
+/// selectors in its own id/class/tag buckets plus `always`. Entries are
+/// `(rule_index, selector_index, pass_mask)` triples into the sheet.
+#[derive(Debug, Default)]
+struct RuleBuckets {
+    by_id: FxHashMap<Box<str>, Vec<(usize, usize, u8)>>,
+    by_class: FxHashMap<Box<str>, Vec<(usize, usize, u8)>>,
+    by_tag: FxHashMap<Box<str>, Vec<(usize, usize, u8)>>,
+    always: Vec<(usize, usize, u8)>,
+}
+
+impl RuleBuckets {
+    fn insert(&mut self, key: matching::BucketKey, entry: (usize, usize, u8)) {
+        match key {
+            matching::BucketKey::Id(id) => self.by_id.entry(id).or_default().push(entry),
+            matching::BucketKey::Class(class) => {
+                self.by_class.entry(class).or_default().push(entry);
+            }
+            matching::BucketKey::Tag(tag) => self.by_tag.entry(tag).or_default().push(entry),
+            matching::BucketKey::Always => self.always.push(entry),
+        }
+    }
 }
 
 impl<'a> CascadeSheet<'a> {
@@ -182,13 +284,16 @@ impl<'a> CascadeSheet<'a> {
         let mut has_after = false;
         let mut has_first_letter = false;
         let mut has_first_line = false;
+        let mut buckets = RuleBuckets::default();
         let selectors = sheet
             .rules
             .iter()
-            .map(|rule| {
+            .enumerate()
+            .map(|(rule_index, rule)| {
                 rule.selectors
                     .iter()
-                    .map(|selector| {
+                    .enumerate()
+                    .map(|(selector_index, selector)| {
                         match selector.pseudo_element() {
                             Some(PseudoElement::Before) => has_before = true,
                             Some(PseudoElement::After) => has_after = true,
@@ -196,6 +301,17 @@ impl<'a> CascadeSheet<'a> {
                             Some(PseudoElement::FirstLine) => has_first_line = true,
                             _ => {}
                         }
+                        let passes = match selector.pseudo_element() {
+                            None | Some(PseudoElement::Selection) => PASS_ELEMENT,
+                            Some(PseudoElement::Before) => PASS_BEFORE,
+                            Some(PseudoElement::After) => PASS_AFTER,
+                            Some(PseudoElement::FirstLetter) => PASS_FIRST_LETTER,
+                            Some(PseudoElement::FirstLine) => PASS_FIRST_LINE,
+                        };
+                        buckets.insert(
+                            matching::subject_key(selector),
+                            (rule_index, selector_index, passes),
+                        );
                         (selector.specificity(), matching::prepare_selector(selector))
                     })
                     .collect()
@@ -204,6 +320,7 @@ impl<'a> CascadeSheet<'a> {
         Self {
             sheet,
             selectors,
+            buckets,
             has_before,
             has_after,
             has_first_letter,
@@ -229,6 +346,9 @@ struct StyleContext<'a> {
     document: &'a Document,
     interaction: &'a InteractionState,
     sheets: [CascadeSheet<'a>; 2],
+    /// Pre-split class attributes, shared by bucket lookups and parcel's
+    /// `has_class` (see [`matching::ClassCache`]).
+    class_cache: matching::ClassCache,
 }
 
 impl<'a> StyleContext<'a> {
@@ -244,6 +364,7 @@ impl<'a> StyleContext<'a> {
                 CascadeSheet::new(user_agent_stylesheet()),
                 CascadeSheet::new(author),
             ],
+            class_cache: matching::ClassCache::default(),
         }
     }
 }
@@ -592,8 +713,8 @@ fn compute_node(
     if depth >= crate::MAX_DEPTH {
         return;
     }
-    let mut raw = RawStyle::new();
-    let mut meta = CascadeMeta::new();
+    let mut raw = RawStyle::default();
+    let mut meta = CascadeMeta::default();
     for property in lumen_css::properties::inherited() {
         if let Some(value) = parent_raw.get(property) {
             raw.insert(Cow::Borrowed(property), value.clone());
@@ -611,6 +732,15 @@ fn compute_node(
         _ => None,
     };
 
+    // Bucket candidates are gathered once per element per sheet and
+    // shared by the element pass and all four pseudo passes.
+    let candidates = element.is_some().then(|| {
+        context
+            .sheets
+            .each_ref()
+            .map(|sheet| gather_candidates(node_id, sheet, context))
+    });
+
     // Text runs are anonymous inline content: CSS does not inherit
     // `vertical-align` or `transition`, but both apply to the inline box
     // the text belongs to — and this engine flattens inline boxes into
@@ -625,12 +755,13 @@ fn compute_node(
     }
 
     if let Some(element) = element {
+        let candidates = candidates.as_ref().expect("element nodes have candidates");
         // Weakest origin first; a declaration replaces the current value
         // only when its cascade rank (level, specificity, source order)
         // is at least the current winner's.
         for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
             for (name, (is_important, specificity, source_order, value)) in
-                winning_declarations(node_id, cascade_sheet, context, None)
+                winning_declarations(&candidates[origin], cascade_sheet, context, node_id, None)
             {
                 let rank = (
                     cascade_level(origin, is_important),
@@ -718,10 +849,10 @@ fn compute_node(
 
     // `::before`/`::after`: a pseudo style inherits from the element like
     // a child and needs a string `content` to generate anything.
-    if element.is_some() {
+    if let Some(candidates) = &candidates {
         for (kind, leading) in [("before", true), ("after", false)] {
             let Some((mut pseudo_raw, mut meta)) =
-                pseudo_raw_style(node_id, context, &raw, &computed, kind)
+                pseudo_raw_style(node_id, context, &raw, &computed, kind, candidates)
             else {
                 continue;
             };
@@ -761,7 +892,7 @@ fn compute_node(
                 ("first-line", &mut *first_line),
             ] {
                 let Some((mut pseudo_raw, mut meta)) =
-                    pseudo_raw_style(node_id, context, &raw, &computed, kind)
+                    pseudo_raw_style(node_id, context, &raw, &computed, kind, candidates)
                 else {
                     continue;
                 };
@@ -797,22 +928,57 @@ fn compute_node(
     }
 }
 
-/// Builds the raw style for one pseudo-element pass: inherits from the
-/// element's raw style like a child (including custom properties and the
-/// resolved font size), then applies the winning declarations of rules
-/// targeting `kind`. Returns `None` when no rule in either sheet targets
-/// the pseudo-element (the common case) or nothing matched.
+/// Builds the raw style for one pseudo-element pass: applies the
+/// winning declarations of rules targeting `kind`, then — only when
+/// something matched — inherits from the element's raw style like a
+/// child (including custom properties and the resolved font size).
+/// Returns `None` when no rule in either sheet targets the
+/// pseudo-element (the common case) or nothing matched. `candidates`
+/// holds the per-sheet bucket candidates gathered for the element pass.
 fn pseudo_raw_style(
     node_id: NodeId,
     context: &StyleContext<'_>,
     raw: &RawStyle,
     computed: &ComputedStyle,
     kind: &str,
+    candidates: &[Vec<(usize, usize, u8)>; 2],
 ) -> Option<(RawStyle, CascadeMeta)> {
     if !context.sheets.iter().any(|sheet| sheet.has_pseudo(kind)) {
         return None;
     }
-    let mut pseudo_raw = RawStyle::new();
+    let mut meta = CascadeMeta::default();
+    let mut matched = RawStyle::default();
+    for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
+        for (name, (is_important, specificity, source_order, value)) in winning_declarations(
+            &candidates[origin],
+            cascade_sheet,
+            context,
+            node_id,
+            Some(kind),
+        ) {
+            // Same cascade ranking as the element pass: important
+            // declarations win across origins as well.
+            let rank = (
+                cascade_level(origin, is_important),
+                specificity,
+                source_order,
+            );
+            if meta
+                .get(name.as_str())
+                .is_none_or(|current| rank >= *current)
+            {
+                meta.insert(Cow::Owned(name.clone()), rank);
+                matched.insert(Cow::Owned(name), value);
+            }
+        }
+    }
+    if matched.is_empty() {
+        // Nothing matched: skip the inheritance copy. Real sheets with
+        // `::before`/`::after` rules (icon fonts, clearfixes) otherwise
+        // pay a full raw-style clone per element per pseudo pass.
+        return None;
+    }
+    let mut pseudo_raw = RawStyle::default();
     for property in lumen_css::properties::inherited() {
         if let Some(value) = raw.get(property) {
             pseudo_raw.insert(Cow::Borrowed(property), value.clone());
@@ -829,30 +995,11 @@ fn pseudo_raw_style(
         Cow::Borrowed("font-size"),
         CssValue::Length(computed.font_size, lumen_css::Unit::Px),
     );
-    let mut meta = CascadeMeta::new();
-    let mut any = false;
-    for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
-        for (name, (is_important, specificity, source_order, value)) in
-            winning_declarations(node_id, cascade_sheet, context, Some(kind))
-        {
-            // Same cascade ranking as the element pass: important
-            // declarations win across origins as well.
-            let rank = (
-                cascade_level(origin, is_important),
-                specificity,
-                source_order,
-            );
-            if meta
-                .get(name.as_str())
-                .is_none_or(|current| rank >= *current)
-            {
-                meta.insert(Cow::Owned(name.clone()), rank);
-                pseudo_raw.insert(Cow::Owned(name), value);
-                any = true;
-            }
-        }
+    // Matched declarations override the inherited ones.
+    for (name, value) in matched {
+        pseudo_raw.insert(name, value);
     }
-    any.then_some((pseudo_raw, meta))
+    Some((pseudo_raw, meta))
 }
 
 /// The shared tail of a pseudo-element pass: var() substitution, rem
@@ -872,65 +1019,105 @@ fn finish_pseudo_raw(
     evaluate_calculations(pseudo_raw, font_size, root_font_size);
 }
 
-/// Per-property winner within one origin: highest (importance,
-/// specificity, source order) triple wins; later rules win ties.
-/// Specificities come precomputed from the [`CascadeSheet`].
-fn winning_declarations(
+/// The bucket candidates of `node_id` in one sheet: selectors whose
+/// subject compound positively requires an id/class/tag the element
+/// carries, plus the always-candidates, sorted back into (rule,
+/// selector) order so evaluation order — and with it cascade
+/// tie-breaking — is exactly the original sheet order. Gathered once
+/// per element and reused by every pass (see [`compute_node`]).
+fn gather_candidates(
     node_id: NodeId,
     cascade_sheet: &CascadeSheet<'_>,
     context: &StyleContext<'_>,
+) -> Vec<(usize, usize, u8)> {
+    let mut candidates: Vec<(usize, usize, u8)> = Vec::new();
+    let Some(element) = context.document.element(node_id) else {
+        return candidates;
+    };
+    let buckets = &cascade_sheet.buckets;
+    if let Some(entries) = element.id().and_then(|id| buckets.by_id.get(id)) {
+        candidates.extend_from_slice(entries);
+    }
+    let classes = matching::cached_classes(context.document, &context.class_cache, node_id);
+    for class in classes.iter() {
+        if let Some(entries) = buckets.by_class.get(class.as_ref()) {
+            candidates.extend_from_slice(entries);
+        }
+    }
+    if let Some(entries) = buckets.by_tag.get(element.tag_name.as_str()) {
+        candidates.extend_from_slice(entries);
+    }
+    candidates.extend_from_slice(&buckets.always);
+    candidates.sort_unstable();
+    candidates
+}
+
+/// Per-property winner within one origin: highest (importance,
+/// specificity, source order) triple wins; later rules win ties.
+/// Specificities come precomputed from the [`CascadeSheet`], and the
+/// tested selectors come from its buckets via [`gather_candidates`];
+/// candidates tagged for other passes (a `::before` rule in the element
+/// pass) are skipped without invoking the matcher.
+fn winning_declarations(
+    candidates: &[(usize, usize, u8)],
+    cascade_sheet: &CascadeSheet<'_>,
+    context: &StyleContext<'_>,
+    node_id: NodeId,
     pseudo: Option<&str>,
-) -> HashMap<String, (bool, u32, usize, CssValue)> {
-    let mut winners: HashMap<String, (bool, u32, usize, CssValue)> = HashMap::new();
-    for (rule, selectors) in cascade_sheet
-        .sheet
-        .rules
-        .iter()
-        .zip(&cascade_sheet.selectors)
-    {
-        for (selector, (specificity, prepared)) in rule.selectors.iter().zip(selectors) {
-            if matching::selector_matches(
-                context.document,
-                context.interaction,
-                node_id,
-                selector,
-                prepared,
-            ) {
-                // `::selection` rules style the highlight, not the element:
-                // only their background-color/color apply, under internal
-                // property names.
-                let pseudo_element = selector.pseudo_element();
-                for declaration in &rule.declarations {
-                    let name = match (pseudo, pseudo_element) {
-                        // Element pass: plain rules apply; `::selection`
-                        // rules route under internal property names.
-                        (None, None) => declaration.name.clone(),
-                        (None, Some(PseudoElement::Selection)) => match declaration.name.as_str() {
-                            "background-color" => "::selection-background".to_string(),
-                            "color" => "::selection-color".to_string(),
-                            _ => continue,
-                        },
-                        // Pseudo pass: only rules for that pseudo-element.
-                        (Some("before"), Some(PseudoElement::Before))
-                        | (Some("after"), Some(PseudoElement::After))
-                        | (Some("first-letter"), Some(PseudoElement::FirstLetter))
-                        | (Some("first-line"), Some(PseudoElement::FirstLine)) => {
-                            declaration.name.clone()
-                        }
+) -> FxHashMap<String, (bool, u32, usize, CssValue)> {
+    let mut winners: FxHashMap<String, (bool, u32, usize, CssValue)> = FxHashMap::default();
+    let wanted = pass_mask(pseudo);
+    for &(rule_index, selector_index, passes) in candidates {
+        // Selectors for other passes (e.g. `::before` rules in the
+        // element pass) can never contribute: skip the matcher call.
+        if passes & wanted == 0 {
+            continue;
+        }
+        let rule = &cascade_sheet.sheet.rules[rule_index];
+        let selector = &rule.selectors[selector_index];
+        let (specificity, prepared) = &cascade_sheet.selectors[rule_index][selector_index];
+        if matching::selector_matches(
+            context.document,
+            context.interaction,
+            &context.class_cache,
+            node_id,
+            selector,
+            prepared,
+        ) {
+            // `::selection` rules style the highlight, not the element:
+            // only their background-color/color apply, under internal
+            // property names.
+            let pseudo_element = selector.pseudo_element();
+            for declaration in &rule.declarations {
+                let name = match (pseudo, pseudo_element) {
+                    // Element pass: plain rules apply; `::selection`
+                    // rules route under internal property names.
+                    (None, None) => declaration.name.clone(),
+                    (None, Some(PseudoElement::Selection)) => match declaration.name.as_str() {
+                        "background-color" => "::selection-background".to_string(),
+                        "color" => "::selection-color".to_string(),
                         _ => continue,
-                    };
-                    let candidate = (
-                        declaration.important,
-                        *specificity,
-                        rule.source_order,
-                        declaration.value.clone(),
-                    );
-                    let replace = winners.get(&name).is_none_or(|current| {
-                        (candidate.0, candidate.1, candidate.2) >= (current.0, current.1, current.2)
-                    });
-                    if replace {
-                        winners.insert(name, candidate);
+                    },
+                    // Pseudo pass: only rules for that pseudo-element.
+                    (Some("before"), Some(PseudoElement::Before))
+                    | (Some("after"), Some(PseudoElement::After))
+                    | (Some("first-letter"), Some(PseudoElement::FirstLetter))
+                    | (Some("first-line"), Some(PseudoElement::FirstLine)) => {
+                        declaration.name.clone()
                     }
+                    _ => continue,
+                };
+                let candidate = (
+                    declaration.important,
+                    *specificity,
+                    rule.source_order,
+                    declaration.value.clone(),
+                );
+                let replace = winners.get(&name).is_none_or(|current| {
+                    (candidate.0, candidate.1, candidate.2) >= (current.0, current.1, current.2)
+                });
+                if replace {
+                    winners.insert(name, candidate);
                 }
             }
         }
@@ -3700,5 +3887,221 @@ mod tests {
         let line = &styles.first_line[&id];
         assert_eq!(line.color, Color::rgb(4, 5, 6));
         assert_eq!(line.background_color, Some(Color::rgb(7, 8, 9)));
+    }
+
+    /// The bucket index must be a pure pre-filter: over random documents
+    /// and sheets, evaluating only an element's bucket candidates must
+    /// produce the same per-sheet winners as evaluating every selector
+    /// in the sheet (in rule order), for the element pass and every
+    /// pseudo pass. Deterministic seeds double as minimized repros.
+    #[test]
+    fn bucketed_candidates_match_full_scan() {
+        // xorshift64* — same generator as the stress harness.
+        struct Rng(u64);
+        impl Rng {
+            fn next(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x >> 12;
+                x ^= x << 25;
+                x ^= x >> 27;
+                self.0 = x;
+                x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+            }
+            fn below(&mut self, n: usize) -> usize {
+                (self.next() % n as u64) as usize
+            }
+            fn pick<'a>(&mut self, items: &'a [&'a str]) -> &'a str {
+                items[self.below(items.len())]
+            }
+        }
+
+        const TAGS: &[&str] = &[
+            "div", "p", "span", "a", "li", "ul", "section", "img", "input", "h1",
+        ];
+        const CLASSES: &[&str] = &["a", "b", "c", "card", "entry-title", "x"];
+        const IDS: &[&str] = &["main", "nav", "q"];
+
+        /// One random compound: tag/id/class/attribute/pseudo mixes,
+        /// including forms with no positive key (the always-bucket).
+        fn compound(rng: &mut Rng) -> String {
+            let mut out = String::new();
+            match rng.below(6) {
+                0 => out.push_str(rng.pick(TAGS)),
+                1 => out.push('*'),
+                2 => {}
+                3 => out.push_str(rng.pick(TAGS)),
+                4 => out.push_str(rng.pick(TAGS)),
+                _ => {}
+            }
+            for _ in 0..rng.below(3) {
+                match rng.below(6) {
+                    0 => out.push_str(&format!("#{}", rng.pick(IDS))),
+                    1 | 2 => out.push_str(&format!(".{}", rng.pick(CLASSES))),
+                    3 => out.push_str("[href]"),
+                    4 => out.push_str(rng.pick(&[":first-child", ":hover", ":enabled", ":empty"])),
+                    _ => out.push_str(&format!(":not(.{})", rng.pick(CLASSES))),
+                }
+            }
+            if out.is_empty() || out == "*" {
+                out.push_str(&format!(".{}", rng.pick(CLASSES)));
+            }
+            out
+        }
+
+        fn selector(rng: &mut Rng) -> String {
+            let mut out = compound(rng);
+            for _ in 0..rng.below(3) {
+                out.push_str(rng.pick(&[" > ", " ", " + ", " ~ "]));
+                out.push_str(&compound(rng));
+            }
+            match rng.below(8) {
+                0 => out.push_str("::before"),
+                1 => out.push_str("::after"),
+                2 => out.push_str("::first-letter"),
+                3 => out.push_str("::first-line"),
+                4 => out.push_str("::selection"),
+                _ => {}
+            }
+            if rng.below(6) == 0 {
+                out.push_str(&format!(":has(.{})", rng.pick(CLASSES)));
+            }
+            out
+        }
+
+        let mut nonempty = 0usize;
+        let mut pseudo_nonempty = 0usize;
+        for seed in 1..=12u64 {
+            let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1); // Random DOM: nested elements with ids/classes/attributes.
+            let mut html = String::from("<body>");
+            let mut open = Vec::new();
+            for _ in 0..60 {
+                if !open.is_empty() && rng.below(3) == 0 {
+                    html.push_str(&format!("</{}>", open.pop().expect("open tag")));
+                    continue;
+                }
+                let tag = rng.pick(TAGS);
+                html.push('<');
+                html.push_str(tag);
+                if rng.below(4) == 0 {
+                    html.push_str(&format!(" id=\"{}\"", rng.pick(IDS)));
+                }
+                let class_count = rng.below(4);
+                if class_count > 0 {
+                    html.push_str(" class=\"");
+                    for index in 0..class_count {
+                        if index > 0 {
+                            html.push(' ');
+                        }
+                        html.push_str(rng.pick(CLASSES));
+                    }
+                    html.push('"');
+                }
+                if tag == "a" {
+                    html.push_str(" href=\"#\"");
+                }
+                html.push('>');
+                if !matches!(tag, "img" | "input") && open.len() < 6 {
+                    open.push(tag);
+                }
+                html.push_str("text ");
+            }
+            while let Some(tag) = open.pop() {
+                html.push_str(&format!("</{tag}>"));
+            }
+            html.push_str("</body>");
+
+            // Random sheet: ~40 rules over the generated selector forms.
+            let mut css = String::new();
+            for _ in 0..40 {
+                css.push_str(&selector(&mut rng));
+                if rng.below(4) == 0 {
+                    css.push_str(", ");
+                    css.push_str(&selector(&mut rng));
+                }
+                let important = if rng.below(4) == 0 { " !important" } else { "" };
+                let red = rng.below(250);
+                css.push_str(&format!(
+                    " {{ color: rgb({red}, 5, 6){important}; margin-top: {}px; \
+                     content: \"g\"; display: block; }}",
+                    rng.below(20)
+                ));
+            }
+
+            let document = parse_document(&html);
+            let author = lumen_css::parse_stylesheet(&css);
+            let interaction = InteractionState::new(&document, None, None, None);
+            let context = StyleContext::new(&document, &author, &interaction);
+            // The full scan: every (rule, selector) in sheet order with
+            // its pass mask — exactly what the pre-index code evaluated.
+            let full_scans: Vec<Vec<(usize, usize, u8)>> = context
+                .sheets
+                .iter()
+                .map(|sheet| {
+                    sheet
+                        .sheet
+                        .rules
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(rule_index, rule)| {
+                            rule.selectors
+                                .iter()
+                                .enumerate()
+                                .map(move |(selector_index, s)| {
+                                    let passes = match s.pseudo_element() {
+                                        None | Some(PseudoElement::Selection) => PASS_ELEMENT,
+                                        Some(PseudoElement::Before) => PASS_BEFORE,
+                                        Some(PseudoElement::After) => PASS_AFTER,
+                                        Some(PseudoElement::FirstLetter) => PASS_FIRST_LETTER,
+                                        Some(PseudoElement::FirstLine) => PASS_FIRST_LINE,
+                                    };
+                                    (rule_index, selector_index, passes)
+                                })
+                        })
+                        .collect()
+                })
+                .collect();
+            for node in document.descendants(document.root()) {
+                if document.element(node).is_none() {
+                    continue;
+                }
+                for (origin, sheet) in context.sheets.iter().enumerate() {
+                    let gathered = gather_candidates(node, sheet, &context);
+                    for pseudo in [
+                        None,
+                        Some("before"),
+                        Some("after"),
+                        Some("first-letter"),
+                        Some("first-line"),
+                    ] {
+                        let bucketed =
+                            winning_declarations(&gathered, sheet, &context, node, pseudo);
+                        let brute = winning_declarations(
+                            &full_scans[origin],
+                            sheet,
+                            &context,
+                            node,
+                            pseudo,
+                        );
+                        assert_eq!(
+                            bucketed, brute,
+                            "seed {seed}, node {node}, origin {origin}, pseudo {pseudo:?}\n\
+                             html: {html}\ncss: {css}"
+                        );
+                        if pseudo.is_some() {
+                            pseudo_nonempty += usize::from(!brute.is_empty());
+                        } else {
+                            nonempty += usize::from(!brute.is_empty());
+                        }
+                    }
+                }
+            }
+        }
+        // Guard against a vacuous comparison: the generated sheets must
+        // actually match elements, in the element and pseudo passes.
+        assert!(nonempty > 100, "element pass barely matched: {nonempty}");
+        assert!(
+            pseudo_nonempty > 20,
+            "pseudo passes barely matched: {pseudo_nonempty}"
+        );
     }
 }

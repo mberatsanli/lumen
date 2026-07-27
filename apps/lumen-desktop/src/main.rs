@@ -101,6 +101,14 @@ enum ShellEvent {
     /// pumped so the waiting promises settle. Carries the tab id like
     /// [`NavDone`], since the user may have switched away meanwhile.
     FetchReady { tab: u64 },
+    /// Progressive image fetches for a tab finished on a worker
+    /// thread: decode and apply them to the tab's session. The nav
+    /// serial guards against results landing on a newer page.
+    ImagesReady {
+        tab: u64,
+        serial: u64,
+        results: Vec<(usize, lumen_platform::ResourceResponse)>,
+    },
 }
 
 /// The session is either usable or away on a loader thread.
@@ -2313,6 +2321,10 @@ impl App {
         let mut session = done.session;
         // The window may have resized while the session was away.
         session.set_viewport(self.viewport());
+        // Progressive images: the page renders right away; its image
+        // subresources stream in on a worker thread and relayout on
+        // arrival (`images_ready`).
+        self.maybe_fetch_images(&mut session, done.tab);
         if index == self.active {
             if !failed {
                 self.scroll_y = 0.0;
@@ -2389,6 +2401,55 @@ impl App {
         } else {
             let tab = &mut self.tabs[index];
             pump_scripts_network(&mut tab.state, &mut tab.page_scripts);
+        }
+    }
+
+    /// Starts a background fetch for the session's pending image
+    /// subresources (progressive loading — the page is already shown).
+    fn maybe_fetch_images(&mut self, session: &mut Session<DefaultLoader>, tab: u64) {
+        let tasks = session.take_pending_images();
+        if tasks.is_empty() {
+            return;
+        }
+        let serial = session.nav_serial();
+        let loader = session.loader_handle();
+        let proxy = self.proxy.clone();
+        std::thread::spawn(move || {
+            let results = Session::fetch_images(loader.as_ref(), tasks);
+            if let Err(error) = proxy.send_event(ShellEvent::ImagesReady {
+                tab,
+                serial,
+                results,
+            }) {
+                eprintln!("note: image fetch finished after shutdown: {error}");
+            }
+        });
+    }
+
+    /// Applies progressively fetched images to the tab they belong to
+    /// (skipped when a newer navigation made them stale) and repaints
+    /// only when that tab is on screen.
+    fn images_ready(
+        &mut self,
+        tab: u64,
+        serial: u64,
+        results: Vec<(usize, lumen_platform::ResourceResponse)>,
+    ) {
+        let Some(index) = tab_position(&self.tabs, tab) else {
+            return;
+        };
+        if index == self.active {
+            if let SessionState::Ready(session) = &mut self.state
+                && session.nav_serial() == serial
+            {
+                session.apply_image_responses(results);
+                self.invalidate_page();
+                self.request_redraw();
+            }
+        } else if let SessionState::Ready(session) = &mut self.tabs[index].state
+            && session.nav_serial() == serial
+        {
+            session.apply_image_responses(results);
         }
     }
 
@@ -3876,6 +3937,11 @@ impl ApplicationHandler<ShellEvent> for App {
         match event {
             ShellEvent::NavDone(done) => self.navigation_done(*done),
             ShellEvent::FetchReady { tab } => self.fetch_ready(tab),
+            ShellEvent::ImagesReady {
+                tab,
+                serial,
+                results,
+            } => self.images_ready(tab, serial, results),
         }
     }
 

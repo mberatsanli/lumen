@@ -89,6 +89,12 @@ pub struct Session<L: ResourceLoader> {
     author: Arc<lumen_css::Stylesheet>,
     /// Decoded images, fetched once per page, shared the same way.
     images: Arc<ImageMap>,
+    /// Image subresources discovered during the last page load, to be
+    /// fetched progressively by the shell (or synchronously by CLI).
+    pending_images: Vec<(NodeId, ResourceRequest)>,
+    /// Increments on every navigation: progressive image results are
+    /// only applied when they still belong to the current page.
+    nav_serial: u64,
     /// Node currently under the pointer, for `:hover` styling.
     hovered: Option<NodeId>,
     /// Node the pointer is pressed on (`:active`).
@@ -325,6 +331,8 @@ impl<L: ResourceLoader> Session<L> {
             source: None,
             author: Arc::new(lumen_css::Stylesheet::default()),
             images: Arc::new(ImageMap::new()),
+            pending_images: Vec::new(),
+            nav_serial: 0,
             hovered: None,
             active: None,
             focused: None,
@@ -1100,6 +1108,94 @@ impl<L: ResourceLoader> Session<L> {
         }
     }
 
+    /// Image subresources discovered during the last page load, taken
+    /// out for the shell to fetch progressively. The page is already
+    /// rendered at this point — it does not wait for images.
+    pub fn take_pending_images(&mut self) -> Vec<(NodeId, ResourceRequest)> {
+        std::mem::take(&mut self.pending_images)
+    }
+
+    /// Whether any image subresources are still unfetched.
+    #[must_use]
+    pub fn has_pending_images(&self) -> bool {
+        !self.pending_images.is_empty()
+    }
+
+    /// Navigation counter for progressive image loading: results are
+    /// applied only when they still belong to the current page.
+    #[must_use]
+    pub fn nav_serial(&self) -> u64 {
+        self.nav_serial
+    }
+
+    /// The shared loader handle, for shells that fetch subresources
+    /// (e.g. images) on their own worker threads.
+    pub fn loader_handle(&self) -> Arc<L> {
+        Arc::clone(&self.loader)
+    }
+
+    /// Fetches image requests in parallel on scoped worker threads
+    /// (up to 8 at a time). Runs on the caller's thread; the results
+    /// are handed to [`Self::apply_image_responses`] wherever the
+    /// session lives.
+    #[must_use]
+    pub fn fetch_images(
+        loader: &L,
+        tasks: Vec<(NodeId, ResourceRequest)>,
+    ) -> Vec<(NodeId, ResourceResponse)> {
+        const IMAGE_FETCH_WORKERS: usize = 8;
+        if tasks.is_empty() {
+            return Vec::new();
+        }
+        let workers = IMAGE_FETCH_WORKERS.min(tasks.len());
+        std::thread::scope(|scope| {
+            let (tx, rx) = std::sync::mpsc::channel::<(NodeId, ResourceResponse)>();
+            let tasks = Arc::new(std::sync::Mutex::new(tasks.into_iter()));
+            let mut handles = Vec::new();
+            for _ in 0..workers {
+                let tx = tx.clone();
+                let tasks = Arc::clone(&tasks);
+                handles.push(scope.spawn(move || {
+                    while let Some((node, request)) = tasks.lock().unwrap().next() {
+                        if let Ok(response) = loader.load(&request) {
+                            let _ = tx.send((node, response));
+                        }
+                    }
+                }));
+            }
+            drop(tx);
+            let results: Vec<_> = rx.iter().collect();
+            for handle in handles {
+                let _ = handle.join();
+            }
+            results
+        })
+    }
+
+    /// Decodes fetched image responses into the page and relayouts so
+    /// intrinsic image sizes apply (progressive image loading).
+    pub fn apply_image_responses(&mut self, results: Vec<(NodeId, ResourceResponse)>) {
+        if results.is_empty() || self.page.is_none() {
+            return;
+        }
+        let mut images = (*self.images).clone();
+        for (node, response) in results {
+            self.store_response_cookies(&response);
+            if let Some(image) = RasterImage::decode(&response.body) {
+                images.insert(node, Arc::new(image));
+            }
+        }
+        self.images = Arc::new(images);
+        self.relayout();
+    }
+
+    /// Drives the pending image fetches synchronously (CLI, tests).
+    pub fn load_pending_images_blocking(&mut self) {
+        let tasks = self.take_pending_images();
+        let results = Self::fetch_images(self.loader.as_ref(), tasks);
+        self.apply_image_responses(results);
+    }
+
     /// [`Self::prepare_request`] for a script READ (fetch/XHR) — a
     /// request whose response body the page's own JavaScript wants to
     /// see. Unlike subresource loads (scripts, CSS, images — no-cors
@@ -1329,13 +1425,13 @@ impl<L: ResourceLoader> Session<L> {
             }
         }
 
-        // Images: fetched once per page, capped and in parallel —
-        // image-heavy pages (hundreds of <img> tags) used to crawl
-        // through sequential fetches while the shell stared at a blank
-        // page. Failures leave a placeholder box.
+        // Images: discovered here, fetched progressively — the page
+        // renders immediately with placeholder boxes and the shell
+        // fetches in the background (see `take_pending_images`),
+        // relayouting when they arrive. CLI/tests drive the same
+        // pipeline synchronously via `load_pending_images_blocking`.
+        // Capped so image-heavy pages stay bounded.
         const MAX_IMAGES_PER_PAGE: usize = 32;
-        const IMAGE_FETCH_WORKERS: usize = 8;
-        let mut images = ImageMap::new();
         // CSS background images need computed styles to discover; this
         // extra style pass runs at load only.
         let mut sources = collect_image_sources(&document);
@@ -1355,7 +1451,8 @@ impl<L: ResourceLoader> Session<L> {
             .collect();
         backgrounds.sort_unstable();
         sources.extend(backgrounds);
-        let tasks: Vec<(NodeId, ResourceRequest)> = sources
+        self.nav_serial += 1;
+        self.pending_images = sources
             .into_iter()
             .take(MAX_IMAGES_PER_PAGE)
             .filter_map(|(node, src)| {
@@ -1364,36 +1461,7 @@ impl<L: ResourceLoader> Session<L> {
                 Some((node, request))
             })
             .collect();
-        let fetched: Vec<(NodeId, ResourceResponse)> = std::thread::scope(|scope| {
-            let (tx, rx) = std::sync::mpsc::channel::<(NodeId, ResourceResponse)>();
-            let tasks = Arc::new(std::sync::Mutex::new(tasks.into_iter()));
-            let mut handles = Vec::new();
-            for _ in 0..IMAGE_FETCH_WORKERS {
-                let tx = tx.clone();
-                let loader = Arc::clone(&self.loader);
-                let tasks = Arc::clone(&tasks);
-                handles.push(scope.spawn(move || {
-                    while let Some((node, request)) = tasks.lock().unwrap().next() {
-                        if let Ok(response) = loader.load(&request) {
-                            let _ = tx.send((node, response));
-                        }
-                    }
-                }));
-            }
-            drop(tx);
-            let results: Vec<_> = rx.iter().collect();
-            for handle in handles {
-                let _ = handle.join();
-            }
-            results
-        });
-        for (node, response) in fetched {
-            self.store_response_cookies(&response);
-            if let Some(image) = RasterImage::decode(&response.body) {
-                images.insert(node, Arc::new(image));
-            }
-        }
-        self.images = Arc::new(images);
+        self.images = Arc::new(ImageMap::new());
 
         self.hovered = None; // New document, new node ids.
         self.active = None;
@@ -3599,6 +3667,8 @@ mod tests {
             VIEWPORT,
         );
         session.load(url("https://a.test/")).unwrap();
+        // Progressive loading renders first; drive it synchronously.
+        session.load_pending_images_blocking();
         let page = session.page().unwrap();
         assert_eq!(page.images.len(), 1);
         let image_command = page.display_list.iter().find_map(|command| match command {

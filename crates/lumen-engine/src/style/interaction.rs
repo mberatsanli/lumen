@@ -206,9 +206,17 @@ pub fn interaction_styles_may_change(
                 continue;
             }
             let prepared = matching::prepare_selector(selector);
+            let class_cache = matching::ClassCache::default();
             for id in candidates(document, state, selector) {
                 if document.element(id).is_some()
-                    && matching::selector_matches(document, state, id, selector, &prepared)
+                    && matching::selector_matches(
+                        document,
+                        state,
+                        &class_cache,
+                        id,
+                        selector,
+                        &prepared,
+                    )
                 {
                     return true;
                 }

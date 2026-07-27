@@ -22,7 +22,84 @@ use parcel_selectors::context::{MatchingContext, MatchingMode, QuirksMode};
 use parcel_selectors::matching::{ElementSelectorFlags, matches_selector};
 use parcel_selectors::parser::{Combinator, Component, SelectorImpl, SelectorList};
 use parcel_selectors::{Element, OpaqueElement};
+use std::cell::RefCell;
 use std::fmt;
+use std::rc::Rc;
+
+/// Per-style-pass cache of pre-split class attributes. Parcel's matcher
+/// asks [`DomElement::has_class`] once per candidate selector per
+/// element, and re-splitting the `class` attribute on every call
+/// dominated profiles on class-heavy pages.
+pub(crate) type ClassCache = RefCell<super::FxHashMap<NodeId, Rc<[Box<str>]>>>;
+
+/// The element's class list, split once per node per style pass.
+pub(crate) fn cached_classes(
+    document: &Document,
+    cache: &ClassCache,
+    node: NodeId,
+) -> Rc<[Box<str>]> {
+    if let Some(classes) = cache.borrow().get(&node) {
+        return Rc::clone(classes);
+    }
+    let classes: Rc<[Box<str>]> = document
+        .element(node)
+        .map(|element| element.classes().map(Box::from).collect())
+        .unwrap_or_default();
+    cache.borrow_mut().insert(node, Rc::clone(&classes));
+    classes
+}
+
+/// The bucket a selector belongs to, derived from its subject
+/// (rightmost) compound's positively-required id/class/tag. Combinators
+/// only constrain relatives of the subject, so the subject compound
+/// alone decides which elements can ever match.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum BucketKey {
+    Id(Box<str>),
+    Class(Box<str>),
+    Tag(Box<str>),
+    /// No positively-required key: universal, attribute- or
+    /// pseudo-class-only subjects, and keys hidden inside
+    /// `:is()`/`:not()`/... (conservatively tried against everything).
+    Always,
+}
+
+/// Extracts the bucket key from a selector's subject compound. Only
+/// top-level `ID`/`Class`/`LocalName` components count: each of them
+/// must match for the compound to match, so any one is a sound
+/// pre-filter. Components nested in `:is()`/`:not()`/`:has()` are
+/// alternatives, negations or separate clauses and do not qualify.
+pub(crate) fn subject_key(selector: &Selector) -> BucketKey {
+    let mut tag = None;
+    let mut class = None;
+    let mut id = None;
+    for component in selector.iter_raw_match_order() {
+        match component {
+            // The dummy combinator between a pseudo-element and the rest
+            // of its compound is not a compound boundary.
+            Component::Combinator(Combinator::PseudoElement) => {}
+            Component::Combinator(_) => break,
+            Component::ID(name) => id = Some(name.as_str()),
+            Component::Class(name) => {
+                if class.is_none() {
+                    class = Some(name.as_str());
+                }
+            }
+            // HTML matching compares the lowercased name.
+            Component::LocalName(name) => tag = Some(name.lower_name.as_str()),
+            _ => {}
+        }
+    }
+    if let Some(id) = id {
+        BucketKey::Id(Box::from(id))
+    } else if let Some(class) = class {
+        BucketKey::Class(Box::from(class))
+    } else if let Some(tag) = tag {
+        BucketKey::Tag(Box::from(tag))
+    } else {
+        BucketKey::Always
+    }
+}
 
 /// A DOM element presented to parcel's matcher, carrying the document
 /// and interaction state its pseudo-class answers depend on.
@@ -30,6 +107,7 @@ use std::fmt;
 struct DomElement<'a> {
     document: &'a Document,
     interaction: &'a InteractionState,
+    class_cache: &'a ClassCache,
     node: NodeId,
 }
 
@@ -202,10 +280,12 @@ impl<'i> Element<'i> for DomElement<'_> {
         name: &lumen_css::selector::Ident,
         case_sensitivity: CaseSensitivity,
     ) -> bool {
-        self.data().classes().any(|class| match case_sensitivity {
-            CaseSensitivity::CaseSensitive => class == name.as_str(),
-            CaseSensitivity::AsciiCaseInsensitive => class.eq_ignore_ascii_case(name.as_str()),
-        })
+        cached_classes(self.document, self.class_cache, self.node)
+            .iter()
+            .any(|class| match case_sensitivity {
+                CaseSensitivity::CaseSensitive => class.as_ref() == name.as_str(),
+                CaseSensitivity::AsciiCaseInsensitive => class.eq_ignore_ascii_case(name.as_str()),
+            })
     }
 
     fn imported_part(
@@ -238,12 +318,14 @@ impl<'i> Element<'i> for DomElement<'_> {
 fn parcel_matches(
     document: &Document,
     interaction: &InteractionState,
+    class_cache: &ClassCache,
     node: NodeId,
     selector: &Selector,
 ) -> bool {
     let element = DomElement {
         document,
         interaction,
+        class_cache,
         node,
     };
     // Rules with a pseudo-element (`::before` etc.) match the
@@ -584,6 +666,7 @@ fn preceding_element_siblings(document: &Document, node: NodeId) -> Vec<NodeId> 
 fn chain_matches(
     document: &Document,
     interaction: &InteractionState,
+    class_cache: &ClassCache,
     node: NodeId,
     chain: &PreparedChain,
     index: usize,
@@ -592,11 +675,11 @@ fn chain_matches(
     let compound = &chain.compounds[index];
     let matches = match &compound.selector {
         Some(selector) => {
-            parcel_matches(document, interaction, node, selector)
+            parcel_matches(document, interaction, class_cache, node, selector)
                 && compound
                     .clauses
                     .iter()
-                    .all(|clause| clause_matches(document, interaction, node, clause))
+                    .all(|clause| clause_matches(document, interaction, class_cache, node, clause))
         }
         None => scope == Some(node),
     };
@@ -608,12 +691,28 @@ fn chain_matches(
     };
     match next.combinator {
         Some(Combinator::Child) => parent_element(document, node).is_some_and(|parent| {
-            chain_matches(document, interaction, parent, chain, index + 1, scope)
+            chain_matches(
+                document,
+                interaction,
+                class_cache,
+                parent,
+                chain,
+                index + 1,
+                scope,
+            )
         }),
         Some(Combinator::Descendant) => {
             let mut ancestor = parent_element(document, node);
             while let Some(node) = ancestor {
-                if chain_matches(document, interaction, node, chain, index + 1, scope) {
+                if chain_matches(
+                    document,
+                    interaction,
+                    class_cache,
+                    node,
+                    chain,
+                    index + 1,
+                    scope,
+                ) {
                     return true;
                 }
                 ancestor = parent_element(document, node);
@@ -623,11 +722,29 @@ fn chain_matches(
         Some(Combinator::NextSibling) => preceding_element_siblings(document, node)
             .first()
             .is_some_and(|first| {
-                chain_matches(document, interaction, *first, chain, index + 1, scope)
+                chain_matches(
+                    document,
+                    interaction,
+                    class_cache,
+                    *first,
+                    chain,
+                    index + 1,
+                    scope,
+                )
             }),
         Some(Combinator::LaterSibling) => preceding_element_siblings(document, node)
             .into_iter()
-            .any(|sibling| chain_matches(document, interaction, sibling, chain, index + 1, scope)),
+            .any(|sibling| {
+                chain_matches(
+                    document,
+                    interaction,
+                    class_cache,
+                    sibling,
+                    chain,
+                    index + 1,
+                    scope,
+                )
+            }),
         _ => false,
     }
 }
@@ -638,6 +755,7 @@ fn chain_matches(
 fn clause_matches(
     document: &Document,
     interaction: &InteractionState,
+    class_cache: &ClassCache,
     node: NodeId,
     clause: &HasClause,
 ) -> bool {
@@ -651,6 +769,7 @@ fn clause_matches(
             && chain_matches(
                 document,
                 interaction,
+                class_cache,
                 candidate,
                 &clause.inner,
                 0,
@@ -682,14 +801,17 @@ fn clause_matches(
 pub(crate) fn selector_matches(
     document: &Document,
     interaction: &InteractionState,
+    class_cache: &ClassCache,
     node: NodeId,
     selector: &Selector,
     prepared: &PreparedSelector,
 ) -> bool {
     match prepared {
-        PreparedSelector::Plain => parcel_matches(document, interaction, node, selector),
+        PreparedSelector::Plain => {
+            parcel_matches(document, interaction, class_cache, node, selector)
+        }
         PreparedSelector::Chain(chain) => {
-            chain_matches(document, interaction, node, chain, 0, None)
+            chain_matches(document, interaction, class_cache, node, chain, 0, None)
         }
         PreparedSelector::Never => false,
     }

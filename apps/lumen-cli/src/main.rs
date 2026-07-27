@@ -28,6 +28,9 @@ fn read_input(input: &str) -> Result<String, Box<dyn std::error::Error>> {
 fn load_page(input: &str) -> Result<Session<DefaultLoader>, Box<dyn std::error::Error>> {
     let mut session = Session::new(DefaultLoader, VIEWPORT);
     session.load(url_from_user_input(input)?)?;
+    // Progressive image loading renders the page first; the CLI wants
+    // the final pixels, so drive the image fetches synchronously.
+    session.load_pending_images_blocking();
     // Load-time scripts mutate the DOM before we dump/render it.
     let _scripts = lumen_browser::PageScripts::new(&mut session);
     Ok(session)
