@@ -83,20 +83,137 @@ impl Hasher for FxHasher {
 pub(crate) type FxBuildHasher = BuildHasherDefault<FxHasher>;
 pub(crate) type FxHashMap<K, V> = HashMap<K, V, FxBuildHasher>;
 
-/// Declared values keyed by property name. `Cow` keys let the fixed
-/// property names (inherited copies, internal inserts) avoid per-node
-/// string allocations during the cascade.
-type RawStyle = FxHashMap<Cow<'static, str>, CssValue>;
-
 /// One declaration's position in the cascade: (level, specificity,
 /// source order). Compared lexicographically; higher wins, ties keep the
 /// later declaration.
 type CascadeRank = (u8, u32, usize);
 
-/// Per-property cascade ranks of the winning declarations, tracked so a
-/// `var()`-carrying shorthand expanded after substitution can lose to a
-/// higher-ranked longhand instead of blindly overwriting it.
-type CascadeMeta = FxHashMap<Cow<'static, str>, CascadeRank>;
+/// One raw declaration: a shared value plus the cascade rank that won
+/// it. `None` rank means an inherited or internal entry, which any
+/// ranked declaration beats. Values and names are `Rc`-shared so
+/// inheritance copies, share-layer replays and pseudo passes cost
+/// refcount bumps instead of deep clones.
+#[derive(Debug, Clone)]
+struct RawEntry {
+    value: Rc<CssValue>,
+    rank: Option<CascadeRank>,
+}
+
+/// Declared values keyed by property name, with their cascade ranks.
+/// The single merged map replaces the old separate raw/meta maps: one
+/// lookup per declaration instead of two, one shared name instead of
+/// two owned `String`s.
+#[derive(Debug, Default, Clone)]
+struct RawStyle {
+    map: FxHashMap<Rc<str>, RawEntry>,
+}
+
+impl RawStyle {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            map: FxHashMap::with_capacity_and_hasher(capacity, FxBuildHasher::default()),
+        }
+    }
+
+    /// The declared value, if any. Readers never see the `Rc`.
+    fn get(&self, name: &str) -> Option<&CssValue> {
+        self.map.get(name).map(|entry| &*entry.value)
+    }
+
+    /// The shared value, for copies that should stay shared
+    /// (inheritance, pseudo passes).
+    fn get_shared(&self, name: &str) -> Option<(&Rc<str>, &Rc<CssValue>)> {
+        self.map
+            .get_key_value(name)
+            .map(|(name, entry)| (name, &entry.value))
+    }
+
+    fn rank(&self, name: &str) -> Option<CascadeRank> {
+        self.map.get(name).and_then(|entry| entry.rank)
+    }
+
+    /// Replaces the value, keeping any existing rank — the semantics of
+    /// the old plain `raw.insert`, used by value-rewriting passes
+    /// (var/calc/rem resolution).
+    fn insert(&mut self, name: Cow<'static, str>, value: CssValue) {
+        match self.map.entry(Rc::from(name.as_ref())) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                entry.get_mut().value = Rc::new(value);
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(RawEntry {
+                    value: Rc::new(value),
+                    rank: None,
+                });
+            }
+        }
+    }
+
+    /// Inserts a shared value with an explicit rank, unconditionally
+    /// (inheritance copies, pseudo-layer merges).
+    fn insert_shared(&mut self, name: Rc<str>, value: Rc<CssValue>, rank: Option<CascadeRank>) {
+        self.map.insert(name, RawEntry { value, rank });
+    }
+
+    /// Inserts a shared value under a cascade rank, replacing the
+    /// current entry only when `rank` is at least the current winner's
+    /// (ties keep the later declaration).
+    fn insert_ranked(&mut self, name: Rc<str>, value: Rc<CssValue>, rank: CascadeRank) {
+        match self.map.entry(name) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                if entry.get().rank.is_none_or(|current| rank >= current) {
+                    entry.insert(RawEntry {
+                        value,
+                        rank: Some(rank),
+                    });
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(RawEntry {
+                    value,
+                    rank: Some(rank),
+                });
+            }
+        }
+    }
+
+    fn remove(&mut self, name: &str) -> Option<RawEntry> {
+        self.map.remove(name)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// (name, value) read pairs, values dereferenced.
+    fn iter(&self) -> impl Iterator<Item = (&Rc<str>, &CssValue)> {
+        self.map.iter().map(|(name, entry)| (name, &*entry.value))
+    }
+
+    /// (name, shared value, rank) triples, for copies that stay shared.
+    fn entries(&self) -> impl Iterator<Item = (&Rc<str>, &Rc<CssValue>, Option<CascadeRank>)> {
+        self.map
+            .iter()
+            .map(|(name, entry)| (name, &entry.value, entry.rank))
+    }
+
+    /// Mutable access to the shared values, ranks untouched.
+    fn values_mut(&mut self) -> impl Iterator<Item = &mut Rc<CssValue>> {
+        self.map.values_mut().map(|entry| &mut entry.value)
+    }
+}
+
+impl<'a> IntoIterator for &'a RawStyle {
+    type Item = (&'a Rc<str>, &'a CssValue);
+    type IntoIter = std::iter::Map<
+        std::collections::hash_map::Iter<'a, Rc<str>, RawEntry>,
+        fn((&'a Rc<str>, &'a RawEntry)) -> (&'a Rc<str>, &'a CssValue),
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.map.iter().map(|(name, entry)| (name, &*entry.value))
+    }
+}
 
 /// Total cascade order across origins and importance (higher wins).
 /// Origin 0 is the UA sheet, 1 the author sheet, 2 inline `style=`.
@@ -411,7 +528,7 @@ impl Hash for ShareKey {
 /// substitution, CSS-wide keywords, rem/calc resolution, inheritance,
 /// pseudo passes, `to_computed` — runs per element as usual.
 struct SheetLayer {
-    entries: Vec<(Cow<'static, str>, CssValue, CascadeRank)>,
+    entries: Vec<(Rc<str>, Rc<CssValue>, CascadeRank)>,
 }
 
 /// Per-style-pass shared state: the document under styling, the
@@ -739,32 +856,32 @@ fn evaluate_calc(expression: &str, font_size: f32, root_font_size: f32) -> Optio
 /// must not overwrite a longhand that won with a higher rank, and a
 /// substituted longhand must still beat what a lower-ranked shorthand
 /// expansion inserted.
-fn substitute_declaration_vars(raw: &mut RawStyle, meta: &mut CascadeMeta) {
+fn substitute_declaration_vars(raw: &mut RawStyle) {
     let pending: Vec<(String, String)> = raw
         .iter()
         .filter_map(|(name, value)| match value {
-            CssValue::Unresolved(text) => Some((name.clone().into_owned(), text.clone())),
+            CssValue::Unresolved(text) => Some((name.to_string(), text.clone())),
             _ => None,
         })
         .collect();
     for (name, text) in pending {
-        raw.remove(name.as_str());
-        let rank = meta.remove(name.as_str());
+        let rank = raw.remove(name.as_str()).and_then(|entry| entry.rank);
         let Some(substituted) = substitute_vars(&text, raw, 0) else {
             continue; // Unknown variable without fallback: declaration dies.
         };
         for declaration in lumen_css::parse_declarations(&format!("{name}: {substituted}")) {
-            let replace = match (rank, meta.get(declaration.name.as_str())) {
-                (Some(rank), Some(&current)) => rank >= current,
+            let replace = match (rank, raw.rank(declaration.name.as_str())) {
+                (Some(rank), Some(current)) => rank >= current,
                 // No rank recorded (e.g. an inherited value) or nothing
                 // to beat: insert.
                 _ => true,
             };
             if replace {
-                if let Some(rank) = rank {
-                    meta.insert(Cow::Owned(declaration.name.clone()), rank);
-                }
-                raw.insert(Cow::Owned(declaration.name), declaration.value);
+                raw.insert_shared(
+                    Rc::from(declaration.name.as_str()),
+                    Rc::new(declaration.value),
+                    rank,
+                );
             }
         }
     }
@@ -781,13 +898,13 @@ fn evaluate_calculations(raw: &mut RawStyle, font_size: f32, root_font_size: f32
             CssValue::Function(function, _)
                 if matches!(function.as_str(), "calc" | "min" | "max" | "clamp") =>
             {
-                Some(name.clone().into_owned())
+                Some(name.to_string())
             }
             _ => None,
         })
         .collect();
     for name in calc_names {
-        let CssValue::Function(function, expression) = raw[name.as_str()].clone() else {
+        let Some(CssValue::Function(function, expression)) = raw.get(name.as_str()).cloned() else {
             continue;
         };
         // Bare min()/max()/clamp() evaluate through the calc grammar.
@@ -798,7 +915,9 @@ fn evaluate_calculations(raw: &mut RawStyle, font_size: f32, root_font_size: f32
         };
         match evaluate_calc(&expression, font_size, root_font_size) {
             Some(value) => raw.insert(Cow::Owned(name), value),
-            None => raw.remove(name.as_str()),
+            None => {
+                raw.remove(name.as_str());
+            }
         };
     }
 }
@@ -824,17 +943,16 @@ fn compute_node(
     }
     // Pre-sized: real elements carry dozens of declarations, and map
     // growth dominated malloc profiles.
-    let mut raw = RawStyle::with_capacity_and_hasher(96, FxBuildHasher::default());
-    let mut meta = CascadeMeta::with_capacity_and_hasher(64, FxBuildHasher::default());
+    let mut raw = RawStyle::with_capacity(96);
     for property in lumen_css::properties::inherited() {
-        if let Some(value) = parent_raw.get(property) {
-            raw.insert(Cow::Borrowed(property), value.clone());
+        if let Some((name, value)) = parent_raw.get_shared(property) {
+            raw.insert_shared(name.clone(), value.clone(), None);
         }
     }
     // Custom properties (`--x`) inherit wholesale.
-    for (name, value) in parent_raw {
+    for (name, value, _) in parent_raw.entries() {
         if name.starts_with("--") {
-            raw.insert(name.clone(), value.clone());
+            raw.insert_shared(name.clone(), value.clone(), None);
         }
     }
 
@@ -872,8 +990,8 @@ fn compute_node(
     // for `sup`/`sub` shifts and hover color fades to work on text.
     if element.is_none() {
         for property in ["vertical-align", "transition"] {
-            if let Some(value) = parent_raw.get(property) {
-                raw.insert(Cow::Borrowed(property), value.clone());
+            if let Some((name, value)) = parent_raw.get_shared(property) {
+                raw.insert_shared(name.clone(), value.clone(), None);
             }
         }
     }
@@ -899,16 +1017,10 @@ fn compute_node(
         let layer = share_layer(node_id, &safe, context, self_share_key.as_ref());
         // Weakest origin first; a declaration replaces the current value
         // only when its cascade rank (level, specificity, source order)
-        // is at least the current winner's. `meta` holds no entries yet,
-        // so replaying the merged layer is the same merge as before.
+        // is at least the current winner's. Replaying the merged layer
+        // is the same merge as before — and costs only refcount bumps.
         for (name, value, rank) in &layer.entries {
-            if meta
-                .get(name.as_ref())
-                .is_none_or(|current| rank >= current)
-            {
-                meta.insert(name.clone(), *rank);
-                raw.insert(name.clone(), value.clone());
-            }
+            raw.insert_ranked(name.clone(), value.clone(), *rank);
         }
         for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
             apply_matching_declarations(
@@ -919,7 +1031,6 @@ fn compute_node(
                 origin,
                 None,
                 &mut raw,
-                &mut meta,
             );
         }
         if let Some(inline) = element.attributes.get("style") {
@@ -928,13 +1039,11 @@ fn compute_node(
                 .enumerate()
             {
                 let rank = (cascade_level(2, declaration.important), 0, index);
-                if meta
-                    .get(declaration.name.as_str())
-                    .is_none_or(|current| rank >= *current)
-                {
-                    meta.insert(Cow::Owned(declaration.name.clone()), rank);
-                    raw.insert(Cow::Owned(declaration.name), declaration.value);
-                }
+                raw.insert_ranked(
+                    Rc::from(declaration.name.as_str()),
+                    Rc::new(declaration.value),
+                    rank,
+                );
             }
         }
     }
@@ -942,7 +1051,7 @@ fn compute_node(
     // var() substitution: unresolved values substitute custom properties
     // (with fallbacks), then re-parse as a normal declaration so
     // shorthands still expand.
-    substitute_declaration_vars(&mut raw, &mut meta);
+    substitute_declaration_vars(&mut raw);
 
     // CSS-wide keywords: `inherit` pulls the parent's value (works for
     // non-inherited properties too), `initial`/`revert` reset to the
@@ -953,10 +1062,10 @@ fn compute_node(
             matches!(value, CssValue::Keyword(keyword)
                 if matches!(keyword.as_str(), "inherit" | "initial" | "unset" | "revert"))
         })
-        .map(|(name, _)| name.clone().into_owned())
+        .map(|(name, _)| name.to_string())
         .collect();
     for name in keyword_names {
-        let CssValue::Keyword(keyword) = raw[name.as_str()].clone() else {
+        let Some(CssValue::Keyword(keyword)) = raw.get(name.as_str()).cloned() else {
             continue;
         };
         let inherits = match keyword.as_str() {
@@ -966,15 +1075,20 @@ fn compute_node(
         };
         match parent_raw.get(name.as_str()).filter(|_| inherits) {
             Some(value) => raw.insert(Cow::Owned(name), value.clone()),
-            None => raw.remove(name.as_str()),
+            None => {
+                raw.remove(name.as_str());
+            }
         };
     }
 
     // `rem` resolves against the root font size here, so the rest of the
     // pipeline only ever sees px/em/percent.
     for value in raw.values_mut() {
-        if let CssValue::Length(size, lumen_css::Unit::Rem) = value {
-            *value = CssValue::Length(*size * root_font_size, lumen_css::Unit::Px);
+        if let CssValue::Length(size, lumen_css::Unit::Rem) = &**value {
+            *value = Rc::new(CssValue::Length(
+                *size * root_font_size,
+                lumen_css::Unit::Px,
+            ));
         }
     }
 
@@ -996,7 +1110,7 @@ fn compute_node(
     // a child and needs a string `content` to generate anything.
     if let Some(candidates) = &candidates {
         for (kind, leading) in [("before", true), ("after", false)] {
-            let Some((mut pseudo_raw, mut meta)) =
+            let Some(mut pseudo_raw) =
                 pseudo_raw_style(node_id, context, &raw, &computed, kind, candidates)
             else {
                 continue;
@@ -1011,12 +1125,7 @@ fn compute_node(
             let text = text.clone();
             // The same value pipeline as the element pass: var()
             // substitution, rem resolution, calc() evaluation.
-            finish_pseudo_raw(
-                &mut pseudo_raw,
-                &mut meta,
-                computed.font_size,
-                root_font_size,
-            );
+            finish_pseudo_raw(&mut pseudo_raw, computed.font_size, root_font_size);
             let mut style = to_computed(&pseudo_raw, None, computed.font_size);
             // Generated content is not selectable (as in browsers).
             style.selectable = false;
@@ -1036,17 +1145,12 @@ fn compute_node(
                 ("first-letter", &mut *first_letter),
                 ("first-line", &mut *first_line),
             ] {
-                let Some((mut pseudo_raw, mut meta)) =
+                let Some(mut pseudo_raw) =
                     pseudo_raw_style(node_id, context, &raw, &computed, kind, candidates)
                 else {
                     continue;
                 };
-                finish_pseudo_raw(
-                    &mut pseudo_raw,
-                    &mut meta,
-                    computed.font_size,
-                    root_font_size,
-                );
+                finish_pseudo_raw(&mut pseudo_raw, computed.font_size, root_font_size);
                 target.insert(node_id, to_computed(&pseudo_raw, None, computed.font_size));
             }
         }
@@ -1185,7 +1289,6 @@ fn apply_matching_declarations(
     origin: usize,
     pseudo: Option<&str>,
     raw: &mut RawStyle,
-    meta: &mut CascadeMeta,
 ) {
     let wanted = pass_mask(pseudo);
     for &(rule_index, selector_index, passes) in candidates {
@@ -1212,13 +1315,13 @@ fn apply_matching_declarations(
         // property names.
         let pseudo_element = selector.pseudo_element();
         for declaration in &rule.declarations {
-            let name: Cow<'static, str> = match (pseudo, pseudo_element) {
+            let name: Rc<str> = match (pseudo, pseudo_element) {
                 // Element pass: plain rules apply; `::selection`
                 // rules route under internal property names.
-                (None, None) => Cow::Owned(declaration.name.clone()),
+                (None, None) => Rc::from(declaration.name.as_str()),
                 (None, Some(PseudoElement::Selection)) => match declaration.name.as_str() {
-                    "background-color" => Cow::Borrowed("::selection-background"),
-                    "color" => Cow::Borrowed("::selection-color"),
+                    "background-color" => Rc::from("::selection-background"),
+                    "color" => Rc::from("::selection-color"),
                     _ => continue,
                 },
                 // Pseudo pass: only rules for that pseudo-element.
@@ -1226,7 +1329,7 @@ fn apply_matching_declarations(
                 | (Some("after"), Some(PseudoElement::After))
                 | (Some("first-letter"), Some(PseudoElement::FirstLetter))
                 | (Some("first-line"), Some(PseudoElement::FirstLine)) => {
-                    Cow::Owned(declaration.name.clone())
+                    Rc::from(declaration.name.as_str())
                 }
                 _ => continue,
             };
@@ -1235,13 +1338,7 @@ fn apply_matching_declarations(
                 *specificity,
                 rule.source_order,
             );
-            if meta
-                .get(name.as_ref())
-                .is_none_or(|current| rank >= *current)
-            {
-                meta.insert(name.clone(), rank);
-                raw.insert(name, declaration.value.clone());
-            }
+            raw.insert_ranked(name, Rc::new(declaration.value.clone()), rank);
         }
     }
 }
@@ -1254,8 +1351,7 @@ fn build_layer(
     candidates: &[Vec<(usize, usize, u8)>; 2],
     context: &StyleContext<'_>,
 ) -> SheetLayer {
-    let mut layer_raw = RawStyle::with_capacity_and_hasher(64, FxBuildHasher::default());
-    let mut layer_meta = CascadeMeta::with_capacity_and_hasher(64, FxBuildHasher::default());
+    let mut layer = RawStyle::with_capacity(64);
     for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
         apply_matching_declarations(
             &candidates[origin],
@@ -1264,20 +1360,15 @@ fn build_layer(
             node_id,
             origin,
             None,
-            &mut layer_raw,
-            &mut layer_meta,
+            &mut layer,
         );
     }
     // Entry order is irrelevant: replay re-checks ranks per property.
-    let entries = layer_meta
-        .into_iter()
-        .map(|(name, rank)| {
-            let value = layer_raw
-                .get(&name)
-                .expect("meta and raw stay in sync")
-                .clone();
-            (name, value, rank)
-        })
+    // Every layer entry carries a rank by construction, and the clones
+    // are refcount bumps.
+    let entries = layer
+        .entries()
+        .map(|(name, value, rank)| (name.clone(), value.clone(), rank.expect("layer entry")))
         .collect();
     SheetLayer { entries }
 }
@@ -1304,11 +1395,10 @@ fn pseudo_raw_style(
     computed: &ComputedStyle,
     kind: &str,
     candidates: &[Vec<(usize, usize, u8)>; 2],
-) -> Option<(RawStyle, CascadeMeta)> {
+) -> Option<RawStyle> {
     if !context.sheets.iter().any(|sheet| sheet.has_pseudo(kind)) {
         return None;
     }
-    let mut meta = CascadeMeta::default();
     let mut matched = RawStyle::default();
     for (origin, cascade_sheet) in context.sheets.iter().enumerate() {
         // Same cascade ranking as the element pass: important
@@ -1321,7 +1411,6 @@ fn pseudo_raw_style(
             origin,
             Some(kind),
             &mut matched,
-            &mut meta,
         );
     }
     if matched.is_empty() {
@@ -1332,40 +1421,39 @@ fn pseudo_raw_style(
     }
     let mut pseudo_raw = RawStyle::default();
     for property in lumen_css::properties::inherited() {
-        if let Some(value) = raw.get(property) {
-            pseudo_raw.insert(Cow::Borrowed(property), value.clone());
+        if let Some((name, value)) = raw.get_shared(property) {
+            pseudo_raw.insert_shared(name.clone(), value.clone(), None);
         }
     }
     // Custom properties inherit too, so var() in pseudo rules resolves
     // against the element's definitions.
-    for (name, value) in raw {
+    for (name, value, _) in raw.entries() {
         if name.starts_with("--") {
-            pseudo_raw.insert(name.clone(), value.clone());
+            pseudo_raw.insert_shared(name.clone(), value.clone(), None);
         }
     }
     pseudo_raw.insert(
         Cow::Borrowed("font-size"),
         CssValue::Length(computed.font_size, lumen_css::Unit::Px),
     );
-    // Matched declarations override the inherited ones.
-    for (name, value) in matched {
-        pseudo_raw.insert(name, value);
+    // Matched declarations override the inherited ones, ranks kept so
+    // var() expansion in finish_pseudo_raw ranks correctly.
+    for (name, value, rank) in matched.entries() {
+        pseudo_raw.insert_shared(name.clone(), value.clone(), rank);
     }
-    Some((pseudo_raw, meta))
+    Some(pseudo_raw)
 }
 
 /// The shared tail of a pseudo-element pass: var() substitution, rem
 /// resolution, calc() evaluation — the same pipeline as the element pass.
-fn finish_pseudo_raw(
-    pseudo_raw: &mut RawStyle,
-    meta: &mut CascadeMeta,
-    font_size: f32,
-    root_font_size: f32,
-) {
-    substitute_declaration_vars(pseudo_raw, meta);
+fn finish_pseudo_raw(pseudo_raw: &mut RawStyle, font_size: f32, root_font_size: f32) {
+    substitute_declaration_vars(pseudo_raw);
     for value in pseudo_raw.values_mut() {
-        if let CssValue::Length(size, lumen_css::Unit::Rem) = value {
-            *value = CssValue::Length(*size * root_font_size, lumen_css::Unit::Px);
+        if let CssValue::Length(size, lumen_css::Unit::Rem) = &**value {
+            *value = Rc::new(CssValue::Length(
+                *size * root_font_size,
+                lumen_css::Unit::Px,
+            ));
         }
     }
     evaluate_calculations(pseudo_raw, font_size, root_font_size);
@@ -2080,7 +2168,7 @@ fn to_computed(
         Some("dashed") => BorderStyle::Dashed,
         Some("dotted") => BorderStyle::Dotted,
         _ => {
-            if style.outline_width > 0.0 && raw.contains_key("outline-width") {
+            if style.outline_width > 0.0 && raw.get("outline-width").is_some() {
                 BorderStyle::Solid
             } else {
                 BorderStyle::None
