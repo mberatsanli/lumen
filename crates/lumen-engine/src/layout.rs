@@ -497,10 +497,58 @@ impl LayoutBox {
 /// A probe is a pure function of the node, the available width and the
 /// depth (the depth guard can truncate deep subtrees, so the depth is
 /// part of the key), so results are cached per `layout_document` call.
+/// FxHash-style hasher for the probe cache: keys are small integer
+/// tuples hashed thousands of times per pass, and SipHash's DoS
+/// resistance buys nothing for a cache that never sees untrusted keys.
+#[derive(Default)]
+struct ProbeHasher(u64);
+
+impl std::hash::Hasher for ProbeHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for chunk in bytes.chunks(8) {
+            let mut value = 0u64;
+            for &byte in chunk {
+                value = value << 8 | u64::from(byte);
+            }
+            self.mix(value);
+        }
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.mix(value as u64);
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.mix(u64::from(value));
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.mix(value);
+    }
+}
+
+impl ProbeHasher {
+    fn mix(&mut self, value: u64) {
+        self.0 = (self.0 ^ value)
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            .rotate_left(23);
+    }
+}
+
+type ProbeMap = std::cell::RefCell<
+    std::collections::HashMap<
+        (NodeId, u32, usize),
+        f32,
+        std::hash::BuildHasherDefault<ProbeHasher>,
+    >,
+>;
+
 #[derive(Debug, Default)]
-pub(crate) struct ProbeCache(
-    std::cell::RefCell<std::collections::HashMap<(NodeId, u32, usize), f32>>,
-);
+pub(crate) struct ProbeCache(ProbeMap);
 
 impl ProbeCache {
     fn get(&self, node_id: NodeId, available: f32, depth: usize) -> Option<f32> {
@@ -606,10 +654,11 @@ fn layout_node(
     probe_cache: &ProbeCache,
     depth: usize,
 ) -> Option<LayoutBox> {
-    let style = styles.by_node.get(&node_id)?.clone();
+    let style = styles.by_node.get(&node_id)?;
     if style.display == Display::None {
         return None;
     }
+    let style = style.clone();
 
     match &document.node(node_id).kind {
         // Text nodes are laid out by their parent's inline run, never here.

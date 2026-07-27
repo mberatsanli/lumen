@@ -13,6 +13,7 @@ use crate::style::{
 };
 use crate::text::{TextMeasurer, TextStyle};
 use lumen_html::{Document, NodeId, NodeKind};
+use std::borrow::Cow;
 
 /// What a fragment holds.
 #[derive(Debug, Clone, PartialEq)]
@@ -81,10 +82,12 @@ pub(crate) type LineBounds<'a> = dyn Fn(f32) -> (f32, f32) + 'a;
 /// translates it to its final spot when the line is flushed.
 pub(crate) type AtomicLayout<'a> = dyn FnMut(NodeId, f32) -> LayoutBox + 'a;
 
-enum InlineItem {
+enum InlineItem<'a> {
     Word {
         node_id: NodeId,
-        text: String,
+        /// Borrows the DOM text unless a transform/tab expansion forced
+        /// an owned copy — most words never allocate.
+        text: Cow<'a, str>,
         space_before: bool,
     },
     Atomic {
@@ -96,27 +99,29 @@ enum InlineItem {
 
 /// Collects the word/atomic/break stream of an inline run in document order.
 /// Applies `text-transform` to one word.
-fn transform_word(word: &str, transform: TextTransform) -> String {
+fn transform_word(word: &str, transform: TextTransform) -> Cow<'_, str> {
     match transform {
-        TextTransform::None => word.to_string(),
-        TextTransform::Uppercase => word.to_uppercase(),
-        TextTransform::Lowercase => word.to_lowercase(),
+        TextTransform::None => Cow::Borrowed(word),
+        TextTransform::Uppercase => Cow::Owned(word.to_uppercase()),
+        TextTransform::Lowercase => Cow::Owned(word.to_lowercase()),
         TextTransform::Capitalize => {
             let mut chars = word.chars();
             match chars.next() {
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
+                Some(first) => {
+                    Cow::Owned(first.to_uppercase().collect::<String>() + chars.as_str())
+                }
+                None => Cow::Borrowed(word),
             }
         }
     }
 }
 
-fn collect_items(
-    document: &Document,
+fn collect_items<'a>(
+    document: &'a Document,
     styles: &StyleMap,
     node_id: NodeId,
     pending_space: &mut bool,
-    items: &mut Vec<InlineItem>,
+    items: &mut Vec<InlineItem<'a>>,
 ) {
     match &document.node(node_id).kind {
         NodeKind::Text(text) => {
@@ -135,9 +140,14 @@ fn collect_items(
                         items.push(InlineItem::HardBreak);
                     }
                     if !segment.is_empty() {
+                        let text = if segment.contains('\t') {
+                            Cow::Owned(segment.replace('\t', &tab))
+                        } else {
+                            Cow::Borrowed(segment)
+                        };
                         items.push(InlineItem::Word {
                             node_id,
-                            text: segment.replace('\t', &tab),
+                            text,
                             space_before: false,
                         });
                     }
@@ -148,10 +158,7 @@ fn collect_items(
             let leading_space = text.chars().next().is_some_and(char::is_whitespace);
             let trailing_space = text.chars().last().is_some_and(char::is_whitespace);
             let mut first = true;
-            let transform = styles
-                .by_node
-                .get(&node_id)
-                .map_or(TextTransform::None, |style| style.text_transform);
+            let transform = style.map_or(TextTransform::None, |style| style.text_transform);
             for word in text.split_whitespace() {
                 items.push(InlineItem::Word {
                     node_id,
@@ -239,6 +246,7 @@ pub(crate) fn layout_inline_run(
         pen_x: 0.0,
         cursor_y: 0.0,
         started: false,
+        space_widths: std::collections::HashMap::new(),
     };
 
     for item in items {
@@ -372,11 +380,35 @@ struct LineBuilder<'a> {
     pen_x: f32,
     cursor_y: f32,
     started: bool,
+    /// Width of a single space per text style — one measure per style
+    /// instead of one per inter-word gap.
+    space_widths: std::collections::HashMap<SpaceKey, f32>,
 }
 
-impl LineBuilder<'_> {
-    fn style_of(&self, node_id: NodeId) -> &ComputedStyle {
+/// Hashable identity of the [`TextStyle`] inputs (f32s compared bitwise;
+/// layout never produces -0.0/NaN font sizes).
+type SpaceKey = (u32, u16, bool, u32);
+
+fn space_key(style: &TextStyle) -> SpaceKey {
+    (
+        style.font_size.to_bits(),
+        style.font_weight.0,
+        style.monospace,
+        style.letter_spacing.to_bits(),
+    )
+}
+
+impl<'a> LineBuilder<'a> {
+    fn style_of(&self, node_id: NodeId) -> &'a ComputedStyle {
         self.styles.by_node.get(&node_id).unwrap_or(self.container)
+    }
+
+    /// The advance of one space in `style`, cached per style.
+    fn space_width(&mut self, style: &TextStyle) -> f32 {
+        *self
+            .space_widths
+            .entry(space_key(style))
+            .or_insert_with(|| self.measurer.measure(" ", style).width)
     }
 
     fn start_line_if_needed(&mut self) {
@@ -396,7 +428,10 @@ impl LineBuilder<'_> {
 
     fn place_word(&mut self, node_id: NodeId, word: &str, space_before: bool) {
         self.start_line_if_needed();
-        let style = self.style_of(node_id).clone();
+        // `&'a` borrows the style map, not the builder, so it can live
+        // across `&mut self` calls; the style is cloned only when a new
+        // fragment actually needs to own it.
+        let style = self.style_of(node_id);
         let text_style = TextStyle {
             font_size: style.font_size,
             font_weight: style.font_weight,
@@ -405,7 +440,7 @@ impl LineBuilder<'_> {
         };
         let word_width = self.measurer.measure(word, &text_style).width;
         let space_width = if space_before && !self.current.is_empty() {
-            self.measurer.measure(" ", &text_style).width + style.word_spacing
+            self.space_width(&text_style) + style.word_spacing
         } else {
             0.0
         };
@@ -443,7 +478,7 @@ impl LineBuilder<'_> {
                     break;
                 }
                 let chunk = &rest[..end];
-                self.append_text(node_id, chunk, kept_width, space, style.clone());
+                self.append_text(node_id, chunk, kept_width, space, style);
                 space = 0.0;
                 rest = &rest[end..];
                 if !rest.is_empty() {
@@ -507,7 +542,7 @@ impl LineBuilder<'_> {
         word: &str,
         word_width: f32,
         space_width: f32,
-        style: ComputedStyle,
+        style: &ComputedStyle,
     ) {
         // Justified text keeps per-word fragments so gaps can stretch.
         if self.container.text_align != TextAlign::Justify
@@ -530,7 +565,7 @@ impl LineBuilder<'_> {
                 dy: 0.0,
                 content: FragmentContent::Text {
                     text: word.to_string(),
-                    style: Box::new(style),
+                    style: Box::new(style.clone()),
                 },
             });
         }
