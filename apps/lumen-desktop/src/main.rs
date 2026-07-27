@@ -3809,6 +3809,10 @@ impl ApplicationHandler<ShellEvent> for App {
                 return;
             }
         };
+        // An unbundled binary does not come to the foreground on macOS
+        // (LaunchServices refuses the activation — the
+        // `_LSModifyNotification` warning on stderr); ask explicitly.
+        window.focus_window();
         // GPU rasterization first (wgpu); softbuffer/CPU stays as the
         // fallback when no adapter is available or LUMEN_RASTER=cpu.
         let gpu_forced_off = std::env::var("LUMEN_RASTER").is_ok_and(|value| value == "cpu");
