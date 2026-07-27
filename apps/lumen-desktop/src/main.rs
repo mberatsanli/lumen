@@ -1548,6 +1548,19 @@ impl App {
                 }
             }
         }
+        // Indeterminate progress bar along the chrome's bottom edge
+        // while a navigation is in flight.
+        if let SessionState::Loading { .. } = self.state {
+            let phase = (self.started.elapsed().as_secs_f32() * 1.2) % 2.0;
+            let progress = if phase <= 1.0 { phase } else { 2.0 - phase };
+            let bar_width = (width * 0.3).max(80.0);
+            let x = (width - bar_width) * progress;
+            commands.push(DisplayCommand::FillRect {
+                rect: bar(x, CHROME_HEIGHT - 2.0, bar_width, 2.0),
+                color: Color::rgb(0x2f, 0x6f, 0xdd),
+                radius: lumen_engine::Corners::uniform(1.0),
+            });
+        }
         commands
     }
 
@@ -3867,6 +3880,10 @@ impl ApplicationHandler<ShellEvent> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Keep the loading progress bar animating.
+        if matches!(self.state, SessionState::Loading { .. }) {
+            self.request_redraw();
+        }
         // A pending script timer woke (or re-arms) the loop: fire it once
         // its deadline passed, sleep until then otherwise. No timers —
         // back to the default flow.

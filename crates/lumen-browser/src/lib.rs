@@ -1329,9 +1329,12 @@ impl<L: ResourceLoader> Session<L> {
             }
         }
 
-        // Images: fetched once per page; failures leave a placeholder box.
-        // Capped so image-heavy pages cannot stall navigation for minutes.
+        // Images: fetched once per page, capped and in parallel —
+        // image-heavy pages (hundreds of <img> tags) used to crawl
+        // through sequential fetches while the shell stared at a blank
+        // page. Failures leave a placeholder box.
         const MAX_IMAGES_PER_PAGE: usize = 32;
+        const IMAGE_FETCH_WORKERS: usize = 8;
         let mut images = ImageMap::new();
         // CSS background images need computed styles to discover; this
         // extra style pass runs at load only.
@@ -1352,13 +1355,41 @@ impl<L: ResourceLoader> Session<L> {
             .collect();
         backgrounds.sort_unstable();
         sources.extend(backgrounds);
-        for (node, src) in sources.into_iter().take(MAX_IMAGES_PER_PAGE) {
-            let Ok(url) = resolve(&base, &src) else {
-                continue;
-            };
-            if let Ok(response) = self.fetch_resource(url, None)
-                && let Some(image) = RasterImage::decode(&response.body)
-            {
+        let tasks: Vec<(NodeId, ResourceRequest)> = sources
+            .into_iter()
+            .take(MAX_IMAGES_PER_PAGE)
+            .filter_map(|(node, src)| {
+                let url = resolve(&base, &src).ok()?;
+                let request = self.prepare_request(url, None).ok()?;
+                Some((node, request))
+            })
+            .collect();
+        let fetched: Vec<(NodeId, ResourceResponse)> = std::thread::scope(|scope| {
+            let (tx, rx) = std::sync::mpsc::channel::<(NodeId, ResourceResponse)>();
+            let tasks = Arc::new(std::sync::Mutex::new(tasks.into_iter()));
+            let mut handles = Vec::new();
+            for _ in 0..IMAGE_FETCH_WORKERS {
+                let tx = tx.clone();
+                let loader = Arc::clone(&self.loader);
+                let tasks = Arc::clone(&tasks);
+                handles.push(scope.spawn(move || {
+                    while let Some((node, request)) = tasks.lock().unwrap().next() {
+                        if let Ok(response) = loader.load(&request) {
+                            let _ = tx.send((node, response));
+                        }
+                    }
+                }));
+            }
+            drop(tx);
+            let results: Vec<_> = rx.iter().collect();
+            for handle in handles {
+                let _ = handle.join();
+            }
+            results
+        });
+        for (node, response) in fetched {
+            self.store_response_cookies(&response);
+            if let Some(image) = RasterImage::decode(&response.body) {
                 images.insert(node, Arc::new(image));
             }
         }

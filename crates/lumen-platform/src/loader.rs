@@ -108,7 +108,7 @@ impl From<std::io::Error> for LoadError {
 }
 
 /// Loads resources by URL.
-pub trait ResourceLoader {
+pub trait ResourceLoader: Send + Sync {
     fn load(&self, request: &ResourceRequest) -> Result<ResourceResponse, LoadError>;
 
     /// Answers a CORS preflight probe (HTTP OPTIONS). The default
