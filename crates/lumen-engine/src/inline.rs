@@ -476,10 +476,17 @@ impl<'a> LineBuilder<'a> {
             let half_x = self.x_height() / 2.0;
             return (height / 2.0 + half_x, height / 2.0 - half_x);
         }
-        let ascent = atomic_ascent(laid)
-            .or_else(|| self.empty_control_ascent(laid))
-            .unwrap_or(height);
+        let ascent = self.atomic_ascent_of(laid);
         (ascent, height - ascent)
+    }
+
+    /// Where a baseline-aligned atomic inline's baseline sits, measured
+    /// from its margin-box top. Sizing the line and placing the box on it
+    /// must agree, or the box lands off its own line.
+    fn atomic_ascent_of(&self, laid: &LayoutBox) -> f32 {
+        atomic_ascent(laid)
+            .or_else(|| self.empty_control_ascent(laid))
+            .unwrap_or_else(|| laid.margin_box().height)
     }
 
     /// An empty single-line control still aligns on where its text would
@@ -833,7 +840,7 @@ impl<'a> LineBuilder<'a> {
                 FragmentContent::Box(laid) => {
                     let margin_box = laid.margin_box();
                     let box_height = margin_box.height;
-                    let default_top = baseline - box_height;
+                    let default_top = baseline - self.atomic_ascent_of(laid);
                     let align = laid.style.vertical_align;
                     let top = match align {
                         VerticalAlign::Top => 0.0,

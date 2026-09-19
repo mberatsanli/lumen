@@ -230,12 +230,12 @@
 <path d="M 32 1740.7999 H 332 A 8 8 0 0 1 340 1748.7999 V 1816.6 A 8 8 0 0 1 332 1824.6 H 32 A 8 8 0 0 1 24 1816.6 V 1748.7999 A 8 8 0 0 1 32 1740.7999 Z" fill="#ffffff"/>
 <path d="M 32 1740.7999 H 332 A 8 8 0 0 1 340 1748.7999 V 1816.6 A 8 8 0 0 1 332 1824.6 H 32 A 8 8 0 0 1 24 1816.6 V 1748.7999 A 8 8 0 0 1 32 1740.7999 Z M 32 1741.7999 H 332 A 7 7 0 0 1 339 1748.7999 V 1816.6 A 7 7 0 0 1 332 1823.6 H 32 A 7 7 0 0 1 25 1816.6 V 1748.7999 A 7 7 0 0 1 32 1741.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="1764.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">display: inline-block</text>
-<path d="M 42 1766.7999 H 104 A 3 3 0 0 1 107 1769.7999 V 1794.2 A 3 3 0 0 1 104 1797.2 H 42 A 3 3 0 0 1 39 1794.2 V 1769.7999 A 3 3 0 0 1 42 1766.7999 Z" fill="#d6e4ff"/>
-<text x="69" y="1786.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">A</text>
-<path d="M 114 1766.7999 H 176 A 3 3 0 0 1 179 1769.7999 V 1794.2 A 3 3 0 0 1 176 1797.2 H 114 A 3 3 0 0 1 111 1794.2 V 1769.7999 A 3 3 0 0 1 114 1766.7999 Z" fill="#d6e4ff"/>
-<text x="141" y="1786.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">B</text>
-<path d="M 186 1766.7999 H 248 A 3 3 0 0 1 251 1769.7999 V 1794.2 A 3 3 0 0 1 248 1797.2 H 186 A 3 3 0 0 1 183 1794.2 V 1769.7999 A 3 3 0 0 1 186 1766.7999 Z" fill="#d6e4ff"/>
-<text x="213" y="1786.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">C</text>
+<path d="M 42 1779.2 H 104 A 3 3 0 0 1 107 1782.2 V 1806.6 A 3 3 0 0 1 104 1809.6 H 42 A 3 3 0 0 1 39 1806.6 V 1782.2 A 3 3 0 0 1 42 1779.2 Z" fill="#d6e4ff"/>
+<text x="69" y="1799.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">A</text>
+<path d="M 114 1779.2 H 176 A 3 3 0 0 1 179 1782.2 V 1806.6 A 3 3 0 0 1 176 1809.6 H 114 A 3 3 0 0 1 111 1806.6 V 1782.2 A 3 3 0 0 1 114 1779.2 Z" fill="#d6e4ff"/>
+<text x="141" y="1799.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">B</text>
+<path d="M 186 1779.2 H 248 A 3 3 0 0 1 251 1782.2 V 1806.6 A 3 3 0 0 1 248 1809.6 H 186 A 3 3 0 0 1 183 1806.6 V 1782.2 A 3 3 0 0 1 186 1779.2 Z" fill="#d6e4ff"/>
+<text x="213" y="1799.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">C</text>
 <path d="M 362 1740.7999 H 662 A 8 8 0 0 1 670 1748.7999 V 1852.9999 A 8 8 0 0 1 662 1860.9999 H 362 A 8 8 0 0 1 354 1852.9999 V 1748.7999 A 8 8 0 0 1 362 1740.7999 Z" fill="#ffffff"/>
 <path d="M 362 1740.7999 H 662 A 8 8 0 0 1 670 1748.7999 V 1852.9999 A 8 8 0 0 1 662 1860.9999 H 362 A 8 8 0 0 1 354 1852.9999 V 1748.7999 A 8 8 0 0 1 362 1740.7999 Z M 362 1741.7999 H 662 A 7 7 0 0 1 669 1748.7999 V 1852.9999 A 7 7 0 0 1 662 1859.9999 H 362 A 7 7 0 0 1 355 1852.9999 V 1748.7999 A 7 7 0 0 1 362 1741.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="1764.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">float + clear</text>

@@ -25,6 +25,10 @@ pub struct SystemFont {
     /// Every installed face, queried by family name. Empty when this font
     /// wraps a single face loaded from bytes.
     database: fontdb::Database,
+    /// Installed family names keyed by their lowercase spelling: CSS
+    /// matches `font-family` names case-insensitively, the database
+    /// exactly.
+    installed: HashMap<String, String>,
     /// The face for text whose family list matches nothing installed —
     /// and the only face when the font came from bytes.
     fallback_face: Arc<fontdue::Font>,
@@ -107,8 +111,14 @@ impl SystemFont {
         fallback_face: fontdue::Font,
         fallbacks: Vec<std::sync::OnceLock<Option<fontdue::Font>>>,
     ) -> Self {
+        let installed = database
+            .faces()
+            .flat_map(|face| face.families.iter())
+            .map(|(name, _)| (name.to_lowercase(), name.clone()))
+            .collect();
         Self {
             database,
+            installed,
             fallback_face: Arc::new(fallback_face),
             faces: Mutex::new(HashMap::new()),
             fallbacks,
@@ -132,16 +142,10 @@ impl SystemFont {
                         .ok()
                 })
         };
-        let fallback_face = parse_query(
-            &database,
-            &FaceKey {
-                families: families::initial(),
-                weight: 400,
-                italic: false,
-            },
-        )
-        .map(|face| Arc::try_unwrap(face).unwrap_or_else(|shared| (*shared).clone()))
-        .or_else(|| from_paths(&CANDIDATE_PATHS))?;
+        let fallback_face = query_id(&database, &[fontdb::Family::Serif], 400, false)
+            .and_then(|id| parse_face(&database, id))
+            .map(|face| Arc::try_unwrap(face).unwrap_or_else(|shared| (*shared).clone()))
+            .or_else(|| from_paths(&CANDIDATE_PATHS))?;
         // Fallback faces parse per-slot on the first uncovered glyph.
         let fallbacks = FALLBACK_CANDIDATE_PATHS
             .iter()
@@ -157,7 +161,10 @@ impl SystemFont {
         {
             return face.clone();
         }
-        let face = parse_query(&self.database, key).unwrap_or_else(|| self.fallback_face.clone());
+        let face = self
+            .query(key)
+            .and_then(|id| parse_face(&self.database, id))
+            .unwrap_or_else(|| self.fallback_face.clone());
         if let Ok(mut cache) = self.faces.lock() {
             cache.insert(key.clone(), face.clone());
         }
@@ -210,6 +217,30 @@ impl SystemFont {
         }
     }
 
+    /// The installed face `key` resolves to, if any. Named families are
+    /// looked up case-insensitively; the generics defer to the database's
+    /// per-platform defaults.
+    fn query(&self, key: &FaceKey) -> Option<fontdb::ID> {
+        let names: Vec<&str> = key.families.split(',').map(str::trim).collect();
+        let families: Vec<fontdb::Family> = names
+            .iter()
+            .filter_map(|name| match *name {
+                families::SERIF => Some(fontdb::Family::Serif),
+                families::SANS_SERIF => Some(fontdb::Family::SansSerif),
+                families::MONOSPACE => Some(fontdb::Family::Monospace),
+                "cursive" => Some(fontdb::Family::Cursive),
+                "fantasy" => Some(fontdb::Family::Fantasy),
+                // A family nobody has installed drops out of the list, so
+                // the next one the page named gets its turn.
+                name => self
+                    .installed
+                    .get(name)
+                    .map(|installed| fontdb::Family::Name(installed)),
+            })
+            .collect();
+        query_id(&self.database, &families, key.weight, key.italic)
+    }
+
     /// Whether italics for `face` have to be faked by slanting the
     /// upright glyphs: true when the family has no italic face installed.
     #[must_use]
@@ -218,7 +249,7 @@ impl SystemFont {
             italic: true,
             ..face.clone()
         };
-        let Some(id) = query_id(&self.database, &italic) else {
+        let Some(id) = self.query(&italic) else {
             return true;
         };
         self.database
@@ -263,7 +294,7 @@ impl TextMeasurer for SystemFont {
         Some(f32::from(face.metrics('x', style.font_size).height as u16))
     }
 
-    /// The line gap belongs below the text, and both edges round to
+    /// A line's gap belongs below its text, and both edges round to
     /// whole pixels, so every line lands on the pixel grid.
     fn content_extent(&self, style: &TextStyle) -> Option<(f32, f32)> {
         let metrics = self
@@ -276,25 +307,18 @@ impl TextMeasurer for SystemFont {
     }
 }
 
-/// The installed face `key` resolves to, if any.
-fn query_id(database: &fontdb::Database, key: &FaceKey) -> Option<fontdb::ID> {
-    let names: Vec<&str> = key.families.split(',').map(str::trim).collect();
-    let families: Vec<fontdb::Family> = names
-        .iter()
-        .map(|name| match *name {
-            families::SERIF => fontdb::Family::Serif,
-            families::SANS_SERIF => fontdb::Family::SansSerif,
-            families::MONOSPACE => fontdb::Family::Monospace,
-            "cursive" => fontdb::Family::Cursive,
-            "fantasy" => fontdb::Family::Fantasy,
-            name => fontdb::Family::Name(name),
-        })
-        .collect();
+/// The best installed face for `families` at this weight and slant.
+fn query_id(
+    database: &fontdb::Database,
+    families: &[fontdb::Family],
+    weight: u16,
+    italic: bool,
+) -> Option<fontdb::ID> {
     database.query(&fontdb::Query {
-        families: &families,
-        weight: fontdb::Weight(key.weight),
+        families,
+        weight: fontdb::Weight(weight),
         stretch: fontdb::Stretch::Normal,
-        style: if key.italic {
+        style: if italic {
             fontdb::Style::Italic
         } else {
             fontdb::Style::Normal
@@ -302,9 +326,8 @@ fn query_id(database: &fontdb::Database, key: &FaceKey) -> Option<fontdb::ID> {
     })
 }
 
-/// Resolves `key` against `database` and parses the winning face.
-fn parse_query(database: &fontdb::Database, key: &FaceKey) -> Option<Arc<fontdue::Font>> {
-    let id = query_id(database, key)?;
+/// Parses one installed face.
+fn parse_face(database: &fontdb::Database, id: fontdb::ID) -> Option<Arc<fontdue::Font>> {
     database.with_face_data(id, |data, face_index| {
         fontdue::Font::from_bytes(
             data,

@@ -175,8 +175,8 @@
 <rect x="192.00002" y="3071.6394" width="276" height="70.3999" fill="#dfe7f2"/>
 <text x="200.00002" y="3111.6394" fill="#3a362c" font-family="serif" font-size="16" font-weight="400">translate + scale(1.1)</text>
 </g>
-<path d="M 198.00002 3143.6394 H 434 A 6 6 0 0 1 440 3149.6394 V 3176.0393 A 6 6 0 0 1 434 3182.0393 H 198.00002 A 6 6 0 0 1 192.00002 3176.0393 V 3149.6394 A 6 6 0 0 1 198.00002 3143.6394 Z" fill="#2266aa"/>
-<text x="208.00002" y="3167.6394" fill="#ffffff" font-family="serif" font-size="16" font-weight="400">hover me — 300ms color fade</text>
+<path d="M 198.00002 3158.0393 H 434 A 6 6 0 0 1 440 3164.0393 V 3190.4392 A 6 6 0 0 1 434 3196.4392 H 198.00002 A 6 6 0 0 1 192.00002 3190.4392 V 3164.0393 A 6 6 0 0 1 198.00002 3158.0393 Z" fill="#2266aa"/>
+<text x="208.00002" y="3182.0393" fill="#ffffff" font-family="serif" font-size="16" font-weight="400">hover me — 300ms color fade</text>
 <rect x="175.00002" y="3245.4392" width="674" height="219.3999" fill="#ffffff"/>
 <rect x="175.00002" y="3245.4392" width="674" height="1" fill="#d9d4c7"/>
 <rect x="848" y="3245.4392" width="1" height="219.3999" fill="#d9d4c7"/>
@@ -381,15 +381,15 @@
 </g>
 <text x="192.00002" y="4664.905" fill="#808080" font-family="serif" font-size="16" font-weight="400">↑ interactive: click a field and type; checkboxes toggle; Enter submits (GET).</text>
 <text x="192.00002" y="4687.3047" fill="#808080" font-family="serif" font-size="16" font-weight="400">Entities: © — … → €</text>
-<path d="M 195.00002 4696.371 H 389 A 3 3 0 0 1 392 4699.371 V 4796.238 A 3 3 0 0 1 389 4799.238 H 195.00002 A 3 3 0 0 1 192.00002 4796.238 V 4699.371 A 3 3 0 0 1 195.00002 4696.371 Z" fill="#ffffff"/>
-<path d="M 195.00002 4696.371 H 389 A 3 3 0 0 1 392 4699.371 V 4796.238 A 3 3 0 0 1 389 4799.238 H 195.00002 A 3 3 0 0 1 192.00002 4796.238 V 4699.371 A 3 3 0 0 1 195.00002 4696.371 Z M 195.00002 4697.371 H 389 A 2 2 0 0 1 391 4699.371 V 4796.238 A 2 2 0 0 1 389 4798.238 H 195.00002 A 2 2 0 0 1 193.00002 4796.238 V 4699.371 A 2 2 0 0 1 195.00002 4697.371 Z" fill="#767676" fill-rule="evenodd"/>
-<clipPath id="clip7"><rect x="193.00002" y="4697.371" width="198" height="100.86648"/></clipPath><g clip-path="url(#clip7)">
-<text x="201.00002" y="4714.7046" fill="#6b675e" font-family="sans-serif" font-size="11.333305" font-weight="700">Group A</text>
-<path d="M 204.00002 4720.238 H 380 A 3 3 0 0 1 383 4723.238 V 4739.9043 A 3 3 0 0 1 380 4742.9043 H 204.00002 A 3 3 0 0 1 201.00002 4739.9043 V 4723.238 A 3 3 0 0 1 204.00002 4720.238 Z" fill="#2266aa"/>
-<text x="209.00002" y="4735.5713" fill="#ffffff" font-family="sans-serif" font-size="13.3333" font-weight="400">One</text>
-<text x="209.00002" y="4759.238" fill="#232019" font-family="sans-serif" font-size="13.3333" font-weight="400">Two</text>
-<path d="M 200.00002 4770.571 H 384 A 3 3 0 0 1 387 4773.571 V 4790.2373 A 3 3 0 0 1 384 4793.2373 H 200.00002 A 3 3 0 0 1 197.00002 4790.2373 V 4773.571 A 3 3 0 0 1 200.00002 4770.571 Z" fill="#2266aa"/>
-<text x="205.00002" y="4785.9043" fill="#ffffff" font-family="sans-serif" font-size="13.3333" font-weight="400">Three</text>
+<path d="M 195.00002 4709.7046 H 389 A 3 3 0 0 1 392 4712.7046 V 4809.5713 A 3 3 0 0 1 389 4812.5713 H 195.00002 A 3 3 0 0 1 192.00002 4809.5713 V 4712.7046 A 3 3 0 0 1 195.00002 4709.7046 Z" fill="#ffffff"/>
+<path d="M 195.00002 4709.7046 H 389 A 3 3 0 0 1 392 4712.7046 V 4809.5713 A 3 3 0 0 1 389 4812.5713 H 195.00002 A 3 3 0 0 1 192.00002 4809.5713 V 4712.7046 A 3 3 0 0 1 195.00002 4709.7046 Z M 195.00002 4710.7046 H 389 A 2 2 0 0 1 391 4712.7046 V 4809.5713 A 2 2 0 0 1 389 4811.5713 H 195.00002 A 2 2 0 0 1 193.00002 4809.5713 V 4712.7046 A 2 2 0 0 1 195.00002 4710.7046 Z" fill="#767676" fill-rule="evenodd"/>
+<clipPath id="clip7"><rect x="193.00002" y="4710.7046" width="198" height="100.86648"/></clipPath><g clip-path="url(#clip7)">
+<text x="201.00002" y="4728.038" fill="#6b675e" font-family="sans-serif" font-size="11.333305" font-weight="700">Group A</text>
+<path d="M 204.00002 4733.5713 H 380 A 3 3 0 0 1 383 4736.5713 V 4753.238 A 3 3 0 0 1 380 4756.238 H 204.00002 A 3 3 0 0 1 201.00002 4753.238 V 4736.5713 A 3 3 0 0 1 204.00002 4733.5713 Z" fill="#2266aa"/>
+<text x="209.00002" y="4748.905" fill="#ffffff" font-family="sans-serif" font-size="13.3333" font-weight="400">One</text>
+<text x="209.00002" y="4772.5713" fill="#232019" font-family="sans-serif" font-size="13.3333" font-weight="400">Two</text>
+<path d="M 200.00002 4783.9043 H 384 A 3 3 0 0 1 387 4786.9043 V 4803.571 A 3 3 0 0 1 384 4806.571 H 200.00002 A 3 3 0 0 1 197.00002 4803.571 V 4786.9043 A 3 3 0 0 1 200.00002 4783.9043 Z" fill="#2266aa"/>
+<text x="205.00002" y="4799.238" fill="#ffffff" font-family="sans-serif" font-size="13.3333" font-weight="400">Three</text>
 </g>
 <rect x="400" y="4774.5713" width="88" height="24.666618" fill="#ffffff"/>
 <rect x="400" y="4774.5713" width="88" height="2" fill="#767676"/>
@@ -542,24 +542,24 @@
 <rect x="175.00002" y="7134.73" width="1" height="271" fill="#d9d4c7"/>
 <text x="192.00002" y="7171.73" fill="#232019" font-family="serif" font-size="20" font-weight="700">Inline-block &amp; floats</text>
 <text x="192.00002" y="7217.33" fill="#3a362c" font-family="serif" font-size="16" font-weight="400">Chips flow with text:</text>
-<rect x="368" y="7184.93" width="46" height="32.4" fill="#e2e8f0"/>
-<rect x="368" y="7184.93" width="46" height="1" fill="#b6c2d2"/>
-<rect x="413" y="7184.93" width="1" height="32.4" fill="#b6c2d2"/>
-<rect x="368" y="7216.33" width="46" height="1" fill="#b6c2d2"/>
-<rect x="368" y="7184.93" width="1" height="32.4" fill="#b6c2d2"/>
-<text x="379" y="7205.93" fill="#3a362c" font-family="serif" font-size="16" font-weight="400">one</text>
-<rect x="422" y="7184.93" width="46" height="32.4" fill="#e2e8f0"/>
-<rect x="422" y="7184.93" width="46" height="1" fill="#b6c2d2"/>
-<rect x="467" y="7184.93" width="1" height="32.4" fill="#b6c2d2"/>
-<rect x="422" y="7216.33" width="46" height="1" fill="#b6c2d2"/>
-<rect x="422" y="7184.93" width="1" height="32.4" fill="#b6c2d2"/>
-<text x="433" y="7205.93" fill="#3a362c" font-family="serif" font-size="16" font-weight="400">two</text>
-<rect x="476" y="7184.93" width="62" height="32.4" fill="#e2e8f0"/>
-<rect x="476" y="7184.93" width="62" height="1" fill="#b6c2d2"/>
-<rect x="537" y="7184.93" width="1" height="32.4" fill="#b6c2d2"/>
-<rect x="476" y="7216.33" width="62" height="1" fill="#b6c2d2"/>
-<rect x="476" y="7184.93" width="1" height="32.4" fill="#b6c2d2"/>
-<text x="487" y="7205.93" fill="#3a362c" font-family="serif" font-size="16" font-weight="400">three</text>
+<rect x="368" y="7196.33" width="46" height="32.4" fill="#e2e8f0"/>
+<rect x="368" y="7196.33" width="46" height="1" fill="#b6c2d2"/>
+<rect x="413" y="7196.33" width="1" height="32.4" fill="#b6c2d2"/>
+<rect x="368" y="7227.73" width="46" height="1" fill="#b6c2d2"/>
+<rect x="368" y="7196.33" width="1" height="32.4" fill="#b6c2d2"/>
+<text x="379" y="7217.33" fill="#3a362c" font-family="serif" font-size="16" font-weight="400">one</text>
+<rect x="422" y="7196.33" width="46" height="32.4" fill="#e2e8f0"/>
+<rect x="422" y="7196.33" width="46" height="1" fill="#b6c2d2"/>
+<rect x="467" y="7196.33" width="1" height="32.4" fill="#b6c2d2"/>
+<rect x="422" y="7227.73" width="46" height="1" fill="#b6c2d2"/>
+<rect x="422" y="7196.33" width="1" height="32.4" fill="#b6c2d2"/>
+<text x="433" y="7217.33" fill="#3a362c" font-family="serif" font-size="16" font-weight="400">two</text>
+<rect x="476" y="7196.33" width="62" height="32.4" fill="#e2e8f0"/>
+<rect x="476" y="7196.33" width="62" height="1" fill="#b6c2d2"/>
+<rect x="537" y="7196.33" width="1" height="32.4" fill="#b6c2d2"/>
+<rect x="476" y="7227.73" width="62" height="1" fill="#b6c2d2"/>
+<rect x="476" y="7196.33" width="1" height="32.4" fill="#b6c2d2"/>
+<text x="487" y="7217.33" fill="#3a362c" font-family="serif" font-size="16" font-weight="400">three</text>
 <text x="546" y="7217.33" fill="#3a362c" font-family="serif" font-size="16" font-weight="400">— and wrap like words when the line</text>
 <text x="192.00002" y="7244.73" fill="#3a362c" font-family="serif" font-size="16" font-weight="400">runs out of space.</text>
 <rect x="192.00002" y="7267.13" width="122" height="62" fill="#dbe7d5"/>
