@@ -1597,6 +1597,10 @@ fn to_computed(
         parent_font_size
     };
 
+    style.line_height_normal = match raw.get("line-height") {
+        None => true,
+        Some(value) => value.as_keyword() == Some("normal"),
+    };
     style.line_height = match raw.get("line-height") {
         Some(CssValue::Number(factor)) => factor * style.font_size,
         Some(CssValue::Length(factor, lumen_css::Unit::Em)) => factor * style.font_size,
@@ -1650,10 +1654,11 @@ fn to_computed(
         .get(format!("border-{side}-style").as_str())
         .and_then(CssValue::as_keyword)
     {
-        Some("none" | "hidden") => BorderStyle::None,
+        // The initial value: a width or color alone draws no border.
+        None | Some("none" | "hidden") => BorderStyle::None,
         Some("dashed") => BorderStyle::Dashed,
         Some("dotted") => BorderStyle::Dotted,
-        _ => BorderStyle::Solid,
+        Some(_) => BorderStyle::Solid,
     };
     style.border_style = EdgeSizes {
         top: border_style_of("top"),
@@ -2657,7 +2662,7 @@ mod tests {
         // UA default #111 color inherits from body).
         assert_eq!(
             style_of(&document, &styles, "main").color,
-            Color::rgb(17, 17, 17)
+            Color::rgb(0, 0, 0)
         );
     }
 
@@ -2677,7 +2682,7 @@ mod tests {
             .collect();
         assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
         // Untouched: the UA default color inherits.
-        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(0, 0, 0));
     }
 
     #[test]
@@ -2697,7 +2702,7 @@ mod tests {
             .collect();
         assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
         // The nested :has(> img) finds no img child: no match.
-        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(0, 0, 0));
     }
 
     #[test]
@@ -2716,7 +2721,7 @@ mod tests {
             })
             .collect();
         assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
-        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(0, 0, 0));
     }
 
     #[test]
@@ -2741,9 +2746,9 @@ mod tests {
         // Both compounds' clauses hold: .x has a .y, .z has a .w.
         assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
         // No .y under this .x: the ancestor compound's clause fails.
-        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(0, 0, 0));
         // No .w under this .z: the subject compound's clause fails.
-        assert_eq!(styles.by_node[&ids[2]].color, Color::rgb(17, 17, 17));
+        assert_eq!(styles.by_node[&ids[2]].color, Color::rgb(0, 0, 0));
     }
 
     #[test]
@@ -2756,7 +2761,7 @@ mod tests {
         );
         assert_eq!(
             style_of(&document, &styles, "div").color,
-            Color::rgb(17, 17, 17)
+            Color::rgb(0, 0, 0)
         );
     }
 
@@ -2779,7 +2784,7 @@ mod tests {
             })
             .collect();
         assert_eq!(styles.by_node[&sections[0]].color, Color::rgb(1, 2, 3));
-        assert_eq!(styles.by_node[&sections[1]].color, Color::rgb(17, 17, 17));
+        assert_eq!(styles.by_node[&sections[1]].color, Color::rgb(0, 0, 0));
         let articles: Vec<_> = document
             .descendants(document.root())
             .filter(|id| {
@@ -2789,7 +2794,7 @@ mod tests {
             })
             .collect();
         assert_eq!(styles.by_node[&articles[0]].color, Color::rgb(4, 5, 6));
-        assert_eq!(styles.by_node[&articles[1]].color, Color::rgb(17, 17, 17));
+        assert_eq!(styles.by_node[&articles[1]].color, Color::rgb(0, 0, 0));
     }
 
     #[test]
@@ -2812,7 +2817,7 @@ mod tests {
         assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
         // The only .a ancestor of this .b is <body>: outside the div's
         // subtree, so the relative selector must not match.
-        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(0, 0, 0));
     }
 
     #[test]
@@ -2834,7 +2839,7 @@ mod tests {
             .collect();
         assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
         // The .a is a grandchild here, not a child: no match.
-        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(0, 0, 0));
     }
 
     #[test]
@@ -2856,7 +2861,7 @@ mod tests {
             })
             .collect();
         assert_eq!(styles.by_node[&ids[0]].color, Color::rgb(1, 2, 3));
-        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(17, 17, 17));
+        assert_eq!(styles.by_node[&ids[1]].color, Color::rgb(0, 0, 0));
         // A complex selector inside :is() matches through combinators.
         assert_eq!(styles.by_node[&ids[2]].font_weight, FontWeight(700));
     }
@@ -3055,7 +3060,8 @@ mod tests {
         let h1 = style_of(&document, &styles, "h1");
         assert_eq!(h1.font_size, 32.0);
         assert_eq!(h1.font_weight, FontWeight(700));
-        assert_eq!(h1.margin.top, Dimension::Px(12.0));
+        // 0.67em against the h1's own 32px.
+        assert_eq!(h1.margin.top, Dimension::Px(0.67 * 32.0));
     }
 
     #[test]
@@ -3135,7 +3141,7 @@ mod tests {
     #[test]
     fn border_color_defaults_to_current_color() {
         let (document, styles) =
-            styles_for("<style>div { color: #ff0000; border-width: 2px; }</style><div>t</div>");
+            styles_for("<style>div { color: #ff0000; border: 2px solid; }</style><div>t</div>");
         let div = style_of(&document, &styles, "div");
         assert_eq!(div.border_width.top, 2.0);
         assert_eq!(div.border_color.top, Color::rgb(255, 0, 0));
@@ -3207,10 +3213,11 @@ mod tests {
     fn small_headings_get_ua_sizes_and_weight() {
         let (document, styles) =
             styles_for("<body><h3>a</h3><h4>b</h4><h5>c</h5><h6>d</h6></body>");
-        assert_eq!(style_of(&document, &styles, "h3").font_size, 19.0);
+        // em sizes against the 16px default.
+        assert_eq!(style_of(&document, &styles, "h3").font_size, 1.17 * 16.0);
         assert_eq!(style_of(&document, &styles, "h4").font_size, 16.0);
-        assert_eq!(style_of(&document, &styles, "h5").font_size, 13.0);
-        assert_eq!(style_of(&document, &styles, "h6").font_size, 11.0);
+        assert_eq!(style_of(&document, &styles, "h5").font_size, 0.83 * 16.0);
+        assert_eq!(style_of(&document, &styles, "h6").font_size, 0.67 * 16.0);
         assert_eq!(
             style_of(&document, &styles, "h3").font_weight,
             FontWeight(700)
@@ -3990,7 +3997,7 @@ mod tests {
              div:last-of-type { line-height: 22px; }
              div:nth-of-type(2n+1) { letter-spacing: 1px; }
              div:only-child { display: block; }
-             section div + div { border-top-width: 1px; }
+             section div + div { border-top: 1px solid; }
              section div ~ div { padding-top: 2px; }
              section > .c0 { width: 10px; }
              section .c1 { width: 11px; }

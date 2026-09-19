@@ -302,7 +302,7 @@ mod tests {
     /// Laid-out cell boxes (tag `td`/`th`) in paint order.
     fn cells_of(html: &str) -> Vec<crate::LayoutBox> {
         let page = crate::build_page(
-            html,
+            &crate::test_support::with_body_reset(html),
             crate::geometry::Size {
                 width: 400.0,
                 height: 200.0,

@@ -956,7 +956,7 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
     let expand_border_side =
         |side: &str, components: &[CssValue], output: &mut Vec<Declaration>| {
             let mut width = CssValue::Length(3.0, crate::value::Unit::Px);
-            let mut style = CssValue::Keyword("solid".to_string());
+            let mut style = CssValue::Keyword("none".to_string());
             let mut color = None;
             for component in components {
                 match component {

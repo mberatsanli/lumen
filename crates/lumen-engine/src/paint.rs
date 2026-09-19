@@ -1071,7 +1071,7 @@ mod tests {
 
     fn commands(html: &str) -> Vec<DisplayCommand> {
         build_page(
-            html,
+            &crate::test_support::with_body_reset(html),
             Size {
                 width: 800.0,
                 height: 600.0,
@@ -1123,7 +1123,7 @@ mod tests {
     #[test]
     fn background_precedes_border_precedes_text() {
         let list = commands(
-            "<style>div { background-color: #eee; border-width: 1px; }</style><div>hi</div>",
+            "<style>div { background-color: #eee; border: 1px solid; }</style><div>hi</div>",
         );
         let kinds: Vec<&str> = list
             .iter()
@@ -1161,7 +1161,7 @@ mod tests {
     #[test]
     fn border_command_covers_border_box() {
         let list = commands(
-            "<style>div { width: 100px; height: 10px; border-width: 2px; }</style><div></div>",
+            "<style>div { width: 100px; height: 10px; border: 2px solid; }</style><div></div>",
         );
         let Some(DisplayCommand::StrokeRect { rect, widths, .. }) = list
             .iter()
@@ -1291,7 +1291,8 @@ mod tests {
     #[test]
     fn sticky_child_sticks_to_scrolled_container() {
         let page = build_page(
-            "<style>.scroll { overflow-y: scroll; height: 100px; }\
+            "<style>body { margin: 0; }\
+                    .scroll { overflow-y: scroll; height: 100px; }\
                     .head { position: sticky; top: 0; height: 20px; z-index: 1; \
                             background-color: #112233; }\
                     .tall { height: 500px; }</style>\
@@ -1390,7 +1391,8 @@ mod tests {
     #[test]
     fn page_sticky_sticks_to_the_viewport_when_the_page_scrolls() {
         let page = build_page(
-            "<style>.head { position: sticky; top: 0; height: 20px; z-index: 1; \
+            "<style>body { margin: 0; }\
+                    .head { position: sticky; top: 0; height: 20px; z-index: 1; \
                             background-color: #112233; }\
                     .tall { height: 5000px; }</style>\
              <div class='head'></div><div class='tall'></div>",
@@ -1456,7 +1458,8 @@ mod tests {
     #[test]
     fn page_sticky_inside_an_inner_scroller_sticks_to_the_scroller_only() {
         let page = build_page(
-            "<style>.scroll { overflow-y: scroll; height: 100px; }\
+            "<style>body { margin: 0; }\
+                    .scroll { overflow-y: scroll; height: 100px; }\
                     .head { position: sticky; top: 0; height: 20px; z-index: 1; \
                             background-color: #334455; }\
                     .tall { height: 500px; }</style>\
@@ -1544,7 +1547,11 @@ mod tests {
         use crate::image::RasterImage;
         use std::sync::Arc;
         let document = lumen_html::parse_document(html);
-        let sheet = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document));
+        let sheet = lumen_css::parse_stylesheet(&format!(
+            "{}{}",
+            crate::extract_embedded_css(&document),
+            crate::test_support::BODY_RESET_CSS
+        ));
         let mut images = crate::image::ImageMap::new();
         for (node, _) in crate::image::collect_image_sources(&document) {
             images.insert(
@@ -1930,7 +1937,7 @@ mod tests {
     #[test]
     fn background_clip_content_box_shrinks_the_fill() {
         let list = commands(
-            "<style>div { width: 100px; height: 40px; padding: 10px; border-width: 5px; \
+            "<style>div { width: 100px; height: 40px; padding: 10px; border: 5px solid; \
                           background-color: #123456; background-clip: content-box; }</style>\
              <div></div>",
         );
@@ -1950,7 +1957,7 @@ mod tests {
     #[test]
     fn background_origin_padding_box_places_the_gradient() {
         let list = commands(
-            "<style>div { width: 100px; height: 40px; padding: 10px; border-width: 5px; \
+            "<style>div { width: 100px; height: 40px; padding: 10px; border: 5px solid; \
                           background-image: linear-gradient(to right, #000000, #ffffff); \
                           background-origin: padding-box; }</style><div></div>",
         );

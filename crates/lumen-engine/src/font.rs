@@ -217,6 +217,15 @@ impl TextMeasurer for SystemFont {
             .sum();
         TextMetrics { width }
     }
+
+    /// Ascent, descent and line gap each round to whole pixels before
+    /// they add up, so lines always land on the pixel grid.
+    fn normal_line_height(&self, style: &TextStyle) -> Option<f32> {
+        let metrics = self
+            .face(style.monospace)
+            .horizontal_line_metrics(style.font_size)?;
+        Some(metrics.ascent.round() + (-metrics.descent).round() + metrics.line_gap.round())
+    }
 }
 
 /// Rebuilds a TTF from a WOFF1 container: the sfnt header plus each
@@ -436,5 +445,26 @@ mod tests {
             .filter(|slot| slot.get().is_some())
             .count();
         assert_eq!(loaded, 1, "only the first covering fallback loads");
+    }
+}
+
+#[cfg(test)]
+mod normal_line_height_tests {
+    use super::*;
+
+    #[test]
+    fn normal_line_height_is_a_whole_pixel_sum_of_the_font_metrics() {
+        let Some(font) = SystemFont::load_default() else {
+            return; // No system font on this machine.
+        };
+        let style = |font_size| TextStyle {
+            font_size,
+            font_weight: crate::style::FontWeight(400),
+            monospace: false,
+            letter_spacing: 0.0,
+        };
+        let height = font.normal_line_height(&style(16.0)).expect("line metrics");
+        assert_eq!(height, height.round());
+        assert!((17.0..=20.0).contains(&height), "16px text: {height}");
     }
 }

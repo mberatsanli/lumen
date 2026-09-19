@@ -482,6 +482,19 @@ pub fn extract_embedded_css(document: &Document) -> String {
     css
 }
 
+/// Layout tests assert exact coordinates of their own boxes; the UA
+/// sheet's `body { margin: 8px }` would offset every one of them. The
+/// reset is zero-specificity, so a test's own `body` rule still wins.
+#[cfg(test)]
+pub(crate) mod test_support {
+    pub(crate) const BODY_RESET_CSS: &str = ":where(body) { margin: 0; }";
+
+    /// `html` with the reset appended, leaving existing node ids alone.
+    pub(crate) fn with_body_reset(html: &str) -> String {
+        format!("{html}<style>{BODY_RESET_CSS}</style>")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -599,7 +612,7 @@ mod tests {
 
     fn page(html: &str) -> Page {
         build_page(
-            html,
+            &test_support::with_body_reset(html),
             Size {
                 width: 800.0,
                 height: 600.0,

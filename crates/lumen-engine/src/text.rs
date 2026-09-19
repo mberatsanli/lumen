@@ -27,6 +27,13 @@ pub struct TextMetrics {
 /// Measures text without laying it out.
 pub trait TextMeasurer {
     fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics;
+
+    /// The used value of `line-height: normal` for text in `style`, when
+    /// the measurer knows the font's vertical metrics. `None` leaves the
+    /// caller on its font-size approximation.
+    fn normal_line_height(&self, _style: &TextStyle) -> Option<f32> {
+        None
+    }
 }
 
 /// Deterministic approximation: every character advances half an em.

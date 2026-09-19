@@ -212,16 +212,15 @@ pub enum PointerEvents {
     None,
 }
 
-/// Border line style. Deviation from CSS: the initial value behaves as
-/// `solid` (so `border-width` alone shows a border, as the project brief
-/// expects); `none`/`hidden` suppress the border. `dashed`/`dotted` parse
-/// but render solid for now.
+/// Border line style. `None` (the initial value, also `hidden`) zeroes
+/// the used border width; styles without a renderer of their own
+/// (`double`, `groove`, ...) fall back to `Solid`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BorderStyle {
-    #[default]
     Solid,
     Dashed,
     Dotted,
+    #[default]
     None,
 }
 
@@ -325,8 +324,12 @@ pub struct ComputedStyle {
     pub border_radius: Corners<f32>,
     pub font_size: f32,
     pub font_weight: FontWeight,
-    /// Resolved to pixels.
+    /// Resolved to pixels. For `normal` this is the font-size
+    /// approximation; see [`Self::line_height_normal`].
     pub line_height: f32,
+    /// `line-height: normal` (or unset): layout asks the text measurer for
+    /// the font's own line height and only falls back to `line_height`.
+    pub line_height_normal: bool,
     pub text_align: TextAlign,
     /// `text-decoration: underline`. Approximation: treated as inherited
     /// so text nodes inside links pick it up.
@@ -1193,11 +1196,12 @@ impl Default for ComputedStyle {
             padding: EdgeSizes::uniform(Dimension::Px(0.0)),
             border_width: EdgeSizes::uniform(0.0),
             border_color: EdgeSizes::uniform(DEFAULT_COLOR),
-            border_style: EdgeSizes::uniform(BorderStyle::Solid),
+            border_style: EdgeSizes::uniform(BorderStyle::None),
             border_radius: Corners::uniform(0.0),
             font_size: DEFAULT_FONT_SIZE,
             font_weight: FontWeight::default(),
             line_height: DEFAULT_FONT_SIZE * DEFAULT_LINE_HEIGHT_FACTOR,
+            line_height_normal: true,
             text_align: TextAlign::Left,
             underline: false,
             italic: false,

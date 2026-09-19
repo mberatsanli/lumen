@@ -8,32 +8,44 @@ use std::sync::OnceLock;
 /// The built-in user-agent stylesheet (weakest cascade origin).
 ///
 /// Display defaults are code-side (see `default_display`); this sheet only
-/// carries typography and spacing defaults.
+/// carries typography and spacing defaults. The document-flow values are
+/// the ones the HTML Standard's "Rendering" section suggests; pages are
+/// authored against them, so a different default shifts every box below.
 pub fn user_agent_stylesheet() -> &'static Stylesheet {
     static SHEET: OnceLock<Stylesheet> = OnceLock::new();
     SHEET.get_or_init(|| {
         let source = r"
-            html { margin: 0; padding: 0; color: #111111; font-size: 16px; }
-            body { margin: 0; padding: 0; }
-            h1 { font-size: 32px; font-weight: 700; margin-top: 12px; margin-bottom: 12px; }
-            h2 { font-size: 24px; font-weight: 700; margin-top: 10px; margin-bottom: 10px; }
-            h3 { font-size: 19px; font-weight: 700; margin-top: 9px; margin-bottom: 9px; }
-            h4 { font-size: 16px; font-weight: 700; margin-top: 11px; margin-bottom: 11px; }
-            h5 { font-size: 13px; font-weight: 700; margin-top: 11px; margin-bottom: 11px; }
-            h6 { font-size: 11px; font-weight: 700; margin-top: 12px; margin-bottom: 12px; }
-            p { font-size: 16px; margin-top: 8px; margin-bottom: 8px; }
-            hr { border-top: 1px solid #808080; margin-top: 8px; margin-bottom: 8px; }
+            html { margin: 0; padding: 0; color: #000000; font-size: 16px; }
+            body { margin: 8px; padding: 0; }
+            h1 { font-size: 2em; font-weight: 700; margin-top: 0.67em; margin-bottom: 0.67em; }
+            h2 { font-size: 1.5em; font-weight: 700; margin-top: 0.83em; margin-bottom: 0.83em; }
+            h3 { font-size: 1.17em; font-weight: 700; margin-top: 1em; margin-bottom: 1em; }
+            h4 { font-weight: 700; margin-top: 1.33em; margin-bottom: 1.33em; }
+            h5 { font-size: 0.83em; font-weight: 700; margin-top: 1.67em; margin-bottom: 1.67em; }
+            h6 { font-size: 0.67em; font-weight: 700; margin-top: 2.33em; margin-bottom: 2.33em; }
+            p { margin-top: 1em; margin-bottom: 1em; }
+            blockquote, figure { margin: 1em 40px; }
+            dl { margin-top: 1em; margin-bottom: 1em; }
+            dd { margin-left: 40px; }
+            hr { border-top: 1px solid #808080; margin-top: 0.5em; margin-bottom: 0.5em; }
             a { color: #0000ee; text-decoration: underline; }
             strong, b { font-weight: 700; }
-            em, i { font-style: italic; }
-            pre { white-space: pre; font-family: monospace; margin-top: 8px; margin-bottom: 8px; }
-            code, kbd, samp, tt { font-family: monospace; font-size: 0.875em; }
-            ul, ol { padding-left: 22px; margin-top: 8px; margin-bottom: 8px; }
+            em, i, cite, var, dfn, address { font-style: italic; }
+            u, ins { text-decoration: underline; }
+            s, strike, del { text-decoration: line-through; }
+            mark { background-color: #ffff00; color: #000000; }
+            small { font-size: 0.83em; }
+            pre { white-space: pre; font-family: monospace; font-size: 0.8125em;
+                margin-top: 1em; margin-bottom: 1em; }
+            code, kbd, samp, tt { font-family: monospace; font-size: 0.8125em; }
+            pre code, pre kbd, pre samp, pre tt { font-size: 1em; }
+            ul, ol { padding-left: 40px; margin-top: 1em; margin-bottom: 1em; }
+            ul ul, ul ol, ol ul, ol ol { margin-top: 0; margin-bottom: 0; }
             center { text-align: center; }
-            td, th { padding: 2px 4px; }
+            td, th { padding: 1px; }
             th { font-weight: 700; text-align: center; }
-            sub { vertical-align: sub; font-size: 0.8em; }
-            sup { vertical-align: super; font-size: 0.8em; }
+            sub { vertical-align: sub; font-size: 0.83em; }
+            sup { vertical-align: super; font-size: 0.83em; }
             input, select, textarea, button { border: 1px solid #767676; border-radius: 3px;
                 background-color: #ffffff; padding: 3px 8px; font-size: 13px; margin: 2px; }
             input { width: 170px; min-height: 1.1em; white-space: pre;

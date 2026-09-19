@@ -1090,7 +1090,12 @@ fn layout_element(
     // Parent-child margin collapsing: with no top border/padding, the
     // parent's top margin collapses with its first block child's, and the
     // child's own top margin is suppressed inside.
-    let child_top_collapse = if border.top == 0.0 && padding.top == 0.0 {
+    // The root element's margins never collapse (CSS 2.1 §8.3.1), and
+    // neither do those of a box that clips its overflow.
+    let collapses_with_children = document.parent(node_id) != Some(document.root())
+        && style.overflow_x == Overflow::Visible
+        && style.overflow_y == Overflow::Visible;
+    let child_top_collapse = if collapses_with_children && border.top == 0.0 && padding.top == 0.0 {
         first_block_child_top_margin(document, styles, node_id, content_width, viewport)
     } else {
         None
@@ -1592,11 +1597,10 @@ fn layout_element(
     // border/padding, the last block child's bottom margin escapes the
     // parent and collapses with the parent's own bottom margin.
     if !trailing_inline
+        && collapses_with_children
         && matches!(style.height, Dimension::Auto)
         && border.bottom == 0.0
         && padding.bottom == 0.0
-        && style.overflow_x == Overflow::Visible
-        && style.overflow_y == Overflow::Visible
         && let Some(last_bottom) = previous_bottom_margin
     {
         child_cursor_y -= last_bottom;
@@ -1848,7 +1852,11 @@ mod tests {
 
     fn layout_of(html: &str) -> LayoutBox {
         let document = parse_document(html);
-        let author = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document));
+        let author = lumen_css::parse_stylesheet(&format!(
+            "{}{}",
+            crate::extract_embedded_css(&document),
+            crate::test_support::BODY_RESET_CSS
+        ));
         let styles = compute_styles(&document, &author);
         layout_document(
             &document,
@@ -1935,7 +1943,7 @@ mod tests {
         let layout = layout_of(
             "<style>
                 div { width: 100px; height: 20px; padding: 5px;
-                      border-width: 3px; margin: 2px; }
+                      border: 3px solid; margin: 2px; }
              </style>
              <div></div>",
         );
@@ -1964,7 +1972,7 @@ mod tests {
     #[test]
     fn auto_width_fills_containing_block_minus_box_edges() {
         let layout = layout_of(
-            "<style>div { border-width: 2px; padding: 8px; margin: 10px; }</style><div></div>",
+            "<style>div { border: 2px solid; padding: 8px; margin: 10px; }</style><div></div>",
         );
         let div = &body_box(&layout).children[0];
         // 800 - 2*10 margin - 2*2 border - 2*8 padding
@@ -2108,7 +2116,7 @@ mod tests {
     #[test]
     fn fragment_hit_test_targets_the_text_node() {
         let document = parse_document("<div>plain <a href='x'>link</a></div>");
-        let author = lumen_css::parse_stylesheet(&crate::extract_embedded_css(&document));
+        let author = lumen_css::parse_stylesheet(crate::test_support::BODY_RESET_CSS);
         let styles = compute_styles(&document, &author);
         let layout = layout_document(
             &document,
@@ -2203,7 +2211,7 @@ mod tests {
         let layout = layout_of(
             "<style>
                 div { box-sizing: border-box; width: 200px; height: 100px;
-                      padding: 20px; border-width: 5px; }
+                      padding: 20px; border: 5px solid; }
              </style><div></div>",
         );
         let div = &body_box(&layout).children[0];
@@ -2218,7 +2226,7 @@ mod tests {
     fn content_box_sizing_adds_edges_outside() {
         let layout = layout_of(
             "<style>
-                div { width: 200px; height: 100px; padding: 20px; border-width: 5px; }
+                div { width: 200px; height: 100px; padding: 20px; border: 5px solid; }
              </style><div></div>",
         );
         let div = &body_box(&layout).children[0];
@@ -2935,9 +2943,10 @@ mod tests {
             panic!("expected inline content in pre");
         };
         assert_eq!(lines.len(), 2);
-        // Double space preserved: 4 chars at 0.6em (mono heuristic).
+        // Double space preserved: 4 chars at 0.6em (mono heuristic) of
+        // the UA's 13px monospace size.
         assert_eq!(lines[0].fragments[0].text(), Some("a  b"));
-        assert_eq!(lines[0].fragments[0].width, 4.0 * 16.0 * 0.6);
+        assert_eq!(lines[0].fragments[0].width, 4.0 * 13.0 * 0.6);
         // The long line stays a single fragment (no wrapping).
         assert_eq!(lines[1].fragments.len(), 1);
     }
@@ -3188,7 +3197,7 @@ mod tests {
     fn logical_properties_drive_layout() {
         let layout = layout_of(
             "<style>div { margin-inline-start: 30px; margin-block-start: 10px; \
-                          padding-inline: 5px 7px; border-inline-start-width: 2px; \
+                          padding-inline: 5px 7px; border-inline-start-width: 2px; border-style: solid; \
                           inline-size: 100px; block-size: 20px; }</style>\
              <div></div>",
         );

@@ -403,6 +403,22 @@ impl<'a> LineBuilder<'a> {
         self.styles.by_node.get(&node_id).unwrap_or(self.container)
     }
 
+    /// The used line height of text in `style`: `normal` comes from the
+    /// font when the measurer has one, anything else from the cascade.
+    fn line_height_of(&self, style: &ComputedStyle) -> f32 {
+        if !style.line_height_normal {
+            return style.line_height;
+        }
+        self.measurer
+            .normal_line_height(&TextStyle {
+                font_size: style.font_size,
+                font_weight: style.font_weight,
+                monospace: style.monospace,
+                letter_spacing: style.letter_spacing,
+            })
+            .unwrap_or(style.line_height)
+    }
+
     /// The advance of one space in `style`, cached per style.
     fn space_width(&mut self, style: &TextStyle) -> f32 {
         *self
@@ -658,13 +674,13 @@ impl<'a> LineBuilder<'a> {
         // 0.8/0.2 ascent/descent split of its font size (a practical
         // approximation of real font metrics), atomic boxes sit with
         // their full height above the baseline.
-        let mut height = self.container.line_height;
+        let mut height = self.line_height_of(self.container);
         let mut ascent = self.container.font_size * 0.8;
         let mut descent = self.container.font_size * 0.2;
         for fragment in &fragments {
             match &fragment.content {
                 FragmentContent::Text { style, .. } => {
-                    height = height.max(style.line_height);
+                    height = height.max(self.line_height_of(style));
                     ascent = ascent.max(style.font_size * 0.8);
                     descent = descent.max(style.font_size * 0.2);
                 }
@@ -752,7 +768,7 @@ mod tests {
     /// All line boxes of the first inline container in the page.
     fn lines_of(html: &str, width: f32) -> Vec<crate::LineBox> {
         let page = crate::build_page(
-            html,
+            &crate::test_support::with_body_reset(html),
             Size {
                 width,
                 height: 600.0,
@@ -784,7 +800,7 @@ mod tests {
         assert_eq!(style.font_size, 30.0);
         assert_eq!(style.font_weight, crate::FontWeight(700));
         assert_eq!(fragments[1].text(), Some("ello"));
-        assert_eq!(fragments[1].style().unwrap().color, Color::rgb(17, 17, 17));
+        assert_eq!(fragments[1].style().unwrap().color, Color::rgb(0, 0, 0));
         // The split accounts for the letter's own advance.
         assert!(fragments[1].x > fragments[0].x);
     }
@@ -815,7 +831,7 @@ mod tests {
         }
         for fragment in &lines[1].fragments {
             let style = fragment.style().unwrap();
-            assert_eq!(style.color, Color::rgb(17, 17, 17));
+            assert_eq!(style.color, Color::rgb(0, 0, 0));
             assert_eq!(style.background_color, None);
         }
     }

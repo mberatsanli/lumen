@@ -24,6 +24,10 @@ impl lumen_engine::TextMeasurer for CountingMeasurer<'_> {
             .fetch_add(text.chars().count() as u64, Ordering::Relaxed);
         self.inner.measure(text, style)
     }
+
+    fn normal_line_height(&self, style: &TextStyle) -> Option<f32> {
+        self.inner.normal_line_height(style)
+    }
 }
 
 fn main() {

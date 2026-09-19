@@ -89,7 +89,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 | `padding` + longhands | ✅ | ✅ | ✅ | ✅ | |
 | `border-width` | ✅ | ✅ | ✅ | ✅ | per-side via shorthand |
 | `border-color` | ✅ | ✅ | ✅ | ✅ | per side (1–4 values); defaults to text color |
-| `border-style` | ⚠️ | ✅ | ✅ | ✅ | none/hidden hide; solid/dashed/dotted render (square borders; rounded rings stay solid); initial behaves as solid (deviation) |
+| `border-style` | ⚠️ | ✅ | ✅ | ✅ | initial `none` (a width or color alone draws nothing); none/hidden hide; solid/dashed/dotted render (square borders; rounded rings stay solid); double/groove/ridge/inset/outset → solid |
 | `border` shorthand | ✅ | ✅ | ✅ | ✅ | any order; missing width = 3px |
 | Per-side `border-top/right/bottom/left` | ✅ | ✅ | ✅ | ✅ | width/style/color any order |
 | `border-radius` | ⚠️ | ✅ | ✅ | ✅ | 1–4 value shorthand + per-corner longhands (px/em); rounds background + border; rounded border ring is single color/width; no % radii, no elliptical, no overflow clipping |
@@ -139,7 +139,7 @@ Chrome/Firefox/Safari columns are current stable releases.
 |---|:-:|:-:|:-:|:-:|---|
 | `font-size` | ✅ | ✅ | ✅ | ✅ | px, em, % |
 | `font-weight` | ✅ | ✅ | ✅ | ✅ | numeric+keywords; drawn as double-strike ≥600 |
-| `line-height` | ✅ | ✅ | ✅ | ✅ | number, px, em |
+| `line-height` | ✅ | ✅ | ✅ | ✅ | number, px, em, %; `normal` comes from the font — round(ascent) + round(descent) + round(line gap) — and falls back to 1.4 × font-size without a font |
 | `text-align: left/center/right` | ✅ | ✅ | ✅ | ✅ | |
 | `text-align: justify` | ⚠️ | ✅ | ✅ | ✅ | wrapped lines stretch between word fragments; final/forced lines stay left |
 | `text-decoration` | ⚠️ | ✅ | ✅ | ✅ | underline/line-through/none + decoration color and solid/dashed/dotted styles (raster; SVG keeps text color); wavy/double → solid; propagation ≈ inheritance |

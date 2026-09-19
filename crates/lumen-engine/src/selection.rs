@@ -293,7 +293,11 @@ mod tests {
 
     fn runs_for(html: &str) -> Vec<TextRun> {
         let document = parse_document(html);
-        let author = lumen_css::parse_stylesheet(&extract_embedded_css(&document));
+        let author = lumen_css::parse_stylesheet(&format!(
+            "{}{}",
+            extract_embedded_css(&document),
+            crate::test_support::BODY_RESET_CSS
+        ));
         let styles = compute_styles(&document, &author);
         let layout = layout_document(
             &document,
