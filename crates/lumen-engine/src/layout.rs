@@ -3001,7 +3001,7 @@ mod tests {
         };
         assert_eq!(lines.len(), 2);
         // Double space preserved: 4 chars at 0.6em (mono heuristic) of
-        // the UA's 13px monospace size.
+        // the fixed-pitch default size a bare `monospace` family gets.
         assert_eq!(lines[0].fragments[0].text(), Some("a  b"));
         assert_eq!(lines[0].fragments[0].width, 4.0 * 13.0 * 0.6);
         // The long line stays a single fragment (no wrapping).

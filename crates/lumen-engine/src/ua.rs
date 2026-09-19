@@ -19,7 +19,7 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
     static SHEET: OnceLock<Stylesheet> = OnceLock::new();
     SHEET.get_or_init(|| {
         let source = r"
-            html { margin: 0; padding: 0; color: #000000; font-size: 16px; }
+            html { margin: 0; padding: 0; color: #000000; }
             body { margin: 8px; padding: 0; }
             h1 { font-size: 2em; font-weight: 700; margin-top: 0.67em; margin-bottom: 0.67em; }
             h2 { font-size: 1.5em; font-weight: 700; margin-top: 0.83em; margin-bottom: 0.83em; }
@@ -39,10 +39,9 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             s, strike, del { text-decoration: line-through; }
             mark { background-color: #ffff00; color: #000000; }
             small { font-size: 0.83em; }
-            pre { white-space: pre; font-family: monospace; font-size: 0.8125em;
+            pre { white-space: pre; font-family: monospace;
                 margin-top: 1em; margin-bottom: 1em; }
-            code, kbd, samp, tt { font-family: monospace; font-size: 0.8125em; }
-            pre code, pre kbd, pre samp, pre tt { font-size: 1em; }
+            code, kbd, samp, tt { font-family: monospace; }
             ul, ol { padding-left: 40px; margin-top: 1em; margin-bottom: 1em; }
             ul ul, ul ol, ol ul, ol ol { margin-top: 0; margin-bottom: 0; }
             center { text-align: center; }

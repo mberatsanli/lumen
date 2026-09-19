@@ -955,6 +955,8 @@ fn compute_node(
             raw.insert_shared(name.clone(), value.clone(), None);
         }
     }
+    // The inherited size, before this element's own rules run.
+    let inherited_font_size = raw.get_shared("font-size").map(|(_, value)| value.clone());
 
     let element = match &document.node(node_id).kind {
         NodeKind::Element(element) => Some(element),
@@ -1096,15 +1098,35 @@ fn compute_node(
         .get("font-size")
         .and_then(CssValue::as_px)
         .unwrap_or(DEFAULT_FONT_SIZE);
+    // This element's own `font-size`, as opposed to the one it inherited:
+    // inheritance shares the value's `Rc`, so a different pointer means a
+    // rule here set it. Until some rule states a size the element is at
+    // the default, which is what lets monospace text start from the
+    // fixed-pitch default instead (see `MONOSPACE_FONT_SIZE`).
+    let declared_font_size = match (&inherited_font_size, raw.get_shared("font-size")) {
+        (Some(inherited), Some((_, own))) if Rc::ptr_eq(inherited, own) => None,
+        (_, own) => own.map(|(_, value)| value.clone()),
+    };
+    let inherited_a_stated_size = parent_raw.get(SIZED_BY_A_RULE).is_some();
+    let sized_by_a_rule = inherited_a_stated_size || declared_font_size.is_some();
 
     evaluate_calculations(&mut raw, parent_font_size, root_font_size);
-    let computed = to_computed(&raw, element, parent_font_size);
+    let computed = to_computed(
+        &raw,
+        element,
+        parent_font_size,
+        declared_font_size.as_deref(),
+        inherited_a_stated_size,
+    );
     // Children inherit the *resolved* font size, so `em` chains and
     // percentages resolve against real pixels, not unresolved declarations.
     raw.insert(
         Cow::Borrowed("font-size"),
         CssValue::Length(computed.font_size, lumen_css::Unit::Px),
     );
+    if sized_by_a_rule {
+        raw.insert(Cow::Borrowed(SIZED_BY_A_RULE), CssValue::Number(1.0));
+    }
 
     // `::before`/`::after`: a pseudo style inherits from the element like
     // a child and needs a string `content` to generate anything.
@@ -1125,8 +1147,15 @@ fn compute_node(
             let text = text.clone();
             // The same value pipeline as the element pass: var()
             // substitution, rem resolution, calc() evaluation.
+            let declared = pseudo_declared_font_size(&pseudo_raw, &raw);
             finish_pseudo_raw(&mut pseudo_raw, computed.font_size, root_font_size);
-            let mut style = to_computed(&pseudo_raw, None, computed.font_size);
+            let mut style = to_computed(
+                &pseudo_raw,
+                None,
+                computed.font_size,
+                declared.as_deref(),
+                true,
+            );
             // Generated content is not selectable (as in browsers).
             style.selectable = false;
             pseudo_texts.push(PseudoText {
@@ -1150,8 +1179,18 @@ fn compute_node(
                 else {
                     continue;
                 };
+                let declared = pseudo_declared_font_size(&pseudo_raw, &raw);
                 finish_pseudo_raw(&mut pseudo_raw, computed.font_size, root_font_size);
-                target.insert(node_id, to_computed(&pseudo_raw, None, computed.font_size));
+                target.insert(
+                    node_id,
+                    to_computed(
+                        &pseudo_raw,
+                        None,
+                        computed.font_size,
+                        declared.as_deref(),
+                        true,
+                    ),
+                );
             }
         }
     }
@@ -1568,6 +1607,28 @@ fn winning_declarations(
     winners
 }
 
+/// A pseudo-element's own `font-size`, if its rules set one: it inherits
+/// the element's, so a shared `Rc` means it stated nothing itself.
+fn pseudo_declared_font_size(pseudo_raw: &RawStyle, raw: &RawStyle) -> Option<Rc<CssValue>> {
+    match (
+        raw.get_shared("font-size"),
+        pseudo_raw.get_shared("font-size"),
+    ) {
+        (Some((_, inherited)), Some((_, own))) if Rc::ptr_eq(inherited, own) => None,
+        (_, own) => own.map(|(_, value)| value.clone()),
+    }
+}
+
+/// Marks a subtree whose font size some rule has stated, as opposed to
+/// one still sitting at the default. A private custom property, so it
+/// inherits with the rest of them.
+const SIZED_BY_A_RULE: &str = "--lumen-sized-by-a-rule";
+
+/// The default size of text set in the monospace generic: code reads
+/// smaller than prose at the same nominal size, so the platform's
+/// fixed-pitch default is used instead of the document's.
+const MONOSPACE_FONT_SIZE: f32 = 13.0;
+
 /// Upper bound for a computed `font-size`: bigger values only occur in
 /// pathological pages and would explode glyph caches and layouts.
 const MAX_FONT_SIZE: f32 = 512.0;
@@ -1578,16 +1639,35 @@ fn to_computed(
     raw: &RawStyle,
     element: Option<&ElementData>,
     parent_font_size: f32,
+    declared_font_size: Option<&CssValue>,
+    inherited_a_stated_size: bool,
 ) -> ComputedStyle {
     let mut style = ComputedStyle::default();
 
-    style.font_size = match raw.get("font-size") {
+    // The family list decides which default size the element starts from,
+    // so it resolves first.
+    if let Some(list) = raw.get("font-family").and_then(CssValue::as_keyword) {
+        style.font_family = list.into();
+    }
+    // Text asking for the monospace generic is sized from the platform's
+    // fixed-pitch default rather than the document's, and relative sizes
+    // measure against that — a page saying `font-family: monospace` gets
+    // code-sized text, not 16px. Naming a family first opts out.
+    let monospace_generic =
+        style.font_family.split(',').next() == Some(crate::text::families::MONOSPACE);
+    let base_font_size = if monospace_generic && !inherited_a_stated_size {
+        MONOSPACE_FONT_SIZE
+    } else {
+        parent_font_size
+    };
+
+    style.font_size = match declared_font_size {
         Some(CssValue::Length(pixels, lumen_css::Unit::Px)) => *pixels,
-        Some(CssValue::Length(factor, lumen_css::Unit::Em)) => factor * parent_font_size,
+        Some(CssValue::Length(factor, lumen_css::Unit::Em)) => factor * base_font_size,
         Some(CssValue::Length(percent, lumen_css::Unit::Percent)) => {
-            percent / 100.0 * parent_font_size
+            percent / 100.0 * base_font_size
         }
-        _ => parent_font_size,
+        _ => base_font_size,
     };
     // Keep the resolved size sane: negatives/NaN/inf (huge `em` chains,
     // hostile calc()) fall back to the inherited size or clamp.
@@ -2180,10 +2260,6 @@ fn to_computed(
             }
         }
     };
-
-    if let Some(list) = raw.get("font-family").and_then(CssValue::as_keyword) {
-        style.font_family = list.into();
-    }
 
     // overflow / overflow-x / overflow-y. `auto` parses as CssValue::Auto
     // (not a keyword), so match raw text. Per CSS, when one axis is
@@ -3792,6 +3868,23 @@ mod tests {
         assert_eq!(p.font_size, 20.0);
         assert_eq!(p.line_height, 40.0);
         assert_eq!(&*p.font_family, "menlo,monospace");
+    }
+
+    #[test]
+    fn monospace_generic_sizes_from_the_fixed_pitch_default() {
+        let (document, styles) = styles_for(
+            "<style>kbd { font-family: Menlo, monospace; } \
+                    samp { font-family: monospace; font-size: 20px; }</style>\
+             <body><code>c</code><kbd>n</kbd><samp>s</samp></body>",
+        );
+        // The bare generic reads at code size.
+        assert_eq!(style_of(&document, &styles, "code").font_size, 13.0);
+        // Naming a family first opts out...
+        assert_eq!(style_of(&document, &styles, "kbd").font_size, 16.0);
+        // ...and an explicit size always wins.
+        assert_eq!(style_of(&document, &styles, "samp").font_size, 20.0);
+        // Prose is unaffected.
+        assert_eq!(style_of(&document, &styles, "body").font_size, 16.0);
     }
 
     #[test]
