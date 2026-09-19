@@ -34,30 +34,21 @@ fn bench_at(
             .unwrap_or(&lumen_engine::HeuristicMeasurer),
     );
     let commands = &page.display_list;
-    println!("{name} @{scale}x ({width}x{height}): {} display commands", commands.len());
+    println!(
+        "{name} @{scale}x ({width}x{height}): {} display commands",
+        commands.len()
+    );
 
     // CPU rasterizer.
     for _ in 0..5 {
         let _ = lumen_engine::rasterize_with_fixed_origin(
-            commands,
-            width,
-            height,
-            0.0,
-            0.0,
-            scale,
-            font,
+            commands, width, height, 0.0, 0.0, scale, font,
         );
     }
     let started = Instant::now();
     for _ in 0..ITERATIONS {
         let _ = lumen_engine::rasterize_with_fixed_origin(
-            commands,
-            width,
-            height,
-            0.0,
-            0.0,
-            scale,
-            font,
+            commands, width, height, 0.0, 0.0, scale, font,
         );
     }
     let cpu = started.elapsed().as_secs_f64() * 1000.0 / f64::from(ITERATIONS);
@@ -68,11 +59,13 @@ fn bench_at(
     };
     // Warm-up: pipeline compilation, atlas/texture uploads.
     for _ in 0..5 {
-        let _ = renderer.render_offscreen_no_readback(commands, width, height, 0.0, 0.0, scale, font);
+        let _ =
+            renderer.render_offscreen_no_readback(commands, width, height, 0.0, 0.0, scale, font);
     }
     let started = Instant::now();
     for _ in 0..ITERATIONS {
-        let _ = renderer.render_offscreen_no_readback(commands, width, height, 0.0, 0.0, scale, font);
+        let _ =
+            renderer.render_offscreen_no_readback(commands, width, height, 0.0, 0.0, scale, font);
     }
     let gpu = started.elapsed().as_secs_f64() * 1000.0 / f64::from(ITERATIONS);
     let started = Instant::now();

@@ -336,8 +336,8 @@ pub struct ComputedStyle {
     pub underline: bool,
     /// `font-style: italic` (rendered as a synthetic shear).
     pub italic: bool,
-    /// `font-family` collapsed to its generic: monospace or not.
-    pub monospace: bool,
+    /// The computed `font-family` list (see [`crate::text::FontFamilies`]).
+    pub font_family: crate::text::FontFamilies,
     pub white_space: WhiteSpace,
     pub text_transform: TextTransform,
     /// Extra advance per character, px.
@@ -1205,7 +1205,7 @@ impl Default for ComputedStyle {
             text_align: TextAlign::Left,
             underline: false,
             italic: false,
-            monospace: false,
+            font_family: crate::text::families::initial(),
             white_space: WhiteSpace::Normal,
             text_transform: TextTransform::None,
             letter_spacing: 0.0,

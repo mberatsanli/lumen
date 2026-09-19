@@ -43,7 +43,9 @@ pub use style::{
     hover_styles_may_change, interaction_styles_may_change, parse_transform_value,
 };
 pub use svg::render_svg;
-pub use text::{HeuristicMeasurer, TextMeasurer, TextMetrics, TextStyle};
+pub use text::{
+    FaceKey, FontFamilies, HeuristicMeasurer, TextMeasurer, TextMetrics, TextStyle, families,
+};
 
 use lumen_html::{Document, NodeKind};
 

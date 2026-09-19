@@ -326,7 +326,8 @@ fn apply_pseudo_line_styles(
         let text_style = |style: &ComputedStyle| TextStyle {
             font_size: style.font_size,
             font_weight: style.font_weight,
-            monospace: style.monospace,
+            families: style.font_family.clone(),
+            italic: style.italic,
             letter_spacing: style.letter_spacing,
         };
         let letter_text = text[..first_end].to_string();
@@ -387,13 +388,12 @@ struct LineBuilder<'a> {
 
 /// Hashable identity of the [`TextStyle`] inputs (f32s compared bitwise;
 /// layout never produces -0.0/NaN font sizes).
-type SpaceKey = (u32, u16, bool, u32);
+type SpaceKey = (u32, crate::text::FaceKey, u32);
 
 fn space_key(style: &TextStyle) -> SpaceKey {
     (
         style.font_size.to_bits(),
-        style.font_weight.0,
-        style.monospace,
+        style.face(),
         style.letter_spacing.to_bits(),
     )
 }
@@ -413,7 +413,8 @@ impl<'a> LineBuilder<'a> {
             .normal_line_height(&TextStyle {
                 font_size: style.font_size,
                 font_weight: style.font_weight,
-                monospace: style.monospace,
+                families: style.font_family.clone(),
+                italic: style.italic,
                 letter_spacing: style.letter_spacing,
             })
             .unwrap_or(style.line_height)
@@ -451,7 +452,8 @@ impl<'a> LineBuilder<'a> {
         let text_style = TextStyle {
             font_size: style.font_size,
             font_weight: style.font_weight,
-            monospace: style.monospace,
+            families: style.font_family.clone(),
+            italic: style.italic,
             letter_spacing: style.letter_spacing,
         };
         let word_width = self.measurer.measure(word, &text_style).width;
@@ -529,7 +531,8 @@ impl<'a> LineBuilder<'a> {
             let text_style = TextStyle {
                 font_size: self.container.font_size,
                 font_weight: self.container.font_weight,
-                monospace: self.container.monospace,
+                families: self.container.font_family.clone(),
+                italic: self.container.italic,
                 letter_spacing: self.container.letter_spacing,
             };
             self.measurer.measure(" ", &text_style).width
@@ -606,7 +609,8 @@ impl<'a> LineBuilder<'a> {
             let ellipsis_style = TextStyle {
                 font_size: self.container.font_size,
                 font_weight: self.container.font_weight,
-                monospace: self.container.monospace,
+                families: self.container.font_family.clone(),
+                italic: self.container.italic,
                 letter_spacing: self.container.letter_spacing,
             };
             let ellipsis_width = self.measurer.measure("…", &ellipsis_style).width;
@@ -622,7 +626,8 @@ impl<'a> LineBuilder<'a> {
                     let text_style = TextStyle {
                         font_size: style.font_size,
                         font_weight: style.font_weight,
-                        monospace: style.monospace,
+                        families: style.font_family.clone(),
+                        italic: style.italic,
                         letter_spacing: style.letter_spacing,
                     };
                     // Binary search the longest prefix that fits, instead

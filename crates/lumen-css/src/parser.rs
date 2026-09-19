@@ -833,19 +833,12 @@ fn expand_font_shorthand(source: &str, output: &mut Vec<Declaration>, important:
             }
         }
     }
-    if !family_parts.is_empty() {
-        let family = family_parts.join(" ");
-        let components: Vec<CssValue> = split_components(&family)
-            .iter()
-            .filter_map(|component| CssValue::parse_component(component))
-            .collect();
-        let start = output.len();
-        expand_declaration("font-family", components, output);
-        if important {
-            for declaration in &mut output[start..] {
-                declaration.important = true;
-            }
-        }
+    if let Some(families) = normalize_font_families(&family_parts.join(" ")) {
+        output.push(Declaration {
+            name: "font-family".to_string(),
+            value: CssValue::Keyword(families),
+            important,
+        });
     }
 }
 
@@ -915,6 +908,16 @@ fn push_declaration(name: &str, value: &str, declarations: &mut Vec<Declaration>
         });
         return;
     }
+    if name == "font-family" {
+        if let Some(families) = normalize_font_families(value) {
+            declarations.push(Declaration {
+                name: name.to_string(),
+                value: CssValue::Keyword(families),
+                important,
+            });
+        }
+        return;
+    }
     let components: Vec<CssValue> = split_components(value)
         .iter()
         .filter_map(|component| CssValue::parse_component(component))
@@ -929,6 +932,27 @@ fn push_declaration(name: &str, value: &str, declarations: &mut Vec<Declaration>
             declaration.important = true;
         }
     }
+}
+
+/// A `font-family` list in author order, lowercased, quotes dropped and
+/// inner whitespace collapsed: `"Helvetica Neue", Arial , sans-serif`
+/// becomes `helvetica neue,arial,sans-serif`. `None` when the list holds
+/// no usable name.
+fn normalize_font_families(value: &str) -> Option<String> {
+    let families: Vec<String> = split_top_level_commas(value)
+        .into_iter()
+        .map(|family| {
+            family
+                .trim()
+                .trim_matches(['"', '\''])
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_ascii_lowercase()
+        })
+        .filter(|family| !family.is_empty())
+        .collect();
+    (!families.is_empty()).then(|| families.join(","))
 }
 
 /// Expands `margin`/`padding`/`border-width` shorthands into longhands and
@@ -1199,29 +1223,6 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
                 name: name.to_string(),
                 value: CssValue::Keyword(text),
                 important: false,
-            });
-        }
-        "font-family" => {
-            // Only the generic family matters to the engine: the list
-            // normalizes to `monospace` when any entry names a monospace
-            // family, and `sans-serif` otherwise.
-            let is_mono = components.iter().any(|component| match component {
-                CssValue::Keyword(keyword) => {
-                    let name = keyword
-                        .trim_matches(|c: char| c == ',' || c == '"' || c == '\'')
-                        .to_ascii_lowercase();
-                    name.contains("mono")
-                        || name.starts_with("courier")
-                        || matches!(name.as_str(), "menlo" | "monaco" | "consolas")
-                }
-                _ => false,
-            });
-            output.push(Declaration {
-                important: false,
-                name: "font-family".to_string(),
-                value: CssValue::Keyword(
-                    if is_mono { "monospace" } else { "sans-serif" }.to_string(),
-                ),
             });
         }
         "flex" => {

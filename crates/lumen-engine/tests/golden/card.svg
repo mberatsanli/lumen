@@ -3,11 +3,11 @@
 <rect x="0" y="0" width="1024" height="768" fill="#eef1f5"/>
 <rect x="8" y="8" width="1008" height="511.15997" fill="#eef1f5"/>
 <rect x="40" y="40" width="576" height="216.92" fill="#ffffff"/>
-<text x="68" y="128.12" fill="#111827" font-family="system-ui, sans-serif" font-size="36" font-weight="700">Lumen</text>
-<text x="68" y="178.52" fill="#64748b" font-family="system-ui, sans-serif" font-size="18" font-weight="400">Rendered by a browser engine written from scratch in</text>
-<text x="68" y="203.72" fill="#64748b" font-family="system-ui, sans-serif" font-size="18" font-weight="400">Rust.</text>
+<text x="68" y="128.12" fill="#111827" font-family="serif" font-size="36" font-weight="700">Lumen</text>
+<text x="68" y="178.52" fill="#64748b" font-family="serif" font-size="18" font-weight="400">Rendered by a browser engine written from scratch in</text>
+<text x="68" y="203.72" fill="#64748b" font-family="serif" font-size="18" font-weight="400">Rust.</text>
 <rect x="40" y="276.91998" width="576" height="190.23999" fill="#ffffff"/>
-<text x="68" y="348.84" fill="#1f2937" font-family="system-ui, sans-serif" font-size="24" font-weight="700">Rendering pipeline</text>
-<text x="68" y="394.36" fill="#1f2937" font-family="system-ui, sans-serif" font-size="16" font-weight="400">HTML to DOM, CSS to styles, styles to layout, and layout to paint</text>
-<text x="68" y="416.75998" fill="#1f2937" font-family="system-ui, sans-serif" font-size="16" font-weight="400">commands.</text>
+<text x="68" y="348.84" fill="#1f2937" font-family="serif" font-size="24" font-weight="700">Rendering pipeline</text>
+<text x="68" y="394.36" fill="#1f2937" font-family="serif" font-size="16" font-weight="400">HTML to DOM, CSS to styles, styles to layout, and layout to paint</text>
+<text x="68" y="416.75998" fill="#1f2937" font-family="serif" font-size="16" font-weight="400">commands.</text>
 </svg>

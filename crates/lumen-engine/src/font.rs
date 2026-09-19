@@ -1,27 +1,35 @@
 //! Real font metrics and glyph rasterization behind [`TextMeasurer`].
 //!
-//! Wraps `fontdue` (a pure-Rust TTF/OTF rasterizer — font parsing is not
-//! browser-engine core, like TLS it is deliberately a library). The engine
-//! ships no font asset; callers load a font file (usually a system font via
-//! [`SystemFont::load_default`]) and pass it in. Everything keeps working
-//! without one: layout falls back to [`crate::HeuristicMeasurer`] and the
-//! rasterizer to the built-in bitmap font.
+//! Faces come from `fontdb` (which indexes the installed fonts and answers
+//! `font-family` queries) and are rasterized by `fontdue` (a pure-Rust
+//! TTF/OTF rasterizer — font parsing is not browser-engine core, like TLS
+//! it is deliberately a library). The engine ships no font asset:
+//! [`SystemFont::load_default`] indexes what the platform has, and
+//! [`SystemFont::from_bytes`] wraps a single downloaded face. Everything
+//! keeps working without either: layout falls back to
+//! [`crate::HeuristicMeasurer`] and the rasterizer to the built-in bitmap
+//! font.
 
-use crate::text::{TextMeasurer, TextMetrics, TextStyle};
+use crate::text::{FaceKey, TextMeasurer, TextMetrics, TextStyle, families};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// A loaded scalable font usable for both measurement and rasterization.
+/// The installed faces, plus the caches that keep repeated lookups and
+/// glyph rasterization cheap.
 ///
-/// Rasterized glyphs are cached per (character, size), which makes
-/// repeated frames (scrolling, resizing) cheap. The cache sits behind a
+/// Rasterized glyphs are cached per (character, size, face), which makes
+/// repeated frames (scrolling, resizing) cheap. The caches sit behind a
 /// `Mutex`, so the font is `Sync` and can be shared via `Arc` — including
 /// with background loader threads.
 pub struct SystemFont {
-    font: fontdue::Font,
-    /// Monospace face for `font-family: monospace`; falls back to the
-    /// regular face when no monospace font was found.
-    mono: Option<fontdue::Font>,
+    /// Every installed face, queried by family name. Empty when this font
+    /// wraps a single face loaded from bytes.
+    database: fontdb::Database,
+    /// The face for text whose family list matches nothing installed —
+    /// and the only face when the font came from bytes.
+    fallback_face: Arc<fontdue::Font>,
+    /// Parsed faces per resolved query; a face parses once.
+    faces: Mutex<HashMap<FaceKey, Arc<fontdue::Font>>>,
     /// Wide-coverage faces consulted when the chosen face lacks a glyph
     /// (symbols, exotic scripts) — otherwise text shows notdef boxes.
     /// One lazily-parsed slot per candidate path, tried in order, so a
@@ -29,7 +37,7 @@ pub struct SystemFont {
     /// that covers it (parsing all of macOS's fallback faces up front
     /// costs hundreds of MB in fontdue).
     fallbacks: Vec<std::sync::OnceLock<Option<fontdue::Font>>>,
-    glyph_cache: Mutex<HashMap<(char, u32, bool), Arc<Glyph>>>,
+    glyph_cache: Mutex<HashMap<(char, u32, FaceKey), Arc<Glyph>>>,
 }
 
 /// A rasterized glyph: metrics plus an 8-bit coverage bitmap.
@@ -37,21 +45,6 @@ pub struct Glyph {
     pub metrics: fontdue::Metrics,
     pub coverage: Vec<u8>,
 }
-
-/// Common monospace font locations per platform, tried in order.
-const MONO_CANDIDATE_PATHS: [&str; 8] = [
-    // macOS
-    "/System/Library/Fonts/Monaco.ttf",
-    "/System/Library/Fonts/Supplemental/Courier New.ttf",
-    "/System/Library/Fonts/Menlo.ttc",
-    // Linux
-    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-    "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-    // Windows
-    "C:\\Windows\\Fonts\\consola.ttf",
-    "C:\\Windows\\Fonts\\cour.ttf",
-];
 
 /// Wide-coverage fallback faces per platform, tried in order (all that
 /// parse are kept).
@@ -85,7 +78,8 @@ const CANDIDATE_PATHS: [&str; 8] = [
 
 impl SystemFont {
     /// Parses font bytes: TTF/OTF directly, WOFF and WOFF2 by unpacking
-    /// to TTF first. Returns `None` when the data is not a usable font.
+    /// to TTF first. The result answers every family query with this one
+    /// face. Returns `None` when the data is not a usable font.
     #[must_use]
     pub fn from_bytes(data: &[u8]) -> Option<Self> {
         let unpacked: Vec<u8>;
@@ -100,21 +94,36 @@ impl SystemFont {
             }
             _ => data,
         };
-        fontdue::Font::from_bytes(data, fontdue::FontSettings::default())
-            .ok()
-            .map(|font| Self {
-                font,
-                mono: None,
-                fallbacks: Vec::new(),
-                glyph_cache: Mutex::new(HashMap::new()),
-            })
+        let face = fontdue::Font::from_bytes(data, fontdue::FontSettings::default()).ok()?;
+        Some(Self::with_fallback_face(
+            fontdb::Database::new(),
+            face,
+            Vec::new(),
+        ))
     }
 
-    /// Tries the well-known system font paths for this platform, plus a
-    /// monospace companion face when one exists.
+    fn with_fallback_face(
+        database: fontdb::Database,
+        fallback_face: fontdue::Font,
+        fallbacks: Vec<std::sync::OnceLock<Option<fontdue::Font>>>,
+    ) -> Self {
+        Self {
+            database,
+            fallback_face: Arc::new(fallback_face),
+            faces: Mutex::new(HashMap::new()),
+            fallbacks,
+            glyph_cache: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Indexes the platform's installed fonts, so `font-family` resolves
+    /// the way the page asks. Returns `None` when no usable face exists at
+    /// all — the caller then measures heuristically.
     #[must_use]
     pub fn load_default() -> Option<Self> {
-        let load = |paths: &[&str]| {
+        let mut database = fontdb::Database::new();
+        database.load_system_fonts();
+        let from_paths = |paths: &[&str]| {
             paths
                 .iter()
                 .filter_map(|path| std::fs::read(path).ok())
@@ -123,40 +132,46 @@ impl SystemFont {
                         .ok()
                 })
         };
-        let font = load(&CANDIDATE_PATHS)?;
-        Some(Self {
-            font,
-            mono: load(&MONO_CANDIDATE_PATHS),
-            // Fallback faces parse per-slot on the first uncovered glyph.
-            fallbacks: FALLBACK_CANDIDATE_PATHS
-                .iter()
-                .map(|_| std::sync::OnceLock::new())
-                .collect(),
-            glyph_cache: Mutex::new(HashMap::new()),
-        })
+        let fallback_face = parse_query(
+            &database,
+            &FaceKey {
+                families: families::initial(),
+                weight: 400,
+                italic: false,
+            },
+        )
+        .map(|face| Arc::try_unwrap(face).unwrap_or_else(|shared| (*shared).clone()))
+        .or_else(|| from_paths(&CANDIDATE_PATHS))?;
+        // Fallback faces parse per-slot on the first uncovered glyph.
+        let fallbacks = FALLBACK_CANDIDATE_PATHS
+            .iter()
+            .map(|_| std::sync::OnceLock::new())
+            .collect();
+        Some(Self::with_fallback_face(database, fallback_face, fallbacks))
     }
 
-    /// The face for a measurement/draw request.
-    fn face(&self, monospace: bool) -> &fontdue::Font {
-        if monospace {
-            self.mono.as_ref().unwrap_or(&self.font)
-        } else {
-            &self.font
+    /// The face `key` asks for, parsed once and then cached.
+    fn face(&self, key: &FaceKey) -> Arc<fontdue::Font> {
+        if let Ok(cache) = self.faces.lock()
+            && let Some(face) = cache.get(key)
+        {
+            return face.clone();
         }
+        let face = parse_query(&self.database, key).unwrap_or_else(|| self.fallback_face.clone());
+        if let Ok(mut cache) = self.faces.lock() {
+            cache.insert(key.clone(), face.clone());
+        }
+        face
     }
 
     /// The face that actually has a glyph for `character`: the requested
-    /// face, else the other face, else the first covering fallback —
-    /// each fallback face is parsed only when reached.
-    fn face_for(&self, character: char, monospace: bool) -> &fontdue::Font {
-        let preferred = self.face(monospace);
+    /// face, else the first covering fallback — each fallback face is
+    /// parsed only when reached.
+    fn face_for(&self, character: char, key: &FaceKey) -> Arc<fontdue::Font> {
+        let preferred = self.face(key);
         let has = |font: &fontdue::Font| font.lookup_glyph_index(character) != 0;
-        if has(preferred) {
+        if has(&preferred) {
             return preferred;
-        }
-        let other = self.face(!monospace);
-        if has(other) {
-            return other;
         }
         for (path, slot) in FALLBACK_CANDIDATE_PATHS.iter().zip(&self.fallbacks) {
             let font = slot.get_or_init(|| {
@@ -168,37 +183,54 @@ impl SystemFont {
             if let Some(font) = font.as_ref()
                 && has(font)
             {
-                return font;
+                // Parsed once and owned by the slot; cloning a fontdue
+                // face copies its tables, so keep it behind its own Arc.
+                return Arc::new(font.clone());
             }
         }
         preferred
     }
 
-    /// Rasterizes one character at `font_size` (cached), returning metrics
-    /// and an 8-bit coverage bitmap (row-major, `metrics.width` per row).
+    /// Rasterizes one character of `face` at `font_size` (cached),
+    /// returning metrics and an 8-bit coverage bitmap (row-major,
+    /// `metrics.width` per row).
     #[must_use]
-    pub fn rasterize(&self, character: char, font_size: f32, monospace: bool) -> Arc<Glyph> {
+    pub fn rasterize(&self, character: char, font_size: f32, face: &FaceKey) -> Arc<Glyph> {
         let rasterize = || {
             let (metrics, coverage) = self
-                .face_for(character, monospace)
+                .face_for(character, face)
                 .rasterize(character, font_size);
             Arc::new(Glyph { metrics, coverage })
         };
+        let key = (character, font_size.to_bits(), face.clone());
         match self.glyph_cache.lock() {
-            Ok(mut cache) => cache
-                .entry((character, font_size.to_bits(), monospace))
-                .or_insert_with(rasterize)
-                .clone(),
+            Ok(mut cache) => cache.entry(key).or_insert_with(rasterize).clone(),
             // A poisoned cache just means uncached rasterization.
             Err(_) => rasterize(),
         }
     }
 
-    /// The ascent (baseline distance from the top of the line) at
-    /// `font_size`, approximated as `0.8 × font_size` if unavailable.
+    /// Whether italics for `face` have to be faked by slanting the
+    /// upright glyphs: true when the family has no italic face installed.
     #[must_use]
-    pub fn ascent(&self, font_size: f32) -> f32 {
-        self.font
+    pub fn synthesizes_italic(&self, face: &FaceKey) -> bool {
+        let italic = FaceKey {
+            italic: true,
+            ..face.clone()
+        };
+        let Some(id) = query_id(&self.database, &italic) else {
+            return true;
+        };
+        self.database
+            .face(id)
+            .is_none_or(|info| info.style == fontdb::Style::Normal)
+    }
+
+    /// The ascent (baseline distance from the top of the line) of `face`
+    /// at `font_size`, approximated as `0.8 × font_size` if unavailable.
+    #[must_use]
+    pub fn ascent(&self, font_size: f32, face: &FaceKey) -> f32 {
+        self.face(face)
             .horizontal_line_metrics(font_size)
             .map_or(font_size * 0.8, |metrics| metrics.ascent)
     }
@@ -206,10 +238,11 @@ impl SystemFont {
 
 impl TextMeasurer for SystemFont {
     fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics {
+        let face = style.face();
         let width = text
             .chars()
             .map(|character| {
-                self.face_for(character, style.monospace)
+                self.face_for(character, &face)
                     .metrics(character, style.font_size)
                     .advance_width
                     + style.letter_spacing
@@ -222,10 +255,52 @@ impl TextMeasurer for SystemFont {
     /// they add up, so lines always land on the pixel grid.
     fn normal_line_height(&self, style: &TextStyle) -> Option<f32> {
         let metrics = self
-            .face(style.monospace)
+            .face(&style.face())
             .horizontal_line_metrics(style.font_size)?;
         Some(metrics.ascent.round() + (-metrics.descent).round() + metrics.line_gap.round())
     }
+}
+
+/// The installed face `key` resolves to, if any.
+fn query_id(database: &fontdb::Database, key: &FaceKey) -> Option<fontdb::ID> {
+    let names: Vec<&str> = key.families.split(',').map(str::trim).collect();
+    let families: Vec<fontdb::Family> = names
+        .iter()
+        .map(|name| match *name {
+            families::SERIF => fontdb::Family::Serif,
+            families::SANS_SERIF => fontdb::Family::SansSerif,
+            families::MONOSPACE => fontdb::Family::Monospace,
+            "cursive" => fontdb::Family::Cursive,
+            "fantasy" => fontdb::Family::Fantasy,
+            name => fontdb::Family::Name(name),
+        })
+        .collect();
+    database.query(&fontdb::Query {
+        families: &families,
+        weight: fontdb::Weight(key.weight),
+        stretch: fontdb::Stretch::Normal,
+        style: if key.italic {
+            fontdb::Style::Italic
+        } else {
+            fontdb::Style::Normal
+        },
+    })
+}
+
+/// Resolves `key` against `database` and parses the winning face.
+fn parse_query(database: &fontdb::Database, key: &FaceKey) -> Option<Arc<fontdue::Font>> {
+    let id = query_id(database, key)?;
+    database.with_face_data(id, |data, face_index| {
+        fontdue::Font::from_bytes(
+            data,
+            fontdue::FontSettings {
+                collection_index: face_index,
+                ..fontdue::FontSettings::default()
+            },
+        )
+        .ok()
+        .map(Arc::new)
+    })?
 }
 
 /// Rebuilds a TTF from a WOFF1 container: the sfnt header plus each
@@ -335,7 +410,8 @@ mod tests {
         let style = TextStyle {
             font_size: 16.0,
             font_weight: FontWeight(400),
-            monospace: false,
+            families: crate::text::families::sans_serif(),
+            italic: false,
             letter_spacing: 0.0,
         };
         assert!(font.measure("Merhaba", &style).width > 10.0);
@@ -413,7 +489,8 @@ mod tests {
         let style = TextStyle {
             font_size: 16.0,
             font_weight: FontWeight(400),
-            monospace: false,
+            families: crate::text::families::sans_serif(),
+            italic: false,
             letter_spacing: 0.0,
         };
         let narrow = font.measure("iiii", &style).width;
@@ -422,7 +499,7 @@ mod tests {
             narrow < wide,
             "expected proportional widths: {narrow} vs {wide}"
         );
-        assert!(font.ascent(16.0) > 8.0);
+        assert!(font.ascent(16.0, &style.face()) > 8.0);
     }
 
     #[test]
@@ -438,7 +515,15 @@ mod tests {
             "fallback faces must not load eagerly"
         );
         // Apple Symbols covers ★: only that slot should initialize.
-        let _ = font.rasterize('★', 16.0, false);
+        let _ = font.rasterize(
+            '★',
+            16.0,
+            &FaceKey {
+                families: families::initial(),
+                weight: 400,
+                italic: false,
+            },
+        );
         let loaded = font
             .fallbacks
             .iter()
@@ -460,7 +545,8 @@ mod normal_line_height_tests {
         let style = |font_size| TextStyle {
             font_size,
             font_weight: crate::style::FontWeight(400),
-            monospace: false,
+            families: crate::text::families::sans_serif(),
+            italic: false,
             letter_spacing: 0.0,
         };
         let height = font.normal_line_height(&style(16.0)).expect("line metrics");

@@ -2181,10 +2181,9 @@ fn to_computed(
         }
     };
 
-    style.monospace = matches!(
-        raw.get("font-family").and_then(CssValue::as_keyword),
-        Some("monospace")
-    );
+    if let Some(list) = raw.get("font-family").and_then(CssValue::as_keyword) {
+        style.font_family = list.into();
+    }
 
     // overflow / overflow-x / overflow-y. `auto` parses as CssValue::Auto
     // (not a keyword), so match raw text. Per CSS, when one axis is
@@ -3792,28 +3791,37 @@ mod tests {
         assert_eq!(p.font_weight.0, 700);
         assert_eq!(p.font_size, 20.0);
         assert_eq!(p.line_height, 40.0);
-        assert!(p.monospace);
+        assert_eq!(&*p.font_family, "menlo,monospace");
     }
 
     #[test]
     fn pre_and_code_get_monospace_defaults() {
         let (document, styles) = styles_for("<pre>x</pre><p><code>y</code></p>");
         let pre = style_of(&document, &styles, "pre");
-        assert!(pre.monospace);
+        assert_eq!(&*pre.font_family, "monospace");
         assert_eq!(pre.white_space, WhiteSpace::Pre);
         let code = style_of(&document, &styles, "code");
-        assert!(code.monospace);
+        assert_eq!(&*code.font_family, "monospace");
         assert_eq!(code.white_space, WhiteSpace::Normal);
     }
 
     #[test]
-    fn font_family_normalizes_to_a_generic() {
+    fn font_family_keeps_the_authors_list_lowercased() {
         let (document, styles) = styles_for(
-            "<style>p { font-family: Menlo, monospace; } h1 { font-family: Arial; }</style>\
+            "<style>p { font-family: Menlo, monospace; } \
+                    h1 { font-family: \"Helvetica Neue\", Arial, sans-serif; }</style>\
              <p>m</p><h1>a</h1>",
         );
-        assert!(style_of(&document, &styles, "p").monospace);
-        assert!(!style_of(&document, &styles, "h1").monospace);
+        assert_eq!(
+            &*style_of(&document, &styles, "p").font_family,
+            "menlo,monospace"
+        );
+        assert_eq!(
+            &*style_of(&document, &styles, "h1").font_family,
+            "helvetica neue,arial,sans-serif"
+        );
+        // Untouched elements keep the initial family.
+        assert_eq!(&*style_of(&document, &styles, "body").font_family, "serif");
     }
 
     #[test]

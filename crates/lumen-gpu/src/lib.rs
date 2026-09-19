@@ -196,13 +196,11 @@ impl GpuRenderer {
             Some(target) => Some(instance.create_surface(target).ok()?),
             None => None,
         };
-        let adapter = pollster::block_on(instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
-                compatible_surface: surface.as_ref(),
-                force_fallback_adapter: false,
-            },
-        ))?;
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: surface.as_ref(),
+            force_fallback_adapter: false,
+        }))?;
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
                 .ok()?;
@@ -373,7 +371,11 @@ impl GpuRenderer {
     /// The next hybrid-pool texture at least `width`×`height`, for a
     /// CPU-rendered transform subtree. Returns the pool index (for the
     /// bind group lookup) and the texture to upload into.
-    pub(crate) fn hybrid_slot(&mut self, width: u32, height: u32) -> Option<(usize, wgpu::Texture)> {
+    pub(crate) fn hybrid_slot(
+        &mut self,
+        width: u32,
+        height: u32,
+    ) -> Option<(usize, wgpu::Texture)> {
         let index = self.hybrid_cursor;
         self.hybrid_cursor += 1;
         if self.hybrid_pool.len() <= index {
@@ -441,7 +443,10 @@ impl GpuRenderer {
     ) -> Option<()> {
         let (format, size) = {
             let state = self.surface.as_ref()?;
-            (state.config.format, (state.config.width, state.config.height))
+            (
+                state.config.format,
+                (state.config.width, state.config.height),
+            )
         };
         let frame = match self.surface.as_ref()?.surface.get_current_texture() {
             Ok(frame) => frame,
@@ -575,9 +580,8 @@ impl GpuRenderer {
     /// Reads an RGBA8 texture back into CPU memory.
     fn read_texture(&self, texture: &wgpu::Texture, width: u32, height: u32) -> Option<Vec<u8>> {
         let row_bytes = width * 4;
-        let padded =
-            row_bytes.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
-                * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded = row_bytes.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+            * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("lumen-readback"),
             size: u64::from(padded) * u64::from(height),
@@ -851,7 +855,7 @@ pub(crate) struct GlyphSlot {
 struct Atlas {
     view: wgpu::TextureView,
     texture: wgpu::Texture,
-    entries: HashMap<(char, u32, bool), GlyphSlot>,
+    entries: HashMap<(char, u32, lumen_engine::FaceKey), GlyphSlot>,
     /// Open shelves: (y, height, next_x).
     shelves: Vec<(u32, u32, u32)>,
     next_shelf_y: u32,
@@ -890,13 +894,13 @@ impl Atlas {
         font: &SystemFont,
         character: char,
         size: f32,
-        monospace: bool,
+        face: &lumen_engine::FaceKey,
     ) -> Option<GlyphSlot> {
-        let key = (character, size.to_bits(), monospace);
+        let key = (character, size.to_bits(), face.clone());
         if let Some(slot) = self.entries.get(&key) {
             return Some(*slot);
         }
-        let glyph = font.rasterize(character, size, monospace);
+        let glyph = font.rasterize(character, size, face);
         let (width, height) = (glyph.metrics.width as u32, glyph.metrics.height as u32);
         let mut slot = GlyphSlot {
             uv: [0.0; 4],

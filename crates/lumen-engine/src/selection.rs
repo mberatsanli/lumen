@@ -16,11 +16,12 @@ use lumen_css::Color;
 /// The style fields selection actually uses (text metrics for caret
 /// math, the `::selection` highlight override). Carrying these instead
 /// of a full `ComputedStyle` avoids a deep clone per run.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TextRunStyle {
     pub font_size: f32,
     pub font_weight: FontWeight,
-    pub monospace: bool,
+    pub families: crate::text::FontFamilies,
+    pub italic: bool,
     pub letter_spacing: f32,
     pub selection_background: Option<Color>,
 }
@@ -66,7 +67,8 @@ fn collect(layout: &LayoutBox, runs: &mut Vec<TextRun>, depth: usize) {
                         style: TextRunStyle {
                             font_size: style.font_size,
                             font_weight: style.font_weight,
-                            monospace: style.monospace,
+                            families: style.font_family.clone(),
+                            italic: style.italic,
                             letter_spacing: style.letter_spacing,
                             selection_background: style.selection_background,
                         },
@@ -116,7 +118,8 @@ fn text_style(run: &TextRun) -> TextStyle {
     TextStyle {
         font_size: run.style.font_size,
         font_weight: run.style.font_weight,
-        monospace: run.style.monospace,
+        families: run.style.families.clone(),
+        italic: run.style.italic,
         letter_spacing: run.style.letter_spacing,
     }
 }

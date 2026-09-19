@@ -43,8 +43,8 @@ use boa_engine::{
 use futures_concurrency::future::FutureGroup;
 use futures_lite::{StreamExt, future};
 use lumen_html::NodeId;
-use lumen_platform::{ResourceRequest, Url};
 use lumen_platform::USER_AGENT;
+use lumen_platform::{ResourceRequest, Url};
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::Path;
@@ -2780,7 +2780,11 @@ fn console_log(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
 /// console.error every frame must not flood the terminal. With
 /// `LUMEN_JS_TRACE=1` the top JS stack frames print too (diagnosing
 /// which script is erroring on real sites).
-fn console_error_log(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+fn console_error_log(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
     let message = console_message(args, context);
     match tally_error(&message) {
         ErrorReport::Print => eprintln!("[js] {message}"),

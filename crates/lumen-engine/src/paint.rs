@@ -45,7 +45,8 @@ pub enum DisplayCommand {
         font_weight: u16,
         underline: bool,
         italic: bool,
-        monospace: bool,
+        /// The face to draw with (see [`crate::text::FontFamilies`]).
+        families: crate::text::FontFamilies,
         /// Struck through (`text-decoration: line-through`).
         line_through: bool,
         /// Extra advance per character, px.
@@ -706,7 +707,7 @@ fn paint_box(
                                 font_weight: style.font_weight.0,
                                 underline: false,
                                 italic: style.italic,
-                                monospace: style.monospace,
+                                families: style.font_family.clone(),
                                 line_through: false,
                                 letter_spacing: style.letter_spacing,
                                 decoration_color: fade(shadow.color),
@@ -722,7 +723,7 @@ fn paint_box(
                             font_weight: style.font_weight.0,
                             underline: style.underline,
                             italic: style.italic,
-                            monospace: style.monospace,
+                            families: style.font_family.clone(),
                             line_through: style.line_through,
                             letter_spacing: style.letter_spacing,
                             decoration_color: fade(
@@ -957,17 +958,16 @@ pub fn dump_display_list(commands: &[DisplayCommand]) -> String {
                 font_weight,
                 underline,
                 italic,
-                monospace,
+                families,
                 line_through,
                 ..
             } => {
                 let strike = if *line_through { " line-through" } else { "" };
                 let decoration = if *underline { " underline" } else { "" };
                 let slant = if *italic { " italic" } else { "" };
-                let face = if *monospace { " mono" } else { "" };
                 let _ = writeln!(
                     output,
-                    "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color}{decoration}{strike}{slant}{face} {text:?}"
+                    "DrawText x={x} y={y} size={font_size} weight={font_weight} color={color}{decoration}{strike}{slant} family={families} {text:?}"
                 );
             }
             DisplayCommand::DrawImage { rect, image, alpha } => {

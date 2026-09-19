@@ -2741,7 +2741,10 @@ mod tests {
         session.note_rasterized();
         session.tick(0.0);
         let RepaintDamage::Region(Some(rect)) = session.repaint_damage() else {
-            panic!("expected regional damage, got {:?}", session.repaint_damage());
+            panic!(
+                "expected regional damage, got {:?}",
+                session.repaint_damage()
+            );
         };
         let page = session.page().unwrap();
         let node = page.document.get_element_by_id("k").unwrap();

@@ -5,7 +5,7 @@
 use lumen_engine::font::SystemFont;
 use lumen_engine::paint::{DisplayCommand, GradientKind};
 use lumen_engine::style::{BorderStyle, Mark, Transform2D};
-use lumen_engine::{Corners, EdgeSizes, Rect, RasterImage};
+use lumen_engine::{Corners, EdgeSizes, RasterImage, Rect};
 use lumen_gpu::GpuRenderer;
 
 fn gpu() -> Option<GpuRenderer> {
@@ -13,7 +13,10 @@ fn gpu() -> Option<GpuRenderer> {
 }
 
 fn fixture_font() -> Option<SystemFont> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../lumen-engine/tests/fixtures/lato.woff2");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../lumen-engine/tests/fixtures/lato.woff2"
+    );
     SystemFont::from_bytes(&std::fs::read(path).ok()?)
 }
 
@@ -52,11 +55,7 @@ fn diff(gpu_rgba: &[u8], cpu: &lumen_engine::Framebuffer) -> Diff {
     let mut bad = 0u64;
     let mut worst = 0u32;
     for (index, pixel) in cpu.pixels.iter().enumerate() {
-        let channels = [
-            (pixel >> 16) & 0xff,
-            (pixel >> 8) & 0xff,
-            pixel & 0xff,
-        ];
+        let channels = [(pixel >> 16) & 0xff, (pixel >> 8) & 0xff, pixel & 0xff];
         let mut pixel_worst = 0u32;
         for (channel, expected) in channels.iter().enumerate() {
             let actual = u32::from(gpu_rgba[index * 4 + channel]);
@@ -97,8 +96,15 @@ fn assert_parity(
     else {
         return;
     };
-    let cpu =
-        lumen_engine::rasterize_with_fixed_origin(commands, width, height, scroll_y, fixed_origin, 1.0, font);
+    let cpu = lumen_engine::rasterize_with_fixed_origin(
+        commands,
+        width,
+        height,
+        scroll_y,
+        fixed_origin,
+        1.0,
+        font,
+    );
     let diff = diff(&rgba, &cpu);
     assert!(
         diff.mean <= max_mean && diff.bad_fraction <= max_bad_fraction,
@@ -225,7 +231,7 @@ fn text_parity() {
             font_weight: 400,
             underline: true,
             italic: false,
-            monospace: false,
+            families: lumen_engine::families::sans_serif(),
             line_through: false,
             letter_spacing: 0.0,
             decoration_color: rgb(0xcc3333),
@@ -240,7 +246,7 @@ fn text_parity() {
             font_weight: 700,
             underline: false,
             italic: false,
-            monospace: false,
+            families: lumen_engine::families::sans_serif(),
             line_through: true,
             letter_spacing: 1.5,
             decoration_color: rgb(0x333399),
@@ -367,7 +373,7 @@ fn rotated_transform_hybrid_parity() {
             font_weight: 400,
             underline: false,
             italic: false,
-            monospace: false,
+            families: lumen_engine::families::sans_serif(),
             line_through: false,
             letter_spacing: 0.0,
             decoration_color: rgb(0xffffff),
@@ -491,7 +497,7 @@ fn composite_parity() {
             font_weight: 600,
             underline: false,
             italic: false,
-            monospace: false,
+            families: lumen_engine::families::sans_serif(),
             line_through: false,
             letter_spacing: 0.0,
             decoration_color: rgb(0xffffff),
@@ -520,7 +526,7 @@ fn composite_parity() {
             font_weight: 400,
             underline: false,
             italic: false,
-            monospace: false,
+            families: lumen_engine::families::sans_serif(),
             line_through: false,
             letter_spacing: 0.0,
             decoration_color: rgb(0x232019),

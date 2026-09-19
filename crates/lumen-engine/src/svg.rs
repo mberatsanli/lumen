@@ -350,7 +350,7 @@ pub fn render_svg(page: &Page) -> String {
                 font_weight,
                 underline,
                 italic,
-                monospace,
+                families,
                 line_through,
                 letter_spacing,
                 ..
@@ -371,11 +371,7 @@ pub fn render_svg(page: &Page) -> String {
                 } else {
                     ""
                 };
-                let family = if *monospace {
-                    "ui-monospace, Menlo, monospace"
-                } else {
-                    "system-ui, sans-serif"
-                };
+                let family = escape_xml(&families.replace(',', ", "));
                 let _ = writeln!(
                     svg,
                     "<text x=\"{x}\" y=\"{y}\" fill=\"{color}\" font-family=\"{family}\" font-size=\"{font_size}\" font-weight=\"{font_weight}\"{decoration}{slant}{spacing}>{}</text>",

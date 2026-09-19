@@ -336,8 +336,8 @@ impl Walk<'_> {
         let (width, height) = self.size;
         let x0 = ((bounds.x * scale).floor() as i32 - 2).clamp(0, width as i32) as u32;
         let y0 = (((bounds.y - scroll) * scale).floor() as i32 - 2).clamp(0, height as i32) as u32;
-        let x1 = (((bounds.x + bounds.width) * scale).ceil() as i32 + 2).clamp(0, width as i32)
-            as u32;
+        let x1 =
+            (((bounds.x + bounds.width) * scale).ceil() as i32 + 2).clamp(0, width as i32) as u32;
         let y1 = (((bounds.y + bounds.height - scroll) * scale).ceil() as i32 + 2)
             .clamp(0, height as i32) as u32;
         if x1 <= x0 || y1 <= y0 {
@@ -391,13 +391,7 @@ impl Walk<'_> {
             for column in 0..region_width {
                 let over_white = white.pixel(x0 + column, y0 + row);
                 let over_black = black.pixel(x0 + column, y0 + row);
-                let split = |pixel: u32| {
-                    (
-                        (pixel >> 16) & 0xff,
-                        (pixel >> 8) & 0xff,
-                        pixel & 0xff,
-                    )
-                };
+                let split = |pixel: u32| ((pixel >> 16) & 0xff, (pixel >> 8) & 0xff, pixel & 0xff);
                 let (wr, wg, wb) = split(over_white);
                 let (br, bg, bb) = split(over_black);
                 let diff = (wr as i32 - br as i32)
@@ -416,8 +410,7 @@ impl Walk<'_> {
                 rgba[at + 3] = alpha as u8;
             }
         }
-        let Some((slot, texture)) = self.renderer.hybrid_slot(region_width, region_height)
-        else {
+        let Some((slot, texture)) = self.renderer.hybrid_slot(region_width, region_height) else {
             return false;
         };
         self.renderer.queue.write_texture(
@@ -465,7 +458,11 @@ impl Walk<'_> {
     }
 
     fn current_scissor(&self) -> (u32, u32, u32, u32) {
-        let (x0, y0, x1, y1) = self.clips.last().copied().unwrap_or((0, 0, self.size.0, self.size.1));
+        let (x0, y0, x1, y1) =
+            self.clips
+                .last()
+                .copied()
+                .unwrap_or((0, 0, self.size.0, self.size.1));
         (
             x0.min(self.size.0),
             y0.min(self.size.1),
@@ -558,7 +555,8 @@ impl Walk<'_> {
                 if radius.is_zero() {
                     self.solid(draws, rect, *color);
                 } else {
-                    let radii = radius.clamped_to(rect.width / self.scale, rect.height / self.scale);
+                    let radii =
+                        radius.clamped_to(rect.width / self.scale, rect.height / self.scale);
                     let mut instance =
                         Instance::new(KIND_SOLID, rect_floats(rect), color_floats(*color));
                     instance.radii = radii_floats(&radii, self.scale);
@@ -575,7 +573,8 @@ impl Walk<'_> {
                 let rect = self.shift(rect);
                 if !radius.is_zero() {
                     let width = (widths.top.max(widths.left) * self.scale).max(1.0);
-                    let radii = radius.clamped_to(rect.width / self.scale, rect.height / self.scale);
+                    let radii =
+                        radius.clamped_to(rect.width / self.scale, rect.height / self.scale);
                     let mut instance =
                         Instance::new(KIND_RING, rect_floats(rect), color_floats(colors.top));
                     instance.radii = radii_floats(&radii, self.scale);
@@ -718,7 +717,7 @@ impl Walk<'_> {
                 font_weight,
                 underline,
                 italic,
-                monospace,
+                families,
                 line_through,
                 letter_spacing,
                 decoration_color,
@@ -733,7 +732,7 @@ impl Walk<'_> {
                     *font_size,
                     *font_weight,
                     *italic,
-                    *monospace,
+                    families,
                     *letter_spacing,
                 );
                 let text_width = self.last_text_width;
@@ -786,12 +785,7 @@ impl Walk<'_> {
         if x1 <= x0 || y1 <= y0 {
             return;
         }
-        let snapped = [
-            x0 as f32,
-            y0 as f32,
-            (x1 - x0) as f32,
-            (y1 - y0) as f32,
-        ];
+        let snapped = [x0 as f32, y0 as f32, (x1 - x0) as f32, (y1 - y0) as f32];
         self.push(
             draws,
             Aux::None,
@@ -809,7 +803,11 @@ impl Walk<'_> {
         style: BorderStyle,
         horizontal: bool,
     ) {
-        let thickness = if horizontal { strip.height } else { strip.width };
+        let thickness = if horizontal {
+            strip.height
+        } else {
+            strip.width
+        };
         if thickness <= 0.0 {
             return;
         }
@@ -821,7 +819,11 @@ impl Walk<'_> {
                 return;
             }
         };
-        let length = if horizontal { strip.width } else { strip.height };
+        let length = if horizontal {
+            strip.width
+        } else {
+            strip.height
+        };
         let mut offset = 0.0;
         while offset < length {
             let segment = dash.min(length - offset);
@@ -856,7 +858,7 @@ impl Walk<'_> {
         font_size: f32,
         font_weight: u16,
         italic: bool,
-        monospace: bool,
+        families: &lumen_engine::FontFamilies,
         letter_spacing: f32,
     ) {
         let Some(font) = self.font else {
@@ -882,17 +884,25 @@ impl Walk<'_> {
             font_size * text_scale * self.scale,
         );
         let letter_spacing = letter_spacing * text_scale * self.scale;
-        let shear = if italic { 0.21 } else { 0.0 };
+        let face = lumen_engine::FaceKey {
+            families: families.clone(),
+            weight: font_weight,
+            italic,
+        };
+        // A real italic face is already slanted; only fake it when the
+        // family has none installed.
+        let shear = if italic && font.synthesizes_italic(&face) {
+            0.21
+        } else {
+            0.0
+        };
         let bold = font_weight >= 600;
         let mut pen_x = x;
         for character in text.chars() {
-            let slot = self.renderer.atlas.entry(
-                &self.renderer.queue,
-                font,
-                character,
-                font_size,
-                monospace,
-            );
+            let slot =
+                self.renderer
+                    .atlas
+                    .entry(&self.renderer.queue, font, character, font_size, &face);
             if let Some(slot) = slot {
                 if slot.width > 0 && slot.height > 0 {
                     // The CPU truncates the fractional origin, so snap the
@@ -925,9 +935,16 @@ impl Walk<'_> {
     fn mark(&mut self, draws: &mut Vec<Draw>, rect: &Rect, color: lumen_css::Color, mark: Mark) {
         match mark {
             Mark::Check => {
-                let point = |fx: f32, fy: f32| (rect.x + rect.width * fx, rect.y + rect.height * fy);
+                let point =
+                    |fx: f32, fy: f32| (rect.x + rect.width * fx, rect.y + rect.height * fy);
                 let thickness = (rect.width.min(rect.height) * 0.16).max(1.4);
-                self.segment(draws, point(0.24, 0.55), point(0.43, 0.74), thickness, color);
+                self.segment(
+                    draws,
+                    point(0.24, 0.55),
+                    point(0.43, 0.74),
+                    thickness,
+                    color,
+                );
                 self.segment(draws, point(0.43, 0.74), point(0.78, 0.3), thickness, color);
             }
             Mark::Dot => {
@@ -1057,11 +1074,9 @@ fn page_bounds(
             Some(existing) => Rect {
                 x: existing.x.min(mapped.x),
                 y: existing.y.min(mapped.y),
-                width: (existing.x + existing.width)
-                    .max(mapped.x + mapped.width)
+                width: (existing.x + existing.width).max(mapped.x + mapped.width)
                     - existing.x.min(mapped.x),
-                height: (existing.y + existing.height)
-                    .max(mapped.y + mapped.height)
+                height: (existing.y + existing.height).max(mapped.y + mapped.height)
                     - existing.y.min(mapped.y),
             },
             None => mapped,
@@ -1097,14 +1112,21 @@ fn page_bounds(
                 text,
                 font_size,
                 letter_spacing,
-                monospace,
+                families,
+                font_weight,
+                italic,
                 ..
             } => {
                 let font = font?;
+                let face = lumen_engine::FaceKey {
+                    families: families.clone(),
+                    weight: *font_weight,
+                    italic: *italic,
+                };
                 let advance: f32 = text
                     .chars()
                     .map(|character| {
-                        font.rasterize(character, *font_size, *monospace)
+                        font.rasterize(character, *font_size, &face)
                             .metrics
                             .advance_width
                             + letter_spacing
@@ -1142,14 +1164,21 @@ fn page_bounds(
 
 /// The bounding box of a rect under a transform (exact for the
 /// axis-aligned matrices that reach the GPU path).
-fn map_rect(rect: &Rect, matrix: &Transform2D) -> Rect {    let corners = [
+fn map_rect(rect: &Rect, matrix: &Transform2D) -> Rect {
+    let corners = [
         matrix.apply(rect.x, rect.y),
         matrix.apply(rect.x + rect.width, rect.y),
         matrix.apply(rect.x, rect.y + rect.height),
         matrix.apply(rect.x + rect.width, rect.y + rect.height),
     ];
-    let min_x = corners.iter().map(|(x, _)| *x).fold(f32::INFINITY, f32::min);
-    let min_y = corners.iter().map(|(_, y)| *y).fold(f32::INFINITY, f32::min);
+    let min_x = corners
+        .iter()
+        .map(|(x, _)| *x)
+        .fold(f32::INFINITY, f32::min);
+    let min_y = corners
+        .iter()
+        .map(|(_, y)| *y)
+        .fold(f32::INFINITY, f32::min);
     let max_x = corners
         .iter()
         .map(|(x, _)| *x)

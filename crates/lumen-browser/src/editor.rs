@@ -449,7 +449,8 @@ impl<L: ResourceLoader> Session<L> {
         Some(TextStyle {
             font_size: style.font_size,
             font_weight: style.font_weight,
-            monospace: style.monospace,
+            families: style.font_family.clone(),
+            italic: style.italic,
             letter_spacing: style.letter_spacing,
         })
     }

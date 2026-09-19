@@ -502,12 +502,17 @@ fn rasterize_clipped(
                 font_weight,
                 underline,
                 italic,
-                monospace,
+                families,
                 line_through,
                 letter_spacing,
                 decoration_color,
                 decoration_style,
             } => {
+                let face = crate::text::FaceKey {
+                    families: families.clone(),
+                    weight: *font_weight,
+                    italic: *italic,
+                };
                 // Rotated/skewed text: draw glyphs through the matrix.
                 if let (Some(matrix), Some(font)) = (current, font)
                     && !(matrix.b.abs() < 1e-6 && matrix.c.abs() < 1e-6)
@@ -525,7 +530,7 @@ fn rasterize_clipped(
                         color.a,
                         *font_size,
                         *font_weight,
-                        *monospace,
+                        &face,
                         *letter_spacing,
                     );
                     continue;
@@ -552,7 +557,13 @@ fn rasterize_clipped(
                 let letter_spacing = letter_spacing * text_scale * scale;
                 let packed = pack(*color);
                 let text_alpha = color.a;
-                let shear = if *italic { 0.21 } else { 0.0 };
+                // A real italic face is already slanted; only fake it
+                // when the family has none installed.
+                let shear = if *italic && font.is_none_or(|font| font.synthesizes_italic(&face)) {
+                    0.21
+                } else {
+                    0.0
+                };
                 let text_width = match font {
                     Some(font) => draw_text_scalable(
                         framebuffer,
@@ -565,7 +576,7 @@ fn rasterize_clipped(
                         font_size,
                         *font_weight,
                         shear,
-                        *monospace,
+                        &face,
                         letter_spacing,
                     ),
                     None => draw_text(
@@ -719,13 +730,13 @@ fn draw_text_scalable(
     font_size: f32,
     font_weight: u16,
     shear: f32,
-    monospace: bool,
+    face: &crate::text::FaceKey,
     letter_spacing: f32,
 ) -> f32 {
     let mut pen_x = x;
     let bold = font_weight >= 600;
     for character in text.chars() {
-        let glyph = font.rasterize(character, font_size, monospace);
+        let glyph = font.rasterize(character, font_size, face);
         let glyph_x = pen_x + glyph.metrics.xmin as f32;
         let glyph_y = y - glyph.metrics.ymin as f32 - glyph.metrics.height as f32;
         blend_glyph(
@@ -990,7 +1001,7 @@ fn draw_text_transformed(
     alpha_multiplier: u8,
     font_size: f32,
     font_weight: u16,
-    monospace: bool,
+    face: &crate::text::FaceKey,
     letter_spacing: f32,
 ) {
     let Some(inverse) = matrix.inverse() else {
@@ -1000,7 +1011,7 @@ fn draw_text_transformed(
     let bold = font_weight >= 600;
     let mut pen = x_local; // page units along the local baseline
     for character in text.chars() {
-        let glyph = font.rasterize(character, device_size, monospace);
+        let glyph = font.rasterize(character, device_size, face);
         let width = glyph.metrics.width;
         let height = glyph.metrics.height;
         if width > 0 && height > 0 {
@@ -2071,7 +2082,7 @@ mod tests {
             font_weight: 400,
             underline: false,
             italic: false,
-            monospace: false,
+            families: crate::text::families::sans_serif(),
             line_through: false,
             letter_spacing: 0.0,
             decoration_color: Color::rgb(0, 0, 0),

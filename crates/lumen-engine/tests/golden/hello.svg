@@ -2,6 +2,6 @@
 <rect width="100%" height="100%" fill="white"/>
 <rect x="0" y="0" width="1024" height="768" fill="#fafafa"/>
 <rect x="8" y="8" width="1008" height="174.08" fill="#fafafa"/>
-<text x="32" y="85.44" fill="#7c3aed" font-family="system-ui, sans-serif" font-size="32" font-weight="700">Hello from Lumen</text>
-<text x="32" y="135.68001" fill="#000000" font-family="system-ui, sans-serif" font-size="16" font-weight="400">This is a minimal rendering test.</text>
+<text x="32" y="85.44" fill="#7c3aed" font-family="serif" font-size="32" font-weight="700">Hello from Lumen</text>
+<text x="32" y="135.68001" fill="#000000" font-family="serif" font-size="16" font-weight="400">This is a minimal rendering test.</text>
 </svg>

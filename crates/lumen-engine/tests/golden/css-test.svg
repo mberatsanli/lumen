@@ -2,124 +2,124 @@
 <rect width="100%" height="100%" fill="white"/>
 <rect x="0" y="0" width="1024" height="5502.3984" fill="#f4f5f7"/>
 <rect x="0" y="0" width="1024" height="5502.3984" fill="#f4f5f7"/>
-<text x="24" y="48" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="24" font-weight="700">Lumen CSS Test Panosu</text>
-<text x="24" y="74.6" fill="#5a6068" font-family="system-ui, sans-serif" font-size="13" font-weight="400">Motorun desteklediği tüm CSS özellik aileleri — her kart bir özelliği görsel olarak gösterir.</text>
+<text x="24" y="48" fill="#1c1e21" font-family="serif" font-size="24" font-weight="700">Lumen CSS Test Panosu</text>
+<text x="24" y="74.6" fill="#5a6068" font-family="serif" font-size="13" font-weight="400">Motorun desteklediği tüm CSS özellik aileleri — her kart bir özelliği görsel olarak gösterir.</text>
 <rect x="24" y="131.59999" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="120.799995" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Renkler</text>
+<text x="24" y="120.799995" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Renkler</text>
 <path d="M 32 143.59999 H 332 A 8 8 0 0 1 340 151.59999 V 219.19998 A 8 8 0 0 1 332 227.19998 H 32 A 8 8 0 0 1 24 219.19998 V 151.59999 A 8 8 0 0 1 32 143.59999 Z" fill="#ffffff"/>
 <path d="M 32 143.59999 H 332 A 8 8 0 0 1 340 151.59999 V 219.19998 A 8 8 0 0 1 332 227.19998 H 32 A 8 8 0 0 1 24 219.19998 V 151.59999 A 8 8 0 0 1 32 143.59999 Z M 32 144.59999 H 332 A 7 7 0 0 1 339 151.59999 V 219.19998 A 7 7 0 0 1 332 226.19998 H 32 A 7 7 0 0 1 25 219.19998 V 151.59999 A 7 7 0 0 1 32 144.59999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="167.59999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">hex (#2f6fdd)</text>
+<text x="37" y="167.59999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">hex (#2f6fdd)</text>
 <path d="M 41 180 H 323 A 4 4 0 0 1 327 184 V 210.2 A 4 4 0 0 1 323 214.2 H 41 A 4 4 0 0 1 37 210.2 V 184 A 4 4 0 0 1 41 180 Z" fill="#2f6fdd"/>
-<text x="45" y="201" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">hex renk</text>
+<text x="45" y="201" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">hex renk</text>
 <path d="M 362 143.59999 H 662 A 8 8 0 0 1 670 151.59999 V 219.19998 A 8 8 0 0 1 662 227.19998 H 362 A 8 8 0 0 1 354 219.19998 V 151.59999 A 8 8 0 0 1 362 143.59999 Z" fill="#ffffff"/>
 <path d="M 362 143.59999 H 662 A 8 8 0 0 1 670 151.59999 V 219.19998 A 8 8 0 0 1 662 227.19998 H 362 A 8 8 0 0 1 354 219.19998 V 151.59999 A 8 8 0 0 1 362 143.59999 Z M 362 144.59999 H 662 A 7 7 0 0 1 669 151.59999 V 219.19998 A 7 7 0 0 1 662 226.19998 H 362 A 7 7 0 0 1 355 219.19998 V 151.59999 A 7 7 0 0 1 362 144.59999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="167.59999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">hex + alpha (#2f6fdd80)</text>
+<text x="367" y="167.59999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">hex + alpha (#2f6fdd80)</text>
 <path d="M 371 180 H 653 A 4 4 0 0 1 657 184 V 210.2 A 4 4 0 0 1 653 214.2 H 371 A 4 4 0 0 1 367 210.2 V 184 A 4 4 0 0 1 371 180 Z" fill="rgba(47,111,221,0.502)"/>
-<text x="375" y="201" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="13" font-weight="400">8 haneli hex</text>
+<text x="375" y="201" fill="#1c1e21" font-family="serif" font-size="13" font-weight="400">8 haneli hex</text>
 <path d="M 692 143.59999 H 992 A 8 8 0 0 1 1000 151.59999 V 219.19998 A 8 8 0 0 1 992 227.19998 H 692 A 8 8 0 0 1 684 219.19998 V 151.59999 A 8 8 0 0 1 692 143.59999 Z" fill="#ffffff"/>
 <path d="M 692 143.59999 H 992 A 8 8 0 0 1 1000 151.59999 V 219.19998 A 8 8 0 0 1 992 227.19998 H 692 A 8 8 0 0 1 684 219.19998 V 151.59999 A 8 8 0 0 1 692 143.59999 Z M 692 144.59999 H 992 A 7 7 0 0 1 999 151.59999 V 219.19998 A 7 7 0 0 1 992 226.19998 H 692 A 7 7 0 0 1 685 219.19998 V 151.59999 A 7 7 0 0 1 692 144.59999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="167.59999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">rgb(46, 160, 67)</text>
+<text x="697" y="167.59999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">rgb(46, 160, 67)</text>
 <path d="M 701 180 H 983 A 4 4 0 0 1 987 184 V 210.2 A 4 4 0 0 1 983 214.2 H 701 A 4 4 0 0 1 697 210.2 V 184 A 4 4 0 0 1 701 180 Z" fill="#2ea043"/>
-<text x="705" y="201" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">rgb()</text>
+<text x="705" y="201" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">rgb()</text>
 <path d="M 32 241.19998 H 332 A 8 8 0 0 1 340 249.19998 V 316.8 A 8 8 0 0 1 332 324.8 H 32 A 8 8 0 0 1 24 316.8 V 249.19998 A 8 8 0 0 1 32 241.19998 Z" fill="#ffffff"/>
 <path d="M 32 241.19998 H 332 A 8 8 0 0 1 340 249.19998 V 316.8 A 8 8 0 0 1 332 324.8 H 32 A 8 8 0 0 1 24 316.8 V 249.19998 A 8 8 0 0 1 32 241.19998 Z M 32 242.19998 H 332 A 7 7 0 0 1 339 249.19998 V 316.8 A 7 7 0 0 1 332 323.8 H 32 A 7 7 0 0 1 25 316.8 V 249.19998 A 7 7 0 0 1 32 242.19998 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="265.19998" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">rgb(90%, 20%, 20%)</text>
+<text x="37" y="265.19998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">rgb(90%, 20%, 20%)</text>
 <path d="M 41 277.59998 H 323 A 4 4 0 0 1 327 281.59998 V 307.8 A 4 4 0 0 1 323 311.8 H 41 A 4 4 0 0 1 37 307.8 V 281.59998 A 4 4 0 0 1 41 277.59998 Z" fill="#e63333"/>
-<text x="45" y="298.59998" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">yüzde kanallı rgb</text>
+<text x="45" y="298.59998" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">yüzde kanallı rgb</text>
 <path d="M 362 241.19998 H 662 A 8 8 0 0 1 670 249.19998 V 316.8 A 8 8 0 0 1 662 324.8 H 362 A 8 8 0 0 1 354 316.8 V 249.19998 A 8 8 0 0 1 362 241.19998 Z" fill="#ffffff"/>
 <path d="M 362 241.19998 H 662 A 8 8 0 0 1 670 249.19998 V 316.8 A 8 8 0 0 1 662 324.8 H 362 A 8 8 0 0 1 354 316.8 V 249.19998 A 8 8 0 0 1 362 241.19998 Z M 362 242.19998 H 662 A 7 7 0 0 1 669 249.19998 V 316.8 A 7 7 0 0 1 662 323.8 H 362 A 7 7 0 0 1 355 316.8 V 249.19998 A 7 7 0 0 1 362 242.19998 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="265.19998" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">rgba(..., 0.4)</text>
+<text x="367" y="265.19998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">rgba(..., 0.4)</text>
 <path d="M 371 277.59998 H 653 A 4 4 0 0 1 657 281.59998 V 307.8 A 4 4 0 0 1 653 311.8 H 371 A 4 4 0 0 1 367 307.8 V 281.59998 A 4 4 0 0 1 371 277.59998 Z" fill="rgba(46,160,67,0.400)"/>
-<text x="375" y="298.59998" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="13" font-weight="400">alfa kanallı</text>
+<text x="375" y="298.59998" fill="#1c1e21" font-family="serif" font-size="13" font-weight="400">alfa kanallı</text>
 <path d="M 692 241.19998 H 992 A 8 8 0 0 1 1000 249.19998 V 316.8 A 8 8 0 0 1 992 324.8 H 692 A 8 8 0 0 1 684 316.8 V 249.19998 A 8 8 0 0 1 692 241.19998 Z" fill="#ffffff"/>
 <path d="M 692 241.19998 H 992 A 8 8 0 0 1 1000 249.19998 V 316.8 A 8 8 0 0 1 992 324.8 H 692 A 8 8 0 0 1 684 316.8 V 249.19998 A 8 8 0 0 1 692 241.19998 Z M 692 242.19998 H 992 A 7 7 0 0 1 999 249.19998 V 316.8 A 7 7 0 0 1 992 323.8 H 692 A 7 7 0 0 1 685 316.8 V 249.19998 A 7 7 0 0 1 692 242.19998 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="265.19998" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">hsl(265, 60%, 55%)</text>
+<text x="697" y="265.19998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">hsl(265, 60%, 55%)</text>
 <path d="M 701 277.59998 H 983 A 4 4 0 0 1 987 281.59998 V 307.8 A 4 4 0 0 1 983 311.8 H 701 A 4 4 0 0 1 697 307.8 V 281.59998 A 4 4 0 0 1 701 277.59998 Z" fill="#8147d1"/>
-<text x="705" y="298.59998" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">hsl()</text>
+<text x="705" y="298.59998" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">hsl()</text>
 <path d="M 32 338.8 H 332 A 8 8 0 0 1 340 346.8 V 414.4 A 8 8 0 0 1 332 422.4 H 32 A 8 8 0 0 1 24 414.4 V 346.8 A 8 8 0 0 1 32 338.8 Z" fill="#ffffff"/>
 <path d="M 32 338.8 H 332 A 8 8 0 0 1 340 346.8 V 414.4 A 8 8 0 0 1 332 422.4 H 32 A 8 8 0 0 1 24 414.4 V 346.8 A 8 8 0 0 1 32 338.8 Z M 32 339.8 H 332 A 7 7 0 0 1 339 346.8 V 414.4 A 7 7 0 0 1 332 421.4 H 32 A 7 7 0 0 1 25 414.4 V 346.8 A 7 7 0 0 1 32 339.8 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="362.8" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">hsl(150 70% 40% / 0.85)</text>
+<text x="37" y="362.8" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">hsl(150 70% 40% / 0.85)</text>
 <path d="M 41 375.19998 H 323 A 4 4 0 0 1 327 379.19998 V 405.39996 A 4 4 0 0 1 323 409.39996 H 41 A 4 4 0 0 1 37 405.39996 V 379.19998 A 4 4 0 0 1 41 375.19998 Z" fill="rgba(31,173,102,0.851)"/>
-<text x="45" y="396.19998" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">modern hsl sözdizimi</text>
+<text x="45" y="396.19998" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">modern hsl sözdizimi</text>
 <rect x="24" y="478.19995" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="467.39996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Arkaplanlar</text>
+<text x="24" y="467.39996" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Arkaplanlar</text>
 <path d="M 32 490.19995 H 332 A 8 8 0 0 1 340 498.19995 V 567.7999 A 8 8 0 0 1 332 575.7999 H 32 A 8 8 0 0 1 24 567.7999 V 498.19995 A 8 8 0 0 1 32 490.19995 Z" fill="#ffffff"/>
 <path d="M 32 490.19995 H 332 A 8 8 0 0 1 340 498.19995 V 567.7999 A 8 8 0 0 1 332 575.7999 H 32 A 8 8 0 0 1 24 567.7999 V 498.19995 A 8 8 0 0 1 32 490.19995 Z M 32 491.19995 H 332 A 7 7 0 0 1 339 498.19995 V 567.7999 A 7 7 0 0 1 332 574.7999 H 32 A 7 7 0 0 1 25 567.7999 V 498.19995 A 7 7 0 0 1 32 491.19995 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="514.19995" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">background-color</text>
+<text x="37" y="514.19995" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">background-color</text>
 <path d="M 41 526.6 H 323 A 4 4 0 0 1 327 530.6 V 558.8 A 4 4 0 0 1 323 562.8 H 41 A 4 4 0 0 1 37 558.8 V 530.6 A 4 4 0 0 1 41 526.6 Z" fill="#fff3cd"/>
 <path d="M 41 526.6 H 323 A 4 4 0 0 1 327 530.6 V 558.8 A 4 4 0 0 1 323 562.8 H 41 A 4 4 0 0 1 37 558.8 V 530.6 A 4 4 0 0 1 41 526.6 Z M 41 527.6 H 323 A 3 3 0 0 1 326 530.6 V 558.8 A 3 3 0 0 1 323 561.8 H 41 A 3 3 0 0 1 38 558.8 V 530.6 A 3 3 0 0 1 41 527.6 Z" fill="#e0c060" fill-rule="evenodd"/>
-<text x="46" y="548.6" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="13" font-weight="400">düz renk</text>
+<text x="46" y="548.6" fill="#1c1e21" font-family="serif" font-size="13" font-weight="400">düz renk</text>
 <path d="M 362 490.19995 H 662 A 8 8 0 0 1 670 498.19995 V 565.7999 A 8 8 0 0 1 662 573.7999 H 362 A 8 8 0 0 1 354 565.7999 V 498.19995 A 8 8 0 0 1 362 490.19995 Z" fill="#ffffff"/>
 <path d="M 362 490.19995 H 662 A 8 8 0 0 1 670 498.19995 V 565.7999 A 8 8 0 0 1 662 573.7999 H 362 A 8 8 0 0 1 354 565.7999 V 498.19995 A 8 8 0 0 1 362 490.19995 Z M 362 491.19995 H 662 A 7 7 0 0 1 669 498.19995 V 565.7999 A 7 7 0 0 1 662 572.7999 H 362 A 7 7 0 0 1 355 565.7999 V 498.19995 A 7 7 0 0 1 362 491.19995 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="514.19995" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">linear-gradient(90deg, ...)</text>
+<text x="367" y="514.19995" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">linear-gradient(90deg, ...)</text>
 <linearGradient id="gradient0" x1="0.0000" y1="0.5000" x2="1.0000" y2="0.5000"><stop offset="0.0000" stop-color="#ff8a00"/><stop offset="1.0000" stop-color="#e52e71"/></linearGradient>
 <path d="M 371 526.6 H 653 A 4 4 0 0 1 657 530.6 V 556.8 A 4 4 0 0 1 653 560.8 H 371 A 4 4 0 0 1 367 556.8 V 530.6 A 4 4 0 0 1 371 526.6 Z" fill="url(#gradient0)"/>
-<text x="375" y="547.6" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">doğrusal geçiş</text>
+<text x="375" y="547.6" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">doğrusal geçiş</text>
 <path d="M 692 490.19995 H 992 A 8 8 0 0 1 1000 498.19995 V 565.7999 A 8 8 0 0 1 992 573.7999 H 692 A 8 8 0 0 1 684 565.7999 V 498.19995 A 8 8 0 0 1 692 490.19995 Z" fill="#ffffff"/>
 <path d="M 692 490.19995 H 992 A 8 8 0 0 1 1000 498.19995 V 565.7999 A 8 8 0 0 1 992 573.7999 H 692 A 8 8 0 0 1 684 565.7999 V 498.19995 A 8 8 0 0 1 692 490.19995 Z M 692 491.19995 H 992 A 7 7 0 0 1 999 498.19995 V 565.7999 A 7 7 0 0 1 992 572.7999 H 692 A 7 7 0 0 1 685 565.7999 V 498.19995 A 7 7 0 0 1 692 491.19995 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="514.19995" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">radial-gradient(...)</text>
+<text x="697" y="514.19995" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">radial-gradient(...)</text>
 <radialGradient id="gradient1" cx="0.5" cy="0.5" r="0.5"><stop offset="0.0000" stop-color="#ffe259"/><stop offset="1.0000" stop-color="#ffa751"/></radialGradient>
 <path d="M 701 526.6 H 983 A 4 4 0 0 1 987 530.6 V 556.8 A 4 4 0 0 1 983 560.8 H 701 A 4 4 0 0 1 697 556.8 V 530.6 A 4 4 0 0 1 701 526.6 Z" fill="url(#gradient1)"/>
-<text x="705" y="547.6" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="13" font-weight="400">radyal geçiş</text>
+<text x="705" y="547.6" fill="#1c1e21" font-family="serif" font-size="13" font-weight="400">radyal geçiş</text>
 <path d="M 32 589.7999 H 332 A 8 8 0 0 1 340 597.7999 V 665.3999 A 8 8 0 0 1 332 673.3999 H 32 A 8 8 0 0 1 24 665.3999 V 597.7999 A 8 8 0 0 1 32 589.7999 Z" fill="#ffffff"/>
 <path d="M 32 589.7999 H 332 A 8 8 0 0 1 340 597.7999 V 665.3999 A 8 8 0 0 1 332 673.3999 H 32 A 8 8 0 0 1 24 665.3999 V 597.7999 A 8 8 0 0 1 32 589.7999 Z M 32 590.7999 H 332 A 7 7 0 0 1 339 597.7999 V 665.3999 A 7 7 0 0 1 332 672.3999 H 32 A 7 7 0 0 1 25 665.3999 V 597.7999 A 7 7 0 0 1 32 590.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="613.7999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">conic-gradient(...)</text>
+<text x="37" y="613.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">conic-gradient(...)</text>
 <radialGradient id="gradient2" cx="0.5" cy="0.5" r="0.5"><stop offset="0.0000" stop-color="#ff8a00"/><stop offset="0.3333" stop-color="#e52e71"/><stop offset="0.6667" stop-color="#2f6fdd"/><stop offset="1.0000" stop-color="#ff8a00"/></radialGradient>
 <path d="M 41 626.19995 H 323 A 4 4 0 0 1 327 630.19995 V 656.39996 A 4 4 0 0 1 323 660.39996 H 41 A 4 4 0 0 1 37 656.39996 V 630.19995 A 4 4 0 0 1 41 626.19995 Z" fill="url(#gradient2)"/>
-<text x="45" y="647.19995" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">konik geçiş</text>
+<text x="45" y="647.19995" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">konik geçiş</text>
 <path d="M 362 589.7999 H 662 A 8 8 0 0 1 670 597.7999 V 681.3999 A 8 8 0 0 1 662 689.3999 H 362 A 8 8 0 0 1 354 681.3999 V 597.7999 A 8 8 0 0 1 362 589.7999 Z" fill="#ffffff"/>
 <path d="M 362 589.7999 H 662 A 8 8 0 0 1 670 597.7999 V 681.3999 A 8 8 0 0 1 662 689.3999 H 362 A 8 8 0 0 1 354 681.3999 V 597.7999 A 8 8 0 0 1 362 589.7999 Z M 362 590.7999 H 662 A 7 7 0 0 1 669 597.7999 V 681.3999 A 7 7 0 0 1 662 688.3999 H 362 A 7 7 0 0 1 355 681.3999 V 597.7999 A 7 7 0 0 1 362 590.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="613.7999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">background-clip: content-box</text>
+<text x="367" y="613.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">background-clip: content-box</text>
 <path d="M 387 642.19995 H 637 A 4 4 0 0 1 641 646.19995 V 656.39996 A 4 4 0 0 1 637 660.39996 H 387 A 4 4 0 0 1 383 656.39996 V 646.19995 A 4 4 0 0 1 387 642.19995 Z" fill="#2f6fdd"/>
 <path d="M 371 626.19995 H 653 A 4 4 0 0 1 657 630.19995 V 672.39996 A 4 4 0 0 1 653 676.39996 H 371 A 4 4 0 0 1 367 672.39996 V 630.19995 A 4 4 0 0 1 371 626.19995 Z M 373 632.19995 H 651 A 0 0 0 0 1 651 632.19995 V 670.39996 A 0 0 0 0 1 651 670.39996 H 373 A 0 0 0 0 1 373 670.39996 V 632.19995 A 0 0 0 0 1 373 632.19995 Z" fill="#1c1e21" fill-rule="evenodd"/>
-<text x="383" y="655.19995" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">renk yalnızca içerikte</text>
+<text x="383" y="655.19995" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">renk yalnızca içerikte</text>
 <path d="M 692 589.7999 H 992 A 8 8 0 0 1 1000 597.7999 V 681.3999 A 8 8 0 0 1 992 689.3999 H 692 A 8 8 0 0 1 684 681.3999 V 597.7999 A 8 8 0 0 1 692 589.7999 Z" fill="#ffffff"/>
 <path d="M 692 589.7999 H 992 A 8 8 0 0 1 1000 597.7999 V 681.3999 A 8 8 0 0 1 992 689.3999 H 692 A 8 8 0 0 1 684 681.3999 V 597.7999 A 8 8 0 0 1 692 589.7999 Z M 692 590.7999 H 992 A 7 7 0 0 1 999 597.7999 V 681.3999 A 7 7 0 0 1 992 688.3999 H 692 A 7 7 0 0 1 685 681.3999 V 597.7999 A 7 7 0 0 1 692 590.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="613.7999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">background-origin + no-repeat</text>
+<text x="697" y="613.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">background-origin + no-repeat</text>
 <linearGradient id="gradient3" x1="0.1464" y1="0.8536" x2="0.8536" y2="0.1464"><stop offset="0.0000" stop-color="#9b59b6"/><stop offset="1.0000" stop-color="#8e44ad"/></linearGradient>
 <path d="M 717 642.19995 H 967 A 4 4 0 0 1 971 646.19995 V 656.39996 A 4 4 0 0 1 967 660.39996 H 717 A 4 4 0 0 1 713 656.39996 V 646.19995 A 4 4 0 0 1 717 642.19995 Z" fill="url(#gradient3)"/>
 <path d="M 701 626.19995 H 983 A 4 4 0 0 1 987 630.19995 V 672.39996 A 4 4 0 0 1 983 676.39996 H 701 A 4 4 0 0 1 697 672.39996 V 630.19995 A 4 4 0 0 1 701 626.19995 Z M 703 632.19995 H 981 A 0 0 0 0 1 981 632.19995 V 670.39996 A 0 0 0 0 1 981 670.39996 H 703 A 0 0 0 0 1 703 670.39996 V 632.19995 A 0 0 0 0 1 703 632.19995 Z" fill="#d7bde2" fill-rule="evenodd"/>
-<text x="713" y="655.19995" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">başlangıç içerik kutusu</text>
+<text x="713" y="655.19995" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">başlangıç içerik kutusu</text>
 <path d="M 32 703.3999 H 332 A 8 8 0 0 1 340 711.3999 V 784.7999 A 8 8 0 0 1 332 792.7999 H 32 A 8 8 0 0 1 24 784.7999 V 711.3999 A 8 8 0 0 1 32 703.3999 Z" fill="#ffffff"/>
 <path d="M 32 703.3999 H 332 A 8 8 0 0 1 340 711.3999 V 784.7999 A 8 8 0 0 1 332 792.7999 H 32 A 8 8 0 0 1 24 784.7999 V 711.3999 A 8 8 0 0 1 32 703.3999 Z M 32 704.3999 H 332 A 7 7 0 0 1 339 711.3999 V 784.7999 A 7 7 0 0 1 332 791.7999 H 32 A 7 7 0 0 1 25 784.7999 V 711.3999 A 7 7 0 0 1 32 704.3999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="727.3999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">background-size + repeat-x + position</text>
+<text x="37" y="727.3999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">background-size + repeat-x + position</text>
 <rect x="37" y="739.7999" width="290" height="40" fill="#fdf0f5"/>
 <linearGradient id="gradient4" x1="0.0000" y1="0.5000" x2="1.0000" y2="0.5000"><stop offset="0.0000" stop-color="#e52e71"/><stop offset="1.0000" stop-color="#ff8a00"/></linearGradient>
 <rect x="37" y="739.7999" width="290" height="40" fill="url(#gradient4)"/>
 <rect x="24" y="848.5999" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="837.7999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Kutu Modeli ve Gölgeler</text>
+<text x="24" y="837.7999" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Kutu Modeli ve Gölgeler</text>
 <path d="M 32 860.5999 H 332 A 8 8 0 0 1 340 868.5999 V 944.3999 A 8 8 0 0 1 332 952.3999 H 32 A 8 8 0 0 1 24 944.3999 V 868.5999 A 8 8 0 0 1 32 860.5999 Z" fill="#ffffff"/>
 <path d="M 32 860.5999 H 332 A 8 8 0 0 1 340 868.5999 V 944.3999 A 8 8 0 0 1 332 952.3999 H 32 A 8 8 0 0 1 24 944.3999 V 868.5999 A 8 8 0 0 1 32 860.5999 Z M 32 861.5999 H 332 A 7 7 0 0 1 339 868.5999 V 944.3999 A 7 7 0 0 1 332 951.3999 H 32 A 7 7 0 0 1 25 944.3999 V 868.5999 A 7 7 0 0 1 32 861.5999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="884.5999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">margin: 12px</text>
+<text x="37" y="884.5999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">margin: 12px</text>
 <rect x="49" y="900.99994" width="266" height="2" fill="#2f6fdd"/>
 <rect x="313" y="900.99994" width="2" height="26.400002" fill="#2f6fdd"/>
 <rect x="49" y="925.39996" width="266" height="2" fill="#2f6fdd"/>
 <rect x="49" y="900.99994" width="2" height="26.400002" fill="#2f6fdd"/>
-<text x="51" y="918.99994" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">dış boşluklu kutu</text>
+<text x="51" y="918.99994" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">dış boşluklu kutu</text>
 <path d="M 362 860.5999 H 662 A 8 8 0 0 1 670 868.5999 V 936.3999 A 8 8 0 0 1 662 944.3999 H 362 A 8 8 0 0 1 354 936.3999 V 868.5999 A 8 8 0 0 1 362 860.5999 Z" fill="#ffffff"/>
 <path d="M 362 860.5999 H 662 A 8 8 0 0 1 670 868.5999 V 936.3999 A 8 8 0 0 1 662 944.3999 H 362 A 8 8 0 0 1 354 936.3999 V 868.5999 A 8 8 0 0 1 362 860.5999 Z M 362 861.5999 H 662 A 7 7 0 0 1 669 868.5999 V 936.3999 A 7 7 0 0 1 662 943.3999 H 362 A 7 7 0 0 1 355 936.3999 V 868.5999 A 7 7 0 0 1 362 861.5999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="884.5999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">padding: 4px 16px</text>
+<text x="367" y="884.5999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">padding: 4px 16px</text>
 <rect x="367" y="896.99994" width="290" height="2" fill="#2ea043"/>
 <rect x="655" y="896.99994" width="2" height="34.4" fill="#2ea043"/>
 <rect x="367" y="929.39996" width="290" height="2" fill="#2ea043"/>
 <rect x="367" y="896.99994" width="2" height="34.4" fill="#2ea043"/>
-<text x="385" y="918.99994" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">iç boşluklu kutu</text>
+<text x="385" y="918.99994" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">iç boşluklu kutu</text>
 <path d="M 692 860.5999 H 992 A 8 8 0 0 1 1000 868.5999 V 932.3999 A 8 8 0 0 1 992 940.3999 H 692 A 8 8 0 0 1 684 932.3999 V 868.5999 A 8 8 0 0 1 692 860.5999 Z" fill="#ffffff"/>
 <path d="M 692 860.5999 H 992 A 8 8 0 0 1 1000 868.5999 V 932.3999 A 8 8 0 0 1 992 940.3999 H 692 A 8 8 0 0 1 684 932.3999 V 868.5999 A 8 8 0 0 1 692 860.5999 Z M 692 861.5999 H 992 A 7 7 0 0 1 999 868.5999 V 932.3999 A 7 7 0 0 1 992 939.3999 H 692 A 7 7 0 0 1 685 932.3999 V 868.5999 A 7 7 0 0 1 692 861.5999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="884.5999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">border: 4px solid</text>
+<text x="697" y="884.5999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">border: 4px solid</text>
 <rect x="697" y="896.99994" width="290" height="4" fill="#e52e71"/>
 <rect x="983" y="896.99994" width="4" height="30.400002" fill="#e52e71"/>
 <rect x="697" y="923.39996" width="290" height="4" fill="#e52e71"/>
 <rect x="697" y="896.99994" width="4" height="30.400002" fill="#e52e71"/>
-<text x="701" y="916.99994" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">kalın kenarlık</text>
+<text x="701" y="916.99994" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">kalın kenarlık</text>
 <path d="M 32 966.3999 H 332 A 8 8 0 0 1 340 974.3999 V 1036.2 A 8 8 0 0 1 332 1044.2 H 32 A 8 8 0 0 1 24 1036.2 V 974.3999 A 8 8 0 0 1 32 966.3999 Z" fill="#ffffff"/>
 <path d="M 32 966.3999 H 332 A 8 8 0 0 1 340 974.3999 V 1036.2 A 8 8 0 0 1 332 1044.2 H 32 A 8 8 0 0 1 24 1036.2 V 974.3999 A 8 8 0 0 1 32 966.3999 Z M 32 967.3999 H 332 A 7 7 0 0 1 339 974.3999 V 1036.2 A 7 7 0 0 1 332 1043.2 H 32 A 7 7 0 0 1 25 1036.2 V 974.3999 A 7 7 0 0 1 32 967.3999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="990.3999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">border-radius: 16px</text>
+<text x="37" y="990.3999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">border-radius: 16px</text>
 <path d="M 51.2 1002.7999 H 312.8 A 14.200001 14.200001 0 0 1 327 1016.99994 V 1016.99994 A 14.200001 14.200001 0 0 1 312.8 1031.2 H 51.2 A 14.200001 14.200001 0 0 1 37 1016.99994 V 1016.99994 A 14.200001 14.200001 0 0 1 51.2 1002.7999 Z M 51.2 1005.7999 H 312.8 A 11.200001 11.200001 0 0 1 324 1016.99994 V 1016.99994 A 11.200001 11.200001 0 0 1 312.8 1028.2 H 51.2 A 11.200001 11.200001 0 0 1 40 1016.99994 V 1016.99994 A 11.200001 11.200001 0 0 1 51.2 1005.7999 Z" fill="#8e44ad" fill-rule="evenodd"/>
-<text x="40" y="1021.7999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">yuvarlak köşe</text>
+<text x="40" y="1021.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">yuvarlak köşe</text>
 <path d="M 362 966.3999 H 662 A 8 8 0 0 1 670 974.3999 V 1032.2 A 8 8 0 0 1 662 1040.2 H 362 A 8 8 0 0 1 354 1032.2 V 974.3999 A 8 8 0 0 1 362 966.3999 Z" fill="#ffffff"/>
 <path d="M 362 966.3999 H 662 A 8 8 0 0 1 670 974.3999 V 1032.2 A 8 8 0 0 1 662 1040.2 H 362 A 8 8 0 0 1 354 1032.2 V 974.3999 A 8 8 0 0 1 362 966.3999 Z M 362 967.3999 H 662 A 7 7 0 0 1 669 974.3999 V 1032.2 A 7 7 0 0 1 662 1039.2 H 362 A 7 7 0 0 1 355 1032.2 V 974.3999 A 7 7 0 0 1 362 967.3999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="990.3999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">outline + outline-offset</text>
+<text x="367" y="990.3999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">outline + outline-offset</text>
 <rect x="367" y="1002.7999" width="290" height="1" fill="#999999"/>
 <rect x="656" y="1002.7999" width="1" height="24.400002" fill="#999999"/>
 <rect x="367" y="1026.2" width="290" height="1" fill="#999999"/>
@@ -128,143 +128,143 @@
 <rect x="661" y="995.7999" width="3" height="38.4" fill="#ff8a00"/>
 <rect x="360" y="1031.2" width="304" height="3" fill="#ff8a00"/>
 <rect x="360" y="995.7999" width="3" height="38.4" fill="#ff8a00"/>
-<text x="368" y="1019.7999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">dış çizgi (4px ofset)</text>
+<text x="368" y="1019.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">dış çizgi (4px ofset)</text>
 <path d="M 692 966.3999 H 992 A 8 8 0 0 1 1000 974.3999 V 1032.2 A 8 8 0 0 1 992 1040.2 H 692 A 8 8 0 0 1 684 1032.2 V 974.3999 A 8 8 0 0 1 692 966.3999 Z" fill="#ffffff"/>
 <path d="M 692 966.3999 H 992 A 8 8 0 0 1 1000 974.3999 V 1032.2 A 8 8 0 0 1 992 1040.2 H 692 A 8 8 0 0 1 684 1032.2 V 974.3999 A 8 8 0 0 1 692 966.3999 Z M 692 967.3999 H 992 A 7 7 0 0 1 999 974.3999 V 1032.2 A 7 7 0 0 1 992 1039.2 H 692 A 7 7 0 0 1 685 1032.2 V 974.3999 A 7 7 0 0 1 692 967.3999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="990.3999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">box-shadow (dış)</text>
+<text x="697" y="990.3999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">box-shadow (dış)</text>
 <rect x="697" y="1002.7999" width="290" height="1" fill="#cccccc"/>
 <rect x="986" y="1002.7999" width="1" height="24.400002" fill="#cccccc"/>
 <rect x="697" y="1026.2" width="290" height="1" fill="#cccccc"/>
 <rect x="697" y="1002.7999" width="1" height="24.400002" fill="#cccccc"/>
-<text x="698" y="1019.7999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">düşen gölge</text>
+<text x="698" y="1019.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">düşen gölge</text>
 <path d="M 32 1058.2 H 332 A 8 8 0 0 1 340 1066.2 V 1124 A 8 8 0 0 1 332 1132 H 32 A 8 8 0 0 1 24 1124 V 1066.2 A 8 8 0 0 1 32 1058.2 Z" fill="#ffffff"/>
 <path d="M 32 1058.2 H 332 A 8 8 0 0 1 340 1066.2 V 1124 A 8 8 0 0 1 332 1132 H 32 A 8 8 0 0 1 24 1124 V 1066.2 A 8 8 0 0 1 32 1058.2 Z M 32 1059.2 H 332 A 7 7 0 0 1 339 1066.2 V 1124 A 7 7 0 0 1 332 1131 H 32 A 7 7 0 0 1 25 1124 V 1066.2 A 7 7 0 0 1 32 1059.2 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="1082.2" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">box-shadow: inset</text>
+<text x="37" y="1082.2" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">box-shadow: inset</text>
 <rect x="37" y="1094.6" width="290" height="1" fill="#cccccc"/>
 <rect x="326" y="1094.6" width="1" height="24.400002" fill="#cccccc"/>
 <rect x="37" y="1118" width="290" height="1" fill="#cccccc"/>
 <rect x="37" y="1094.6" width="1" height="24.400002" fill="#cccccc"/>
-<text x="38" y="1111.6" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">iç gölge</text>
+<text x="38" y="1111.6" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">iç gölge</text>
 <path d="M 362 1058.2 H 662 A 8 8 0 0 1 670 1066.2 V 1124.7999 A 8 8 0 0 1 662 1132.7999 H 362 A 8 8 0 0 1 354 1124.7999 V 1066.2 A 8 8 0 0 1 362 1058.2 Z" fill="#ffffff"/>
 <path d="M 362 1058.2 H 662 A 8 8 0 0 1 670 1066.2 V 1124.7999 A 8 8 0 0 1 662 1132.7999 H 362 A 8 8 0 0 1 354 1124.7999 V 1066.2 A 8 8 0 0 1 362 1058.2 Z M 362 1059.2 H 662 A 7 7 0 0 1 669 1066.2 V 1124.7999 A 7 7 0 0 1 662 1131.7999 H 362 A 7 7 0 0 1 355 1124.7999 V 1066.2 A 7 7 0 0 1 362 1059.2 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="1082.2" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">text-shadow</text>
-<text x="367" y="1112.6" fill="#2f6fdd" font-family="system-ui, sans-serif" font-size="18" font-weight="400">Gölgeli metin</text>
+<text x="367" y="1082.2" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">text-shadow</text>
+<text x="367" y="1112.6" fill="#2f6fdd" font-family="serif" font-size="18" font-weight="400">Gölgeli metin</text>
 <rect x="24" y="1188.6" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="1177.7999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Metin</text>
+<text x="24" y="1177.7999" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Metin</text>
 <path d="M 32 1200.6 H 332 A 8 8 0 0 1 340 1208.6 V 1270 A 8 8 0 0 1 332 1278 H 32 A 8 8 0 0 1 24 1270 V 1208.6 A 8 8 0 0 1 32 1200.6 Z" fill="#ffffff"/>
 <path d="M 32 1200.6 H 332 A 8 8 0 0 1 340 1208.6 V 1270 A 8 8 0 0 1 332 1278 H 32 A 8 8 0 0 1 24 1270 V 1208.6 A 8 8 0 0 1 32 1200.6 Z M 32 1201.6 H 332 A 7 7 0 0 1 339 1208.6 V 1270 A 7 7 0 0 1 332 1277 H 32 A 7 7 0 0 1 25 1270 V 1208.6 A 7 7 0 0 1 32 1201.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="1224.6" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">font-weight / font-style / font-size</text>
-<text x="37" y="1257" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="700">kalın</text>
-<text x="85" y="1257" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">·</text>
-<text x="101" y="1257" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400" font-style="italic">italik</text>
-<text x="157" y="1257" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">·</text>
-<text x="175" y="1257" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="20" font-weight="400">20px</text>
+<text x="37" y="1224.6" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">font-weight / font-style / font-size</text>
+<text x="37" y="1257" fill="#1c1e21" font-family="serif" font-size="16" font-weight="700">kalın</text>
+<text x="85" y="1257" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">·</text>
+<text x="101" y="1257" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400" font-style="italic">italik</text>
+<text x="157" y="1257" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">·</text>
+<text x="175" y="1257" fill="#1c1e21" font-family="serif" font-size="20" font-weight="400">20px</text>
 <path d="M 362 1200.6 H 662 A 8 8 0 0 1 670 1208.6 V 1306 A 8 8 0 0 1 662 1314 H 362 A 8 8 0 0 1 354 1306 V 1208.6 A 8 8 0 0 1 362 1200.6 Z" fill="#ffffff"/>
 <path d="M 362 1200.6 H 662 A 8 8 0 0 1 670 1208.6 V 1306 A 8 8 0 0 1 662 1314 H 362 A 8 8 0 0 1 354 1306 V 1208.6 A 8 8 0 0 1 362 1200.6 Z M 362 1201.6 H 662 A 7 7 0 0 1 669 1208.6 V 1306 A 7 7 0 0 1 662 1313 H 362 A 7 7 0 0 1 355 1306 V 1208.6 A 7 7 0 0 1 362 1201.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="1224.6" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">line-height: 2.0</text>
-<text x="367" y="1257.8" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Satır aralığı geniş</text>
-<text x="367" y="1289.8" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">iki satırlı metin örneği</text>
+<text x="367" y="1224.6" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">line-height: 2.0</text>
+<text x="367" y="1257.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">Satır aralığı geniş</text>
+<text x="367" y="1289.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">iki satırlı metin örneği</text>
 <path d="M 692 1200.6 H 992 A 8 8 0 0 1 1000 1208.6 V 1286.7999 A 8 8 0 0 1 992 1294.7999 H 692 A 8 8 0 0 1 684 1286.7999 V 1208.6 A 8 8 0 0 1 692 1200.6 Z" fill="#ffffff"/>
 <path d="M 692 1200.6 H 992 A 8 8 0 0 1 1000 1208.6 V 1286.7999 A 8 8 0 0 1 992 1294.7999 H 692 A 8 8 0 0 1 684 1286.7999 V 1208.6 A 8 8 0 0 1 692 1200.6 Z M 692 1201.6 H 992 A 7 7 0 0 1 999 1208.6 V 1286.7999 A 7 7 0 0 1 992 1293.7999 H 692 A 7 7 0 0 1 685 1286.7999 V 1208.6 A 7 7 0 0 1 692 1201.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="1224.6" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">letter-spacing / word-spacing</text>
-<text x="697" y="1253" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400" letter-spacing="3">HARF</text>
-<text x="697" y="1275.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">kelime aralığı geniş</text>
+<text x="697" y="1224.6" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">letter-spacing / word-spacing</text>
+<text x="697" y="1253" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400" letter-spacing="3">HARF</text>
+<text x="697" y="1275.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">kelime aralığı geniş</text>
 <path d="M 32 1328 H 332 A 8 8 0 0 1 340 1336 V 1414.2 A 8 8 0 0 1 332 1422.2 H 32 A 8 8 0 0 1 24 1414.2 V 1336 A 8 8 0 0 1 32 1328 Z" fill="#ffffff"/>
 <path d="M 32 1328 H 332 A 8 8 0 0 1 340 1336 V 1414.2 A 8 8 0 0 1 332 1422.2 H 32 A 8 8 0 0 1 24 1414.2 V 1336 A 8 8 0 0 1 32 1328 Z M 32 1329 H 332 A 7 7 0 0 1 339 1336 V 1414.2 A 7 7 0 0 1 332 1421.2 H 32 A 7 7 0 0 1 25 1414.2 V 1336 A 7 7 0 0 1 32 1329 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="1352" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">text-align</text>
-<text x="142" y="1380.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">ortalanmış</text>
-<text x="247" y="1402.8" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">sağa yaslı</text>
+<text x="37" y="1352" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">text-align</text>
+<text x="142" y="1380.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">ortalanmış</text>
+<text x="247" y="1402.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">sağa yaslı</text>
 <path d="M 362 1328 H 662 A 8 8 0 0 1 670 1336 V 1414.2 A 8 8 0 0 1 662 1422.2 H 362 A 8 8 0 0 1 354 1414.2 V 1336 A 8 8 0 0 1 362 1328 Z" fill="#ffffff"/>
 <path d="M 362 1328 H 662 A 8 8 0 0 1 670 1336 V 1414.2 A 8 8 0 0 1 662 1422.2 H 362 A 8 8 0 0 1 354 1414.2 V 1336 A 8 8 0 0 1 362 1328 Z M 362 1329 H 662 A 7 7 0 0 1 669 1336 V 1414.2 A 7 7 0 0 1 662 1421.2 H 362 A 7 7 0 0 1 355 1414.2 V 1336 A 7 7 0 0 1 362 1329 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="1352" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">text-decoration</text>
-<text x="367" y="1380.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400" text-decoration="underline">altı çizili</text>
-<text x="463" y="1380.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">·</text>
-<text x="479" y="1380.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400" text-decoration="line-through">üstü çizili</text>
-<text x="575" y="1380.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">·</text>
-<text x="591" y="1380.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400" text-decoration="underline">renkli</text>
-<text x="367" y="1402.8" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400" text-decoration="underline">çizgi</text>
+<text x="367" y="1352" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">text-decoration</text>
+<text x="367" y="1380.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">altı çizili</text>
+<text x="463" y="1380.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">·</text>
+<text x="479" y="1380.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400" text-decoration="line-through">üstü çizili</text>
+<text x="575" y="1380.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">·</text>
+<text x="591" y="1380.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">renkli</text>
+<text x="367" y="1402.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">çizgi</text>
 <path d="M 692 1328 H 992 A 8 8 0 0 1 1000 1336 V 1391.8 A 8 8 0 0 1 992 1399.8 H 692 A 8 8 0 0 1 684 1391.8 V 1336 A 8 8 0 0 1 692 1328 Z" fill="#ffffff"/>
 <path d="M 692 1328 H 992 A 8 8 0 0 1 1000 1336 V 1391.8 A 8 8 0 0 1 992 1399.8 H 692 A 8 8 0 0 1 684 1391.8 V 1336 A 8 8 0 0 1 692 1328 Z M 692 1329 H 992 A 7 7 0 0 1 999 1336 V 1391.8 A 7 7 0 0 1 992 1398.8 H 692 A 7 7 0 0 1 685 1391.8 V 1336 A 7 7 0 0 1 692 1329 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="1352" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">text-transform: uppercase</text>
-<text x="697" y="1380.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">BÜYÜK HARFE ÇEVRILDI</text>
+<text x="697" y="1352" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">text-transform: uppercase</text>
+<text x="697" y="1380.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">BÜYÜK HARFE ÇEVRILDI</text>
 <path d="M 32 1436.2 H 332 A 8 8 0 0 1 340 1444.2 V 1522.3999 A 8 8 0 0 1 332 1530.3999 H 32 A 8 8 0 0 1 24 1522.3999 V 1444.2 A 8 8 0 0 1 32 1436.2 Z" fill="#ffffff"/>
 <path d="M 32 1436.2 H 332 A 8 8 0 0 1 340 1444.2 V 1522.3999 A 8 8 0 0 1 332 1530.3999 H 32 A 8 8 0 0 1 24 1522.3999 V 1444.2 A 8 8 0 0 1 32 1436.2 Z M 32 1437.2 H 332 A 7 7 0 0 1 339 1444.2 V 1522.3999 A 7 7 0 0 1 332 1529.3999 H 32 A 7 7 0 0 1 25 1522.3999 V 1444.2 A 7 7 0 0 1 32 1437.2 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="1460.2" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">text-indent: 32px</text>
-<text x="69" y="1488.6" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">İlk satırı girintili uzun bir</text>
-<text x="37" y="1511" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">paragraf metni buraya geliyor.</text>
+<text x="37" y="1460.2" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">text-indent: 32px</text>
+<text x="69" y="1488.6" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">İlk satırı girintili uzun bir</text>
+<text x="37" y="1511" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">paragraf metni buraya geliyor.</text>
 <path d="M 362 1436.2 H 662 A 8 8 0 0 1 670 1444.2 V 1500 A 8 8 0 0 1 662 1508 H 362 A 8 8 0 0 1 354 1500 V 1444.2 A 8 8 0 0 1 362 1436.2 Z" fill="#ffffff"/>
 <path d="M 362 1436.2 H 662 A 8 8 0 0 1 670 1444.2 V 1500 A 8 8 0 0 1 662 1508 H 362 A 8 8 0 0 1 354 1500 V 1444.2 A 8 8 0 0 1 362 1436.2 Z M 362 1437.2 H 662 A 7 7 0 0 1 669 1444.2 V 1500 A 7 7 0 0 1 662 1507 H 362 A 7 7 0 0 1 355 1500 V 1444.2 A 7 7 0 0 1 362 1437.2 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="1460.2" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">::first-letter</text>
-<text x="367" y="1488.6" fill="#e52e71" font-family="system-ui, sans-serif" font-size="32" font-weight="700">L</text>
-<text x="383" y="1488.6" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">umen motoru ilk harfi büyütür.</text>
+<text x="367" y="1460.2" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">::first-letter</text>
+<text x="367" y="1488.6" fill="#e52e71" font-family="serif" font-size="32" font-weight="700">L</text>
+<text x="383" y="1488.6" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">umen motoru ilk harfi büyütür.</text>
 <path d="M 692 1436.2 H 992 A 8 8 0 0 1 1000 1444.2 V 1544.7999 A 8 8 0 0 1 992 1552.7999 H 692 A 8 8 0 0 1 684 1544.7999 V 1444.2 A 8 8 0 0 1 692 1436.2 Z" fill="#ffffff"/>
 <path d="M 692 1436.2 H 992 A 8 8 0 0 1 1000 1444.2 V 1544.7999 A 8 8 0 0 1 992 1552.7999 H 692 A 8 8 0 0 1 684 1544.7999 V 1444.2 A 8 8 0 0 1 692 1436.2 Z M 692 1437.2 H 992 A 7 7 0 0 1 999 1444.2 V 1544.7999 A 7 7 0 0 1 992 1551.7999 H 692 A 7 7 0 0 1 685 1544.7999 V 1444.2 A 7 7 0 0 1 692 1437.2 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="1460.2" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">::first-line</text>
-<text x="697" y="1488.6" fill="#2f6fdd" font-family="system-ui, sans-serif" font-size="16" font-weight="700">İlk satır mavi ve kalın görünür,</text>
-<text x="697" y="1511" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">ikinci satır ise normal stiline</text>
-<text x="697" y="1533.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">döner.</text>
+<text x="697" y="1460.2" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">::first-line</text>
+<text x="697" y="1488.6" fill="#2f6fdd" font-family="serif" font-size="16" font-weight="700">İlk satır mavi ve kalın görünür,</text>
+<text x="697" y="1511" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">ikinci satır ise normal stiline</text>
+<text x="697" y="1533.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">döner.</text>
 <path d="M 32 1566.7999 H 332 A 8 8 0 0 1 340 1574.7999 V 1640.6 A 8 8 0 0 1 332 1648.6 H 32 A 8 8 0 0 1 24 1640.6 V 1574.7999 A 8 8 0 0 1 32 1566.7999 Z" fill="#ffffff"/>
 <path d="M 32 1566.7999 H 332 A 8 8 0 0 1 340 1574.7999 V 1640.6 A 8 8 0 0 1 332 1648.6 H 32 A 8 8 0 0 1 24 1640.6 V 1574.7999 A 8 8 0 0 1 32 1566.7999 Z M 32 1567.7999 H 332 A 7 7 0 0 1 339 1574.7999 V 1640.6 A 7 7 0 0 1 332 1647.6 H 32 A 7 7 0 0 1 25 1640.6 V 1574.7999 A 7 7 0 0 1 32 1567.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="1590.7999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">text-overflow: ellipsis</text>
+<text x="37" y="1590.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">text-overflow: ellipsis</text>
 <rect x="37" y="1603.2" width="190" height="1" fill="#cccccc"/>
 <rect x="226" y="1603.2" width="1" height="32.4" fill="#cccccc"/>
 <rect x="37" y="1634.6" width="190" height="1" fill="#cccccc"/>
 <rect x="37" y="1603.2" width="1" height="32.4" fill="#cccccc"/>
 <clipPath id="clip0"><rect x="38" y="1604.2" width="188" height="30.400002"/></clipPath><g clip-path="url(#clip0)">
-<text x="42" y="1624.2" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Bu uzun metin kutuya …</text>
+<text x="42" y="1624.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">Bu uzun metin kutuya …</text>
 </g>
 <path d="M 362 1566.7999 H 662 A 8 8 0 0 1 670 1574.7999 V 1664.9999 A 8 8 0 0 1 662 1672.9999 H 362 A 8 8 0 0 1 354 1664.9999 V 1574.7999 A 8 8 0 0 1 362 1566.7999 Z" fill="#ffffff"/>
 <path d="M 362 1566.7999 H 662 A 8 8 0 0 1 670 1574.7999 V 1664.9999 A 8 8 0 0 1 662 1672.9999 H 362 A 8 8 0 0 1 354 1664.9999 V 1574.7999 A 8 8 0 0 1 362 1566.7999 Z M 362 1567.7999 H 662 A 7 7 0 0 1 669 1574.7999 V 1664.9999 A 7 7 0 0 1 662 1671.9999 H 362 A 7 7 0 0 1 355 1664.9999 V 1574.7999 A 7 7 0 0 1 362 1567.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="1590.7999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">white-space: pre</text>
+<text x="367" y="1590.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">white-space: pre</text>
 <path d="M 371 1603.2 H 653 A 4 4 0 0 1 657 1607.2 V 1656 A 4 4 0 0 1 653 1660 H 371 A 4 4 0 0 1 367 1656 V 1607.2 A 4 4 0 0 1 371 1603.2 Z" fill="#eef1f4"/>
-<text x="373" y="1625.2" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="16" font-weight="400">satır bir</text>
-<text x="373" y="1647.6" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="16" font-weight="400">    girintili satır</text>
+<text x="373" y="1625.2" fill="#1c1e21" font-family="monospace" font-size="16" font-weight="400">satır bir</text>
+<text x="373" y="1647.6" fill="#1c1e21" font-family="monospace" font-size="16" font-weight="400">    girintili satır</text>
 <path d="M 692 1566.7999 H 992 A 8 8 0 0 1 1000 1574.7999 V 1664.9999 A 8 8 0 0 1 992 1672.9999 H 692 A 8 8 0 0 1 684 1664.9999 V 1574.7999 A 8 8 0 0 1 692 1566.7999 Z" fill="#ffffff"/>
 <path d="M 692 1566.7999 H 992 A 8 8 0 0 1 1000 1574.7999 V 1664.9999 A 8 8 0 0 1 992 1672.9999 H 692 A 8 8 0 0 1 684 1664.9999 V 1574.7999 A 8 8 0 0 1 692 1566.7999 Z M 692 1567.7999 H 992 A 7 7 0 0 1 999 1574.7999 V 1664.9999 A 7 7 0 0 1 992 1671.9999 H 692 A 7 7 0 0 1 685 1664.9999 V 1574.7999 A 7 7 0 0 1 692 1567.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="1590.7999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">tab-size: 2</text>
+<text x="697" y="1590.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">tab-size: 2</text>
 <path d="M 701 1603.2 H 983 A 4 4 0 0 1 987 1607.2 V 1656 A 4 4 0 0 1 983 1660 H 701 A 4 4 0 0 1 697 1656 V 1607.2 A 4 4 0 0 1 701 1603.2 Z" fill="#eef1f4"/>
-<text x="703" y="1625.2" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="16" font-weight="400">a</text>
-<text x="703" y="1647.6" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="16" font-weight="400">  b</text>
+<text x="703" y="1625.2" fill="#1c1e21" font-family="monospace" font-size="16" font-weight="400">a</text>
+<text x="703" y="1647.6" fill="#1c1e21" font-family="monospace" font-size="16" font-weight="400">  b</text>
 <rect x="24" y="1728.7999" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="1717.9999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Layout</text>
+<text x="24" y="1717.9999" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Layout</text>
 <path d="M 32 1740.7999 H 332 A 8 8 0 0 1 340 1748.7999 V 1819.7999 A 8 8 0 0 1 332 1827.7999 H 32 A 8 8 0 0 1 24 1819.7999 V 1748.7999 A 8 8 0 0 1 32 1740.7999 Z" fill="#ffffff"/>
 <path d="M 32 1740.7999 H 332 A 8 8 0 0 1 340 1748.7999 V 1819.7999 A 8 8 0 0 1 332 1827.7999 H 32 A 8 8 0 0 1 24 1819.7999 V 1748.7999 A 8 8 0 0 1 32 1740.7999 Z M 32 1741.7999 H 332 A 7 7 0 0 1 339 1748.7999 V 1819.7999 A 7 7 0 0 1 332 1826.7999 H 32 A 7 7 0 0 1 25 1819.7999 V 1748.7999 A 7 7 0 0 1 32 1741.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="1764.7999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">display: inline-block</text>
+<text x="37" y="1764.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">display: inline-block</text>
 <path d="M 42 1779.2 H 104 A 3 3 0 0 1 107 1782.2 V 1806.6 A 3 3 0 0 1 104 1809.6 H 42 A 3 3 0 0 1 39 1806.6 V 1782.2 A 3 3 0 0 1 42 1779.2 Z" fill="#d6e4ff"/>
-<text x="69" y="1799.2" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">A</text>
+<text x="69" y="1799.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">A</text>
 <path d="M 114 1779.2 H 176 A 3 3 0 0 1 179 1782.2 V 1806.6 A 3 3 0 0 1 176 1809.6 H 114 A 3 3 0 0 1 111 1806.6 V 1782.2 A 3 3 0 0 1 114 1779.2 Z" fill="#d6e4ff"/>
-<text x="141" y="1799.2" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">B</text>
+<text x="141" y="1799.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">B</text>
 <path d="M 186 1779.2 H 248 A 3 3 0 0 1 251 1782.2 V 1806.6 A 3 3 0 0 1 248 1809.6 H 186 A 3 3 0 0 1 183 1806.6 V 1782.2 A 3 3 0 0 1 186 1779.2 Z" fill="#d6e4ff"/>
-<text x="213" y="1799.2" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">C</text>
+<text x="213" y="1799.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">C</text>
 <path d="M 362 1740.7999 H 662 A 8 8 0 0 1 670 1748.7999 V 1852.9999 A 8 8 0 0 1 662 1860.9999 H 362 A 8 8 0 0 1 354 1852.9999 V 1748.7999 A 8 8 0 0 1 362 1740.7999 Z" fill="#ffffff"/>
 <path d="M 362 1740.7999 H 662 A 8 8 0 0 1 670 1748.7999 V 1852.9999 A 8 8 0 0 1 662 1860.9999 H 362 A 8 8 0 0 1 354 1852.9999 V 1748.7999 A 8 8 0 0 1 362 1740.7999 Z M 362 1741.7999 H 662 A 7 7 0 0 1 669 1748.7999 V 1852.9999 A 7 7 0 0 1 662 1859.9999 H 362 A 7 7 0 0 1 355 1852.9999 V 1748.7999 A 7 7 0 0 1 362 1741.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="1764.7999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">float + clear</text>
+<text x="367" y="1764.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">float + clear</text>
 <line x1="367" y1="1777.7" x2="657" y2="1777.7" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="656.5" y1="1777.2" x2="656.5" y2="1848" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="367" y1="1847.5" x2="657" y2="1847.5" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="367.5" y1="1777.2" x2="367.5" y2="1848" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <path d="M 377 1784.2 H 427 A 3 3 0 0 1 430 1787.2 V 1821.2 A 3 3 0 0 1 427 1824.2 H 377 A 3 3 0 0 1 374 1821.2 V 1787.2 A 3 3 0 0 1 377 1784.2 Z" fill="#ffd8a8"/>
-<text x="438" y="1800.2" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">yüzen kutu metni iter</text>
-<text x="374" y="1836.2" fill="#2ea043" font-family="system-ui, sans-serif" font-size="12" font-weight="400">clear: both ile alta inildi</text>
+<text x="438" y="1800.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">yüzen kutu metni iter</text>
+<text x="374" y="1836.2" fill="#2ea043" font-family="serif" font-size="12" font-weight="400">clear: both ile alta inildi</text>
 <path d="M 692 1740.7999 H 992 A 8 8 0 0 1 1000 1748.7999 V 1848.2 A 8 8 0 0 1 992 1856.2 H 692 A 8 8 0 0 1 684 1848.2 V 1748.7999 A 8 8 0 0 1 692 1740.7999 Z" fill="#ffffff"/>
 <path d="M 692 1740.7999 H 992 A 8 8 0 0 1 1000 1748.7999 V 1848.2 A 8 8 0 0 1 992 1856.2 H 692 A 8 8 0 0 1 684 1848.2 V 1748.7999 A 8 8 0 0 1 692 1740.7999 Z M 692 1741.7999 H 992 A 7 7 0 0 1 999 1748.7999 V 1848.2 A 7 7 0 0 1 992 1855.2 H 692 A 7 7 0 0 1 685 1848.2 V 1748.7999 A 7 7 0 0 1 692 1741.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="1764.7999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">position: relative / absolute</text>
+<text x="697" y="1764.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">position: relative / absolute</text>
 <line x1="697" y1="1777.7" x2="987" y2="1777.7" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="986.5" y1="1777.2" x2="986.5" y2="1843.2" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="697" y1="1842.7" x2="987" y2="1842.7" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="697.5" y1="1777.2" x2="697.5" y2="1843.2" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <rect x="708" y="1784.2" width="96" height="28.400002" fill="#d6e4ff"/>
-<text x="711" y="1803.2" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">relative</text>
+<text x="711" y="1803.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">relative</text>
 <path d="M 925 1782.2 H 975 A 3 3 0 0 1 978 1785.2 V 1800.6 A 3 3 0 0 1 975 1803.6 H 925 A 3 3 0 0 1 922 1800.6 V 1785.2 A 3 3 0 0 1 925 1782.2 Z" fill="#e52e71"/>
-<text x="928" y="1796.2" fill="#ffffff" font-family="system-ui, sans-serif" font-size="11" font-weight="400">absolute</text>
+<text x="928" y="1796.2" fill="#ffffff" font-family="serif" font-size="11" font-weight="400">absolute</text>
 <path d="M 32 1874.9999 H 332 A 8 8 0 0 1 340 1882.9999 V 1961.1998 A 8 8 0 0 1 332 1969.1998 H 32 A 8 8 0 0 1 24 1961.1998 V 1882.9999 A 8 8 0 0 1 32 1874.9999 Z" fill="#ffffff"/>
 <path d="M 32 1874.9999 H 332 A 8 8 0 0 1 340 1882.9999 V 1961.1998 A 8 8 0 0 1 332 1969.1998 H 32 A 8 8 0 0 1 24 1961.1998 V 1882.9999 A 8 8 0 0 1 32 1874.9999 Z M 32 1875.9999 H 332 A 7 7 0 0 1 339 1882.9999 V 1961.1998 A 7 7 0 0 1 332 1968.1998 H 32 A 7 7 0 0 1 25 1961.1998 V 1882.9999 A 7 7 0 0 1 32 1875.9999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="1898.9999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">position: fixed</text>
-<text x="37" y="1927.3999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Sağ üst köşedeki koyu rozet</text>
-<text x="37" y="1949.7999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">viewport&apos;a sabitlendi.</text>
+<text x="37" y="1898.9999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">position: fixed</text>
+<text x="37" y="1927.3999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">Sağ üst köşedeki koyu rozet</text>
+<text x="37" y="1949.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">viewport&apos;a sabitlendi.</text>
 <path d="M 362 1874.9999 H 662 A 8 8 0 0 1 670 1882.9999 V 1990.3999 A 8 8 0 0 1 662 1998.3999 H 362 A 8 8 0 0 1 354 1990.3999 V 1882.9999 A 8 8 0 0 1 362 1874.9999 Z" fill="#ffffff"/>
 <path d="M 362 1874.9999 H 662 A 8 8 0 0 1 670 1882.9999 V 1990.3999 A 8 8 0 0 1 662 1998.3999 H 362 A 8 8 0 0 1 354 1990.3999 V 1882.9999 A 8 8 0 0 1 362 1874.9999 Z M 362 1875.9999 H 662 A 7 7 0 0 1 669 1882.9999 V 1990.3999 A 7 7 0 0 1 662 1997.3999 H 362 A 7 7 0 0 1 355 1990.3999 V 1882.9999 A 7 7 0 0 1 362 1875.9999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="1898.9999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">position: sticky</text>
+<text x="367" y="1898.9999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">position: sticky</text>
 <line x1="367" y1="1911.8999" x2="657" y2="1911.8999" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="656.5" y1="1911.3999" x2="656.5" y2="1985.3999" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="367" y1="1984.8999" x2="657" y2="1984.8999" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
@@ -275,54 +275,54 @@
 <rect x="651" y="1916.3999" width="1" height="30.400002" fill="#e0c060"/>
 <rect x="372" y="1945.7999" width="280" height="1" fill="#e0c060"/>
 <rect x="372" y="1916.3999" width="1" height="30.400002" fill="#e0c060"/>
-<text x="376" y="1936.3999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">sticky başlık</text>
-<text x="372" y="1962.7999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">kaydırılabilir içerik satırı 1</text>
-<text x="372" y="1985.2" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">satır 2</text>
-<text x="372" y="2007.6" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">satır 3</text>
-<text x="372" y="2029.9999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">satır 4</text>
+<text x="376" y="1936.3999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">sticky başlık</text>
+<text x="372" y="1962.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">kaydırılabilir içerik satırı 1</text>
+<text x="372" y="1985.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır 2</text>
+<text x="372" y="2007.6" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır 3</text>
+<text x="372" y="2029.9999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır 4</text>
 </g>
 <path d="M 692 1874.9999 H 992 A 8 8 0 0 1 1000 1882.9999 V 1972.3999 A 8 8 0 0 1 992 1980.3999 H 692 A 8 8 0 0 1 684 1972.3999 V 1882.9999 A 8 8 0 0 1 692 1874.9999 Z" fill="#ffffff"/>
 <path d="M 692 1874.9999 H 992 A 8 8 0 0 1 1000 1882.9999 V 1972.3999 A 8 8 0 0 1 992 1980.3999 H 692 A 8 8 0 0 1 684 1972.3999 V 1882.9999 A 8 8 0 0 1 692 1874.9999 Z M 692 1875.9999 H 992 A 7 7 0 0 1 999 1882.9999 V 1972.3999 A 7 7 0 0 1 992 1979.3999 H 692 A 7 7 0 0 1 685 1972.3999 V 1882.9999 A 7 7 0 0 1 692 1875.9999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="1898.9999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">z-index</text>
+<text x="697" y="1898.9999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">z-index</text>
 <rect x="697" y="1911.3999" width="96" height="46" fill="#ffd8a8"/>
-<text x="700" y="1930.3999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">z: 1</text>
+<text x="700" y="1930.3999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">z: 1</text>
 <rect x="737" y="1923.3999" width="96" height="46" fill="#d6e4ff"/>
-<text x="740" y="1942.3999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">z: 2 üstte</text>
+<text x="740" y="1942.3999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">z: 2 üstte</text>
 <path d="M 32 2012.3999 H 332 A 8 8 0 0 1 340 2020.3999 V 2095.7998 A 8 8 0 0 1 332 2103.7998 H 32 A 8 8 0 0 1 24 2095.7998 V 2020.3999 A 8 8 0 0 1 32 2012.3999 Z" fill="#ffffff"/>
 <path d="M 32 2012.3999 H 332 A 8 8 0 0 1 340 2020.3999 V 2095.7998 A 8 8 0 0 1 332 2103.7998 H 32 A 8 8 0 0 1 24 2095.7998 V 2020.3999 A 8 8 0 0 1 32 2012.3999 Z M 32 2013.3999 H 332 A 7 7 0 0 1 339 2020.3999 V 2095.7998 A 7 7 0 0 1 332 2102.7998 H 32 A 7 7 0 0 1 25 2095.7998 V 2020.3999 A 7 7 0 0 1 32 2013.3999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="2036.3999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">overflow: hidden</text>
+<text x="37" y="2036.3999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">overflow: hidden</text>
 <rect x="37" y="2048.7998" width="290" height="1" fill="#cccccc"/>
 <rect x="326" y="2048.7998" width="1" height="42" fill="#cccccc"/>
 <rect x="37" y="2089.7998" width="290" height="1" fill="#cccccc"/>
 <rect x="37" y="2048.7998" width="1" height="42" fill="#cccccc"/>
 <clipPath id="clip2"><rect x="38" y="2049.7998" width="288" height="40"/></clipPath><g clip-path="url(#clip2)">
-<text x="41" y="2068.7998" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">Bu uzun metin sabit yükseklikli</text>
-<text x="41" y="2091.1997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">kutudan taşar ve gizlenen kısmı</text>
-<text x="41" y="2113.5999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">görünmez olur, taşma kesilir.</text>
+<text x="41" y="2068.7998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">Bu uzun metin sabit yükseklikli</text>
+<text x="41" y="2091.1997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">kutudan taşar ve gizlenen kısmı</text>
+<text x="41" y="2113.5999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">görünmez olur, taşma kesilir.</text>
 </g>
 <path d="M 362 2012.3999 H 662 A 8 8 0 0 1 670 2020.3999 V 2098.5999 A 8 8 0 0 1 662 2106.5999 H 362 A 8 8 0 0 1 354 2098.5999 V 2020.3999 A 8 8 0 0 1 362 2012.3999 Z" fill="#ffffff"/>
 <path d="M 362 2012.3999 H 662 A 8 8 0 0 1 670 2020.3999 V 2098.5999 A 8 8 0 0 1 662 2106.5999 H 362 A 8 8 0 0 1 354 2098.5999 V 2020.3999 A 8 8 0 0 1 362 2012.3999 Z M 362 2013.3999 H 662 A 7 7 0 0 1 669 2020.3999 V 2098.5999 A 7 7 0 0 1 662 2105.5999 H 362 A 7 7 0 0 1 355 2098.5999 V 2020.3999 A 7 7 0 0 1 362 2013.3999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="2036.3999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">visibility: hidden</text>
-<text x="367" y="2064.7998" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">görünür</text>
-<text x="367" y="2087.1997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">görünür</text>
+<text x="367" y="2036.3999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">visibility: hidden</text>
+<text x="367" y="2064.7998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">görünür</text>
+<text x="367" y="2087.1997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">görünür</text>
 <path d="M 692 2012.3999 H 992 A 8 8 0 0 1 1000 2020.3999 V 2088 A 8 8 0 0 1 992 2096 H 692 A 8 8 0 0 1 684 2088 V 2020.3999 A 8 8 0 0 1 692 2012.3999 Z" fill="#ffffff"/>
 <path d="M 692 2012.3999 H 992 A 8 8 0 0 1 1000 2020.3999 V 2088 A 8 8 0 0 1 992 2096 H 692 A 8 8 0 0 1 684 2088 V 2020.3999 A 8 8 0 0 1 692 2012.3999 Z M 692 2013.3999 H 992 A 7 7 0 0 1 999 2020.3999 V 2088 A 7 7 0 0 1 992 2095 H 692 A 7 7 0 0 1 685 2088 V 2020.3999 A 7 7 0 0 1 692 2013.3999 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="2036.3999" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">opacity: 0.5</text>
+<text x="697" y="2036.3999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">opacity: 0.5</text>
 <path d="M 701 2048.7998 H 983 A 4 4 0 0 1 987 2052.7998 V 2078.9998 A 4 4 0 0 1 983 2082.9998 H 701 A 4 4 0 0 1 697 2078.9998 V 2052.7998 A 4 4 0 0 1 701 2048.7998 Z" fill="rgba(47,111,221,0.498)"/>
-<text x="705" y="2069.7998" fill="rgba(255,255,255,0.498)" font-family="system-ui, sans-serif" font-size="13" font-weight="400">yarı saydam kutu</text>
+<text x="705" y="2069.7998" fill="rgba(255,255,255,0.498)" font-family="serif" font-size="13" font-weight="400">yarı saydam kutu</text>
 <rect x="24" y="2162.4" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="2151.5999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Flexbox</text>
+<text x="24" y="2151.5999" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Flexbox</text>
 <path d="M 32 2174.4 H 332 A 8 8 0 0 1 340 2182.4 V 2295.7998 A 8 8 0 0 1 332 2303.7998 H 32 A 8 8 0 0 1 24 2295.7998 V 2182.4 A 8 8 0 0 1 32 2174.4 Z" fill="#ffffff"/>
 <path d="M 32 2174.4 H 332 A 8 8 0 0 1 340 2182.4 V 2295.7998 A 8 8 0 0 1 332 2303.7998 H 32 A 8 8 0 0 1 24 2295.7998 V 2182.4 A 8 8 0 0 1 32 2174.4 Z M 32 2175.4 H 332 A 7 7 0 0 1 339 2182.4 V 2295.7998 A 7 7 0 0 1 332 2302.7998 H 32 A 7 7 0 0 1 25 2295.7998 V 2182.4 A 7 7 0 0 1 32 2175.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="2198.4" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">flex-direction: row / column + gap</text>
+<text x="37" y="2198.4" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">flex-direction: row / column + gap</text>
 <path d="M 40 2210.7998 H 70 A 3 3 0 0 1 73 2213.7998 V 2231.7998 A 3 3 0 0 1 70 2234.7998 H 40 A 3 3 0 0 1 37 2231.7998 V 2213.7998 A 3 3 0 0 1 40 2210.7998 Z" fill="#2f6fdd"/>
 <path d="M 82 2210.7998 H 112 A 3 3 0 0 1 115 2213.7998 V 2231.7998 A 3 3 0 0 1 112 2234.7998 H 82 A 3 3 0 0 1 79 2231.7998 V 2213.7998 A 3 3 0 0 1 82 2210.7998 Z" fill="#e52e71"/>
 <path d="M 40 2238.7998 H 70 A 3 3 0 0 1 73 2241.7998 V 2259.7998 A 3 3 0 0 1 70 2262.7998 H 40 A 3 3 0 0 1 37 2259.7998 V 2241.7998 A 3 3 0 0 1 40 2238.7998 Z" fill="#2ea043"/>
 <path d="M 40 2266.7998 H 70 A 3 3 0 0 1 73 2269.7998 V 2287.7998 A 3 3 0 0 1 70 2290.7998 H 40 A 3 3 0 0 1 37 2287.7998 V 2269.7998 A 3 3 0 0 1 40 2266.7998 Z" fill="#ff8a00"/>
 <path d="M 362 2174.4 H 662 A 8 8 0 0 1 670 2182.4 V 2285.2 A 8 8 0 0 1 662 2293.2 H 362 A 8 8 0 0 1 354 2285.2 V 2182.4 A 8 8 0 0 1 362 2174.4 Z" fill="#ffffff"/>
 <path d="M 362 2174.4 H 662 A 8 8 0 0 1 670 2182.4 V 2285.2 A 8 8 0 0 1 662 2293.2 H 362 A 8 8 0 0 1 354 2285.2 V 2182.4 A 8 8 0 0 1 362 2174.4 Z M 362 2175.4 H 662 A 7 7 0 0 1 669 2182.4 V 2285.2 A 7 7 0 0 1 662 2292.2 H 362 A 7 7 0 0 1 355 2285.2 V 2182.4 A 7 7 0 0 1 362 2175.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="2198.4" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">justify-content: center + align-items:</text>
-<text x="367" y="2213.7998" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">center</text>
+<text x="367" y="2198.4" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">justify-content: center + align-items:</text>
+<text x="367" y="2213.7998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">center</text>
 <line x1="367" y1="2226.7" x2="657" y2="2226.7" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="656.5" y1="2226.2" x2="656.5" y2="2280.2" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="367" y1="2279.7" x2="657" y2="2279.7" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
@@ -330,7 +330,7 @@
 <path d="M 497 2241.2 H 527 A 3 3 0 0 1 530 2244.2 V 2262.2 A 3 3 0 0 1 527 2265.2 H 497 A 3 3 0 0 1 494 2262.2 V 2244.2 A 3 3 0 0 1 497 2241.2 Z" fill="#8e44ad"/>
 <path d="M 692 2174.4 H 992 A 8 8 0 0 1 1000 2182.4 V 2247.7998 A 8 8 0 0 1 992 2255.7998 H 692 A 8 8 0 0 1 684 2247.7998 V 2182.4 A 8 8 0 0 1 692 2174.4 Z" fill="#ffffff"/>
 <path d="M 692 2174.4 H 992 A 8 8 0 0 1 1000 2182.4 V 2247.7998 A 8 8 0 0 1 992 2255.7998 H 692 A 8 8 0 0 1 684 2247.7998 V 2182.4 A 8 8 0 0 1 692 2174.4 Z M 692 2175.4 H 992 A 7 7 0 0 1 999 2182.4 V 2247.7998 A 7 7 0 0 1 992 2254.7998 H 692 A 7 7 0 0 1 685 2247.7998 V 2182.4 A 7 7 0 0 1 692 2175.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="2198.4" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">justify-content: space-between</text>
+<text x="697" y="2198.4" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">justify-content: space-between</text>
 <line x1="697" y1="2211.2998" x2="987" y2="2211.2998" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="986.5" y1="2210.7998" x2="986.5" y2="2242.7998" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="697" y1="2242.2998" x2="987" y2="2242.2998" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
@@ -339,86 +339,86 @@
 <path d="M 950 2214.7998 H 980 A 3 3 0 0 1 983 2217.7998 V 2235.7998 A 3 3 0 0 1 980 2238.7998 H 950 A 3 3 0 0 1 947 2235.7998 V 2217.7998 A 3 3 0 0 1 950 2214.7998 Z" fill="#e52e71"/>
 <path d="M 32 2317.7998 H 332 A 8 8 0 0 1 340 2325.7998 V 2419.9998 A 8 8 0 0 1 332 2427.9998 H 32 A 8 8 0 0 1 24 2419.9998 V 2325.7998 A 8 8 0 0 1 32 2317.7998 Z" fill="#ffffff"/>
 <path d="M 32 2317.7998 H 332 A 8 8 0 0 1 340 2325.7998 V 2419.9998 A 8 8 0 0 1 332 2427.9998 H 32 A 8 8 0 0 1 24 2419.9998 V 2325.7998 A 8 8 0 0 1 32 2317.7998 Z M 32 2318.7998 H 332 A 7 7 0 0 1 339 2325.7998 V 2419.9998 A 7 7 0 0 1 332 2426.9998 H 32 A 7 7 0 0 1 25 2419.9998 V 2325.7998 A 7 7 0 0 1 32 2318.7998 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="2341.7998" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">flex-wrap: wrap</text>
+<text x="37" y="2341.7998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">flex-wrap: wrap</text>
 <path d="M 40 2354.1997 H 100 A 3 3 0 0 1 103 2357.1997 V 2379.5996 A 3 3 0 0 1 100 2382.5996 H 40 A 3 3 0 0 1 37 2379.5996 V 2357.1997 A 3 3 0 0 1 40 2354.1997 Z" fill="#d6e4ff"/>
-<text x="40" y="2373.1997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">bir</text>
+<text x="40" y="2373.1997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">bir</text>
 <path d="M 110 2354.1997 H 170 A 3 3 0 0 1 173 2357.1997 V 2379.5996 A 3 3 0 0 1 170 2382.5996 H 110 A 3 3 0 0 1 107 2379.5996 V 2357.1997 A 3 3 0 0 1 110 2354.1997 Z" fill="#d6e4ff"/>
-<text x="110" y="2373.1997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">iki</text>
+<text x="110" y="2373.1997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">iki</text>
 <path d="M 40 2386.5999 H 100 A 3 3 0 0 1 103 2389.5999 V 2411.9998 A 3 3 0 0 1 100 2414.9998 H 40 A 3 3 0 0 1 37 2411.9998 V 2389.5999 A 3 3 0 0 1 40 2386.5999 Z" fill="#d6e4ff"/>
-<text x="40" y="2405.5999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">üç</text>
+<text x="40" y="2405.5999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">üç</text>
 <path d="M 362 2317.7998 H 662 A 8 8 0 0 1 670 2325.7998 V 2387.5999 A 8 8 0 0 1 662 2395.5999 H 362 A 8 8 0 0 1 354 2387.5999 V 2325.7998 A 8 8 0 0 1 362 2317.7998 Z" fill="#ffffff"/>
 <path d="M 362 2317.7998 H 662 A 8 8 0 0 1 670 2325.7998 V 2387.5999 A 8 8 0 0 1 662 2395.5999 H 362 A 8 8 0 0 1 354 2387.5999 V 2325.7998 A 8 8 0 0 1 362 2317.7998 Z M 362 2318.7998 H 662 A 7 7 0 0 1 669 2325.7998 V 2387.5999 A 7 7 0 0 1 662 2394.5999 H 362 A 7 7 0 0 1 355 2387.5999 V 2325.7998 A 7 7 0 0 1 362 2318.7998 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="2341.7998" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">order</text>
+<text x="367" y="2341.7998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">order</text>
 <rect x="367" y="2354.1997" width="68" height="28.4" fill="#d6e4ff"/>
-<text x="373" y="2373.1997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">order 1</text>
+<text x="373" y="2373.1997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">order 1</text>
 <rect x="439" y="2354.1997" width="68" height="28.4" fill="#c3f0ca"/>
-<text x="445" y="2373.1997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">order 2</text>
+<text x="445" y="2373.1997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">order 2</text>
 <rect x="511" y="2354.1997" width="68" height="28.4" fill="#ffd8a8"/>
-<text x="517" y="2373.1997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">order 3</text>
+<text x="517" y="2373.1997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">order 3</text>
 <path d="M 692 2317.7998 H 992 A 8 8 0 0 1 1000 2325.7998 V 2387.5999 A 8 8 0 0 1 992 2395.5999 H 692 A 8 8 0 0 1 684 2387.5999 V 2325.7998 A 8 8 0 0 1 692 2317.7998 Z" fill="#ffffff"/>
 <path d="M 692 2317.7998 H 992 A 8 8 0 0 1 1000 2325.7998 V 2387.5999 A 8 8 0 0 1 992 2395.5999 H 692 A 8 8 0 0 1 684 2387.5999 V 2325.7998 A 8 8 0 0 1 692 2317.7998 Z M 692 2318.7998 H 992 A 7 7 0 0 1 999 2325.7998 V 2387.5999 A 7 7 0 0 1 992 2394.5999 H 692 A 7 7 0 0 1 685 2387.5999 V 2325.7998 A 7 7 0 0 1 692 2318.7998 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="2341.7998" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">flex-basis</text>
+<text x="697" y="2341.7998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">flex-basis</text>
 <rect x="697" y="2354.1997" width="46" height="28.4" fill="#ffd8a8"/>
-<text x="700" y="2373.1997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">40</text>
+<text x="700" y="2373.1997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">40</text>
 <rect x="749" y="2354.1997" width="146" height="28.4" fill="#d6e4ff"/>
-<text x="752" y="2373.1997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">140px basis</text>
+<text x="752" y="2373.1997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">140px basis</text>
 <path d="M 32 2441.9998 H 332 A 8 8 0 0 1 340 2449.9998 V 2563.3997 A 8 8 0 0 1 332 2571.3997 H 32 A 8 8 0 0 1 24 2563.3997 V 2449.9998 A 8 8 0 0 1 32 2441.9998 Z" fill="#ffffff"/>
 <path d="M 32 2441.9998 H 332 A 8 8 0 0 1 340 2449.9998 V 2563.3997 A 8 8 0 0 1 332 2571.3997 H 32 A 8 8 0 0 1 24 2563.3997 V 2449.9998 A 8 8 0 0 1 32 2441.9998 Z M 32 2442.9998 H 332 A 7 7 0 0 1 339 2449.9998 V 2563.3997 A 7 7 0 0 1 332 2570.3997 H 32 A 7 7 0 0 1 25 2563.3997 V 2449.9998 A 7 7 0 0 1 32 2442.9998 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="2465.9998" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">align-content: space-between</text>
+<text x="37" y="2465.9998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">align-content: space-between</text>
 <line x1="37" y1="2478.8997" x2="327" y2="2478.8997" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="326.5" y1="2478.3997" x2="326.5" y2="2558.3997" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="37" y1="2557.8997" x2="327" y2="2557.8997" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="37.5" y1="2478.3997" x2="37.5" y2="2558.3997" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <rect x="40" y="2481.3997" width="284" height="26.4" fill="#e7d6ff"/>
-<text x="44" y="2499.3997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">satır bir</text>
+<text x="44" y="2499.3997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır bir</text>
 <rect x="40" y="2528.9998" width="284" height="26.4" fill="#e7d6ff"/>
-<text x="44" y="2546.9998" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">satır iki</text>
+<text x="44" y="2546.9998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır iki</text>
 <rect x="24" y="2627.1997" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="2616.3997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Grid</text>
+<text x="24" y="2616.3997" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Grid</text>
 <path d="M 32 2639.1997 H 332 A 8 8 0 0 1 340 2647.1997 V 2747.3997 A 8 8 0 0 1 332 2755.3997 H 32 A 8 8 0 0 1 24 2747.3997 V 2647.1997 A 8 8 0 0 1 32 2639.1997 Z" fill="#ffffff"/>
 <path d="M 32 2639.1997 H 332 A 8 8 0 0 1 340 2647.1997 V 2747.3997 A 8 8 0 0 1 332 2755.3997 H 32 A 8 8 0 0 1 24 2747.3997 V 2647.1997 A 8 8 0 0 1 32 2639.1997 Z M 32 2640.1997 H 332 A 7 7 0 0 1 339 2647.1997 V 2747.3997 A 7 7 0 0 1 332 2754.3997 H 32 A 7 7 0 0 1 25 2747.3997 V 2647.1997 A 7 7 0 0 1 32 2640.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="2663.1997" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">grid-template-columns: repeat(3, 1fr)</text>
+<text x="37" y="2663.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">grid-template-columns: repeat(3, 1fr)</text>
 <path d="M 40 2675.5996 H 126.66666 A 3 3 0 0 1 129.66666 2678.5996 V 2702.9995 A 3 3 0 0 1 126.66666 2705.9995 H 40 A 3 3 0 0 1 37 2702.9995 V 2678.5996 A 3 3 0 0 1 40 2675.5996 Z" fill="#d6e4ff"/>
-<text x="79.33333" y="2695.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">1</text>
+<text x="79.33333" y="2695.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">1</text>
 <path d="M 138.66666 2675.5996 H 225.33331 A 3 3 0 0 1 228.33331 2678.5996 V 2702.9995 A 3 3 0 0 1 225.33331 2705.9995 H 138.66666 A 3 3 0 0 1 135.66666 2702.9995 V 2678.5996 A 3 3 0 0 1 138.66666 2675.5996 Z" fill="#d6e4ff"/>
-<text x="177.99998" y="2695.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">2</text>
+<text x="177.99998" y="2695.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">2</text>
 <path d="M 237.33333 2675.5996 H 324 A 3 3 0 0 1 327 2678.5996 V 2702.9995 A 3 3 0 0 1 324 2705.9995 H 237.33333 A 3 3 0 0 1 234.33333 2702.9995 V 2678.5996 A 3 3 0 0 1 237.33333 2675.5996 Z" fill="#d6e4ff"/>
-<text x="276.66666" y="2695.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">3</text>
+<text x="276.66666" y="2695.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">3</text>
 <path d="M 40 2711.9998 H 126.66666 A 3 3 0 0 1 129.66666 2714.9998 V 2739.3997 A 3 3 0 0 1 126.66666 2742.3997 H 40 A 3 3 0 0 1 37 2739.3997 V 2714.9998 A 3 3 0 0 1 40 2711.9998 Z" fill="#d6e4ff"/>
-<text x="79.33333" y="2731.9998" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">4</text>
+<text x="79.33333" y="2731.9998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">4</text>
 <path d="M 138.66666 2711.9998 H 225.33331 A 3 3 0 0 1 228.33331 2714.9998 V 2739.3997 A 3 3 0 0 1 225.33331 2742.3997 H 138.66666 A 3 3 0 0 1 135.66666 2739.3997 V 2714.9998 A 3 3 0 0 1 138.66666 2711.9998 Z" fill="#d6e4ff"/>
-<text x="177.99998" y="2731.9998" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">5</text>
+<text x="177.99998" y="2731.9998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">5</text>
 <path d="M 237.33333 2711.9998 H 324 A 3 3 0 0 1 327 2714.9998 V 2739.3997 A 3 3 0 0 1 324 2742.3997 H 237.33333 A 3 3 0 0 1 234.33333 2739.3997 V 2714.9998 A 3 3 0 0 1 237.33333 2711.9998 Z" fill="#d6e4ff"/>
-<text x="276.66666" y="2731.9998" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">6</text>
+<text x="276.66666" y="2731.9998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">6</text>
 <path d="M 362 2639.1997 H 662 A 8 8 0 0 1 670 2647.1997 V 2747.3997 A 8 8 0 0 1 662 2755.3997 H 362 A 8 8 0 0 1 354 2747.3997 V 2647.1997 A 8 8 0 0 1 362 2639.1997 Z" fill="#ffffff"/>
 <path d="M 362 2639.1997 H 662 A 8 8 0 0 1 670 2647.1997 V 2747.3997 A 8 8 0 0 1 662 2755.3997 H 362 A 8 8 0 0 1 354 2747.3997 V 2647.1997 A 8 8 0 0 1 362 2639.1997 Z M 362 2640.1997 H 662 A 7 7 0 0 1 669 2647.1997 V 2747.3997 A 7 7 0 0 1 662 2754.3997 H 362 A 7 7 0 0 1 355 2747.3997 V 2647.1997 A 7 7 0 0 1 362 2640.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="2663.1997" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">grid-column: span 2</text>
+<text x="367" y="2663.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">grid-column: span 2</text>
 <path d="M 370 2675.5996 H 555.3333 A 3 3 0 0 1 558.3333 2678.5996 V 2702.9995 A 3 3 0 0 1 555.3333 2705.9995 H 370 A 3 3 0 0 1 367 2702.9995 V 2678.5996 A 3 3 0 0 1 370 2675.5996 Z" fill="#ffd8a8"/>
-<text x="438.66666" y="2695.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">span 2</text>
+<text x="438.66666" y="2695.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">span 2</text>
 <path d="M 567.3333 2675.5996 H 654 A 3 3 0 0 1 657 2678.5996 V 2702.9995 A 3 3 0 0 1 654 2705.9995 H 567.3333 A 3 3 0 0 1 564.3333 2702.9995 V 2678.5996 A 3 3 0 0 1 567.3333 2675.5996 Z" fill="#c3f0ca"/>
-<text x="606.6666" y="2695.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">1</text>
+<text x="606.6666" y="2695.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">1</text>
 <path d="M 370 2711.9998 H 456.66666 A 3 3 0 0 1 459.66666 2714.9998 V 2739.3997 A 3 3 0 0 1 456.66666 2742.3997 H 370 A 3 3 0 0 1 367 2739.3997 V 2714.9998 A 3 3 0 0 1 370 2711.9998 Z" fill="#c3f0ca"/>
-<text x="409.33334" y="2731.9998" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">2</text>
+<text x="409.33334" y="2731.9998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">2</text>
 <path d="M 468.66666 2711.9998 H 555.3333 A 3 3 0 0 1 558.3333 2714.9998 V 2739.3997 A 3 3 0 0 1 555.3333 2742.3997 H 468.66666 A 3 3 0 0 1 465.66666 2739.3997 V 2714.9998 A 3 3 0 0 1 468.66666 2711.9998 Z" fill="#c3f0ca"/>
-<text x="508" y="2731.9998" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">3</text>
+<text x="508" y="2731.9998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">3</text>
 <path d="M 567.3333 2711.9998 H 654 A 3 3 0 0 1 657 2714.9998 V 2739.3997 A 3 3 0 0 1 654 2742.3997 H 567.3333 A 3 3 0 0 1 564.3333 2739.3997 V 2714.9998 A 3 3 0 0 1 567.3333 2711.9998 Z" fill="#c3f0ca"/>
-<text x="606.6666" y="2731.9998" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">4</text>
+<text x="606.6666" y="2731.9998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">4</text>
 <path d="M 692 2639.1997 H 992 A 8 8 0 0 1 1000 2647.1997 V 2744.5996 A 8 8 0 0 1 992 2752.5996 H 692 A 8 8 0 0 1 684 2744.5996 V 2647.1997 A 8 8 0 0 1 692 2639.1997 Z" fill="#ffffff"/>
 <path d="M 692 2639.1997 H 992 A 8 8 0 0 1 1000 2647.1997 V 2744.5996 A 8 8 0 0 1 992 2752.5996 H 692 A 8 8 0 0 1 684 2744.5996 V 2647.1997 A 8 8 0 0 1 692 2639.1997 Z M 692 2640.1997 H 992 A 7 7 0 0 1 999 2647.1997 V 2744.5996 A 7 7 0 0 1 992 2751.5996 H 692 A 7 7 0 0 1 685 2744.5996 V 2647.1997 A 7 7 0 0 1 692 2640.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="2663.1997" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">grid-template-rows: 20px 40px</text>
+<text x="697" y="2663.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">grid-template-rows: 20px 40px</text>
 <path d="M 700 2675.5996 H 837 A 3 3 0 0 1 840 2678.5996 V 2692.5996 A 3 3 0 0 1 837 2695.5996 H 700 A 3 3 0 0 1 697 2692.5996 V 2678.5996 A 3 3 0 0 1 700 2675.5996 Z" fill="#e7d6ff"/>
-<text x="701" y="2688.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="11" font-weight="400">20px</text>
+<text x="701" y="2688.5996" fill="#1c1e21" font-family="serif" font-size="11" font-weight="400">20px</text>
 <path d="M 847 2675.5996 H 984 A 3 3 0 0 1 987 2678.5996 V 2692.5996 A 3 3 0 0 1 984 2695.5996 H 847 A 3 3 0 0 1 844 2692.5996 V 2678.5996 A 3 3 0 0 1 847 2675.5996 Z" fill="#e7d6ff"/>
-<text x="848" y="2688.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="11" font-weight="400">20px</text>
+<text x="848" y="2688.5996" fill="#1c1e21" font-family="serif" font-size="11" font-weight="400">20px</text>
 <path d="M 700 2699.5996 H 837 A 3 3 0 0 1 840 2702.5996 V 2736.5996 A 3 3 0 0 1 837 2739.5996 H 700 A 3 3 0 0 1 697 2736.5996 V 2702.5996 A 3 3 0 0 1 700 2699.5996 Z" fill="#e7d6ff"/>
-<text x="701" y="2712.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="11" font-weight="400">40px</text>
+<text x="701" y="2712.5996" fill="#1c1e21" font-family="serif" font-size="11" font-weight="400">40px</text>
 <path d="M 847 2699.5996 H 984 A 3 3 0 0 1 987 2702.5996 V 2736.5996 A 3 3 0 0 1 984 2739.5996 H 847 A 3 3 0 0 1 844 2736.5996 V 2702.5996 A 3 3 0 0 1 847 2699.5996 Z" fill="#e7d6ff"/>
-<text x="848" y="2712.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="11" font-weight="400">40px</text>
+<text x="848" y="2712.5996" fill="#1c1e21" font-family="serif" font-size="11" font-weight="400">40px</text>
 <rect x="24" y="2811.1997" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="2800.3997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Tablo</text>
+<text x="24" y="2800.3997" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Tablo</text>
 <path d="M 32 2823.1997 H 332 A 8 8 0 0 1 340 2831.1997 V 2934.1997 A 8 8 0 0 1 332 2942.1997 H 32 A 8 8 0 0 1 24 2934.1997 V 2831.1997 A 8 8 0 0 1 32 2823.1997 Z" fill="#ffffff"/>
 <path d="M 32 2823.1997 H 332 A 8 8 0 0 1 340 2831.1997 V 2934.1997 A 8 8 0 0 1 332 2942.1997 H 32 A 8 8 0 0 1 24 2934.1997 V 2831.1997 A 8 8 0 0 1 32 2823.1997 Z M 32 2824.1997 H 332 A 7 7 0 0 1 339 2831.1997 V 2934.1997 A 7 7 0 0 1 332 2941.1997 H 32 A 7 7 0 0 1 25 2934.1997 V 2831.1997 A 7 7 0 0 1 32 2824.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="2847.1997" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">border-spacing: 6px</text>
+<text x="37" y="2847.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">border-spacing: 6px</text>
 <rect x="37" y="2859.5996" width="292" height="1" fill="#999999"/>
 <rect x="328" y="2859.5996" width="1" height="69.6" fill="#999999"/>
 <rect x="37" y="2928.1997" width="292" height="1" fill="#999999"/>
@@ -427,25 +427,25 @@
 <rect x="179" y="2866.5996" width="1" height="24.8" fill="#999999"/>
 <rect x="44" y="2890.3997" width="136" height="1" fill="#999999"/>
 <rect x="44" y="2866.5996" width="1" height="24.8" fill="#999999"/>
-<text x="109" y="2882.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="12" font-weight="700">A</text>
+<text x="109" y="2882.5996" fill="#1c1e21" font-family="serif" font-size="12" font-weight="700">A</text>
 <rect x="186" y="2866.5996" width="136" height="1" fill="#999999"/>
 <rect x="321" y="2866.5996" width="1" height="24.8" fill="#999999"/>
 <rect x="186" y="2890.3997" width="136" height="1" fill="#999999"/>
 <rect x="186" y="2866.5996" width="1" height="24.8" fill="#999999"/>
-<text x="251" y="2882.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="12" font-weight="700">B</text>
+<text x="251" y="2882.5996" fill="#1c1e21" font-family="serif" font-size="12" font-weight="700">B</text>
 <rect x="44" y="2897.3997" width="136" height="1" fill="#999999"/>
 <rect x="179" y="2897.3997" width="1" height="24.8" fill="#999999"/>
 <rect x="44" y="2921.1997" width="136" height="1" fill="#999999"/>
 <rect x="44" y="2897.3997" width="1" height="24.8" fill="#999999"/>
-<text x="51" y="2913.3997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="12" font-weight="400">1</text>
+<text x="51" y="2913.3997" fill="#1c1e21" font-family="serif" font-size="12" font-weight="400">1</text>
 <rect x="186" y="2897.3997" width="136" height="1" fill="#999999"/>
 <rect x="321" y="2897.3997" width="1" height="24.8" fill="#999999"/>
 <rect x="186" y="2921.1997" width="136" height="1" fill="#999999"/>
 <rect x="186" y="2897.3997" width="1" height="24.8" fill="#999999"/>
-<text x="193" y="2913.3997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="12" font-weight="400">2</text>
+<text x="193" y="2913.3997" fill="#1c1e21" font-family="serif" font-size="12" font-weight="400">2</text>
 <path d="M 362 2823.1997 H 662 A 8 8 0 0 1 670 2831.1997 V 2915.1997 A 8 8 0 0 1 662 2923.1997 H 362 A 8 8 0 0 1 354 2915.1997 V 2831.1997 A 8 8 0 0 1 362 2823.1997 Z" fill="#ffffff"/>
 <path d="M 362 2823.1997 H 662 A 8 8 0 0 1 670 2831.1997 V 2915.1997 A 8 8 0 0 1 662 2923.1997 H 362 A 8 8 0 0 1 354 2915.1997 V 2831.1997 A 8 8 0 0 1 362 2823.1997 Z M 362 2824.1997 H 662 A 7 7 0 0 1 669 2831.1997 V 2915.1997 A 7 7 0 0 1 662 2922.1997 H 362 A 7 7 0 0 1 355 2915.1997 V 2831.1997 A 7 7 0 0 1 362 2824.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="2847.1997" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">border-collapse: collapse</text>
+<text x="367" y="2847.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">border-collapse: collapse</text>
 <rect x="367" y="2859.5996" width="292" height="1" fill="#999999"/>
 <rect x="658" y="2859.5996" width="1" height="50.6" fill="#999999"/>
 <rect x="367" y="2909.1997" width="292" height="1" fill="#999999"/>
@@ -454,260 +454,260 @@
 <rect x="512" y="2860.5996" width="1" height="24.8" fill="#999999"/>
 <rect x="368" y="2884.3997" width="145" height="1" fill="#999999"/>
 <rect x="368" y="2860.5996" width="1" height="24.8" fill="#999999"/>
-<text x="437.5" y="2876.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="12" font-weight="700">A</text>
+<text x="437.5" y="2876.5996" fill="#1c1e21" font-family="serif" font-size="12" font-weight="700">A</text>
 <rect x="513" y="2860.5996" width="145" height="1" fill="#999999"/>
 <rect x="657" y="2860.5996" width="1" height="24.8" fill="#999999"/>
 <rect x="513" y="2884.3997" width="145" height="1" fill="#999999"/>
-<text x="582" y="2876.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="12" font-weight="700">B</text>
+<text x="582" y="2876.5996" fill="#1c1e21" font-family="serif" font-size="12" font-weight="700">B</text>
 <rect x="512" y="2885.3997" width="1" height="23.8" fill="#999999"/>
 <rect x="368" y="2908.1997" width="145" height="1" fill="#999999"/>
 <rect x="368" y="2885.3997" width="1" height="23.8" fill="#999999"/>
-<text x="375" y="2900.3997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="12" font-weight="400">1</text>
+<text x="375" y="2900.3997" fill="#1c1e21" font-family="serif" font-size="12" font-weight="400">1</text>
 <rect x="657" y="2885.3997" width="1" height="23.8" fill="#999999"/>
 <rect x="513" y="2908.1997" width="145" height="1" fill="#999999"/>
-<text x="519" y="2900.3997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="12" font-weight="400">2</text>
+<text x="519" y="2900.3997" fill="#1c1e21" font-family="serif" font-size="12" font-weight="400">2</text>
 <rect x="24" y="2997.9998" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="2987.1997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Transform</text>
+<text x="24" y="2987.1997" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Transform</text>
 <path d="M 32 3009.9998 H 332 A 8 8 0 0 1 340 3017.9998 V 3093.7998 A 8 8 0 0 1 332 3101.7998 H 32 A 8 8 0 0 1 24 3093.7998 V 3017.9998 A 8 8 0 0 1 32 3009.9998 Z" fill="#ffffff"/>
 <path d="M 32 3009.9998 H 332 A 8 8 0 0 1 340 3017.9998 V 3093.7998 A 8 8 0 0 1 332 3101.7998 H 32 A 8 8 0 0 1 24 3093.7998 V 3017.9998 A 8 8 0 0 1 32 3009.9998 Z M 32 3010.9998 H 332 A 7 7 0 0 1 339 3017.9998 V 3093.7998 A 7 7 0 0 1 332 3100.7998 H 32 A 7 7 0 0 1 25 3093.7998 V 3017.9998 A 7 7 0 0 1 32 3010.9998 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="3033.9998" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">transform: rotate(8deg)</text>
+<text x="37" y="3033.9998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">transform: rotate(8deg)</text>
 <g transform="matrix(0.99026805 0.1391731 -0.1391731 0.99026805 427.35358 15.758301)">
 <rect x="47" y="3048.3997" width="108" height="30.400002" fill="#ffd8a8"/>
-<text x="51" y="3068.3997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">döndürülmüş</text>
+<text x="51" y="3068.3997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">döndürülmüş</text>
 </g>
 <path d="M 362 3009.9998 H 662 A 8 8 0 0 1 670 3017.9998 V 3097.7998 A 8 8 0 0 1 662 3105.7998 H 362 A 8 8 0 0 1 354 3097.7998 V 3017.9998 A 8 8 0 0 1 362 3009.9998 Z" fill="#ffffff"/>
 <path d="M 362 3009.9998 H 662 A 8 8 0 0 1 670 3017.9998 V 3097.7998 A 8 8 0 0 1 662 3105.7998 H 362 A 8 8 0 0 1 354 3097.7998 V 3017.9998 A 8 8 0 0 1 362 3009.9998 Z M 362 3010.9998 H 662 A 7 7 0 0 1 669 3017.9998 V 3097.7998 A 7 7 0 0 1 662 3104.7998 H 362 A 7 7 0 0 1 355 3097.7998 V 3017.9998 A 7 7 0 0 1 362 3010.9998 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="3033.9998" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">scale: 1.2</text>
+<text x="367" y="3033.9998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">scale: 1.2</text>
 <g transform="matrix(1.2 0 0 1.2 -85.60004 -613.1201)">
 <rect x="379" y="3050.3997" width="98" height="30.400002" fill="#d6e4ff"/>
-<text x="383" y="3070.3997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">ölçekli</text>
+<text x="383" y="3070.3997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">ölçekli</text>
 </g>
 <path d="M 692 3009.9998 H 992 A 8 8 0 0 1 1000 3017.9998 V 3081.7998 A 8 8 0 0 1 992 3089.7998 H 692 A 8 8 0 0 1 684 3081.7998 V 3017.9998 A 8 8 0 0 1 692 3009.9998 Z" fill="#ffffff"/>
 <path d="M 692 3009.9998 H 992 A 8 8 0 0 1 1000 3017.9998 V 3081.7998 A 8 8 0 0 1 992 3089.7998 H 692 A 8 8 0 0 1 684 3081.7998 V 3017.9998 A 8 8 0 0 1 692 3009.9998 Z M 692 3010.9998 H 992 A 7 7 0 0 1 999 3017.9998 V 3081.7998 A 7 7 0 0 1 992 3088.7998 H 692 A 7 7 0 0 1 685 3081.7998 V 3017.9998 A 7 7 0 0 1 692 3010.9998 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="3033.9998" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">translate: 20px 6px</text>
+<text x="697" y="3033.9998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">translate: 20px 6px</text>
 <g transform="matrix(1 0 0 1 20 6)">
 <rect x="697" y="3046.3997" width="118" height="30.400002" fill="#c3f0ca"/>
-<text x="701" y="3066.3997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">kaydırılmış</text>
+<text x="701" y="3066.3997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">kaydırılmış</text>
 </g>
 <path d="M 32 3119.7998 H 332 A 8 8 0 0 1 340 3127.7998 V 3203.5999 A 8 8 0 0 1 332 3211.5999 H 32 A 8 8 0 0 1 24 3203.5999 V 3127.7998 A 8 8 0 0 1 32 3119.7998 Z" fill="#ffffff"/>
 <path d="M 32 3119.7998 H 332 A 8 8 0 0 1 340 3127.7998 V 3203.5999 A 8 8 0 0 1 332 3211.5999 H 32 A 8 8 0 0 1 24 3203.5999 V 3127.7998 A 8 8 0 0 1 32 3119.7998 Z M 32 3120.7998 H 332 A 7 7 0 0 1 339 3127.7998 V 3203.5999 A 7 7 0 0 1 332 3210.5999 H 32 A 7 7 0 0 1 25 3203.5999 V 3127.7998 A 7 7 0 0 1 32 3120.7998 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="3143.7998" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">transform + transform-origin</text>
+<text x="37" y="3143.7998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">transform + transform-origin</text>
 <g transform="matrix(0.9447958 -0.09930204 0.09930204 0.9447958 -297.02106 185.01318)">
 <rect x="47" y="3158.1997" width="128" height="30.400002" fill="#e7d6ff"/>
-<text x="51" y="3178.1997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">bileşik dönüşüm</text>
+<text x="51" y="3178.1997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">bileşik dönüşüm</text>
 </g>
 <rect x="24" y="3267.4" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="3256.5999" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Transition ve Animation</text>
+<text x="24" y="3256.5999" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Transition ve Animation</text>
 <path d="M 32 3279.4 H 332 A 8 8 0 0 1 340 3287.4 V 3355 A 8 8 0 0 1 332 3363 H 32 A 8 8 0 0 1 24 3355 V 3287.4 A 8 8 0 0 1 32 3279.4 Z" fill="#ffffff"/>
 <path d="M 32 3279.4 H 332 A 8 8 0 0 1 340 3287.4 V 3355 A 8 8 0 0 1 332 3363 H 32 A 8 8 0 0 1 24 3355 V 3287.4 A 8 8 0 0 1 32 3279.4 Z M 32 3280.4 H 332 A 7 7 0 0 1 339 3287.4 V 3355 A 7 7 0 0 1 332 3362 H 32 A 7 7 0 0 1 25 3355 V 3287.4 A 7 7 0 0 1 32 3280.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="3303.4" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">transition (hover ile)</text>
+<text x="37" y="3303.4" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">transition (hover ile)</text>
 <path d="M 41 3315.7998 H 323 A 4 4 0 0 1 327 3319.7998 V 3345.9998 A 4 4 0 0 1 323 3349.9998 H 41 A 4 4 0 0 1 37 3345.9998 V 3319.7998 A 4 4 0 0 1 41 3315.7998 Z" fill="#2f6fdd"/>
-<text x="45" y="3336.7998" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">üzerime gel</text>
+<text x="45" y="3336.7998" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">üzerime gel</text>
 <path d="M 362 3279.4 H 662 A 8 8 0 0 1 670 3287.4 V 3355 A 8 8 0 0 1 662 3363 H 362 A 8 8 0 0 1 354 3355 V 3287.4 A 8 8 0 0 1 362 3279.4 Z" fill="#ffffff"/>
 <path d="M 362 3279.4 H 662 A 8 8 0 0 1 670 3287.4 V 3355 A 8 8 0 0 1 662 3363 H 362 A 8 8 0 0 1 354 3355 V 3287.4 A 8 8 0 0 1 362 3279.4 Z M 362 3280.4 H 662 A 7 7 0 0 1 669 3287.4 V 3355 A 7 7 0 0 1 662 3362 H 362 A 7 7 0 0 1 355 3355 V 3287.4 A 7 7 0 0 1 362 3280.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="3303.4" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">@keyframes + animation</text>
-<text x="375" y="3336.7998" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">renk döngüsü</text>
+<text x="367" y="3303.4" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">@keyframes + animation</text>
+<text x="375" y="3336.7998" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">renk döngüsü</text>
 <rect x="24" y="3418.8" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="3408" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Filter</text>
-<text x="80.5" y="3408" fill="#8a9098" font-family="system-ui, sans-serif" font-size="11" font-weight="700">(yalnızca masaüstü raster backend&apos;de uygulanır; SVG çıktısı yok sayar)</text>
+<text x="24" y="3408" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Filter</text>
+<text x="80.5" y="3408" fill="#8a9098" font-family="serif" font-size="11" font-weight="700">(yalnızca masaüstü raster backend&apos;de uygulanır; SVG çıktısı yok sayar)</text>
 <path d="M 32 3430.8 H 332 A 8 8 0 0 1 340 3438.8 V 3506.4001 A 8 8 0 0 1 332 3514.4001 H 32 A 8 8 0 0 1 24 3506.4001 V 3438.8 A 8 8 0 0 1 32 3430.8 Z" fill="#ffffff"/>
 <path d="M 32 3430.8 H 332 A 8 8 0 0 1 340 3438.8 V 3506.4001 A 8 8 0 0 1 332 3514.4001 H 32 A 8 8 0 0 1 24 3506.4001 V 3438.8 A 8 8 0 0 1 32 3430.8 Z M 32 3431.8 H 332 A 7 7 0 0 1 339 3438.8 V 3506.4001 A 7 7 0 0 1 332 3513.4001 H 32 A 7 7 0 0 1 25 3506.4001 V 3438.8 A 7 7 0 0 1 32 3431.8 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="3454.8" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">grayscale(100%)</text>
+<text x="37" y="3454.8" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">grayscale(100%)</text>
 <path d="M 41 3467.2 H 323 A 4 4 0 0 1 327 3471.2 V 3497.4 A 4 4 0 0 1 323 3501.4 H 41 A 4 4 0 0 1 37 3497.4 V 3471.2 A 4 4 0 0 1 41 3467.2 Z" fill="#e52e71"/>
-<text x="45" y="3488.2" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">gri</text>
+<text x="45" y="3488.2" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">gri</text>
 <path d="M 362 3430.8 H 662 A 8 8 0 0 1 670 3438.8 V 3506.4001 A 8 8 0 0 1 662 3514.4001 H 362 A 8 8 0 0 1 354 3506.4001 V 3438.8 A 8 8 0 0 1 362 3430.8 Z" fill="#ffffff"/>
 <path d="M 362 3430.8 H 662 A 8 8 0 0 1 670 3438.8 V 3506.4001 A 8 8 0 0 1 662 3514.4001 H 362 A 8 8 0 0 1 354 3506.4001 V 3438.8 A 8 8 0 0 1 362 3430.8 Z M 362 3431.8 H 662 A 7 7 0 0 1 669 3438.8 V 3506.4001 A 7 7 0 0 1 662 3513.4001 H 362 A 7 7 0 0 1 355 3506.4001 V 3438.8 A 7 7 0 0 1 362 3431.8 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="3454.8" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">blur(2px)</text>
+<text x="367" y="3454.8" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">blur(2px)</text>
 <path d="M 371 3467.2 H 653 A 4 4 0 0 1 657 3471.2 V 3497.4 A 4 4 0 0 1 653 3501.4 H 371 A 4 4 0 0 1 367 3497.4 V 3471.2 A 4 4 0 0 1 371 3467.2 Z" fill="#2f6fdd"/>
-<text x="375" y="3488.2" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">bulanık</text>
+<text x="375" y="3488.2" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">bulanık</text>
 <path d="M 692 3430.8 H 992 A 8 8 0 0 1 1000 3438.8 V 3506.4001 A 8 8 0 0 1 992 3514.4001 H 692 A 8 8 0 0 1 684 3506.4001 V 3438.8 A 8 8 0 0 1 692 3430.8 Z" fill="#ffffff"/>
 <path d="M 692 3430.8 H 992 A 8 8 0 0 1 1000 3438.8 V 3506.4001 A 8 8 0 0 1 992 3514.4001 H 692 A 8 8 0 0 1 684 3506.4001 V 3438.8 A 8 8 0 0 1 692 3430.8 Z M 692 3431.8 H 992 A 7 7 0 0 1 999 3438.8 V 3506.4001 A 7 7 0 0 1 992 3513.4001 H 692 A 7 7 0 0 1 685 3506.4001 V 3438.8 A 7 7 0 0 1 692 3431.8 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="3454.8" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">brightness(1.6)</text>
+<text x="697" y="3454.8" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">brightness(1.6)</text>
 <path d="M 701 3467.2 H 983 A 4 4 0 0 1 987 3471.2 V 3497.4 A 4 4 0 0 1 983 3501.4 H 701 A 4 4 0 0 1 697 3497.4 V 3471.2 A 4 4 0 0 1 701 3467.2 Z" fill="#2ea043"/>
-<text x="705" y="3488.2" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">parlak</text>
+<text x="705" y="3488.2" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">parlak</text>
 <path d="M 32 3528.4001 H 332 A 8 8 0 0 1 340 3536.4001 V 3604.0002 A 8 8 0 0 1 332 3612.0002 H 32 A 8 8 0 0 1 24 3604.0002 V 3536.4001 A 8 8 0 0 1 32 3528.4001 Z" fill="#ffffff"/>
 <path d="M 32 3528.4001 H 332 A 8 8 0 0 1 340 3536.4001 V 3604.0002 A 8 8 0 0 1 332 3612.0002 H 32 A 8 8 0 0 1 24 3604.0002 V 3536.4001 A 8 8 0 0 1 32 3528.4001 Z M 32 3529.4001 H 332 A 7 7 0 0 1 339 3536.4001 V 3604.0002 A 7 7 0 0 1 332 3611.0002 H 32 A 7 7 0 0 1 25 3604.0002 V 3536.4001 A 7 7 0 0 1 32 3529.4001 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="3552.4001" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">invert(100%)</text>
+<text x="37" y="3552.4001" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">invert(100%)</text>
 <path d="M 41 3564.8 H 323 A 4 4 0 0 1 327 3568.8 V 3595 A 4 4 0 0 1 323 3599 H 41 A 4 4 0 0 1 37 3595 V 3568.8 A 4 4 0 0 1 41 3564.8 Z" fill="#ff8a00"/>
-<text x="45" y="3585.8" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">ters</text>
+<text x="45" y="3585.8" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">ters</text>
 <path d="M 362 3528.4001 H 662 A 8 8 0 0 1 670 3536.4001 V 3604.0002 A 8 8 0 0 1 662 3612.0002 H 362 A 8 8 0 0 1 354 3604.0002 V 3536.4001 A 8 8 0 0 1 362 3528.4001 Z" fill="#ffffff"/>
 <path d="M 362 3528.4001 H 662 A 8 8 0 0 1 670 3536.4001 V 3604.0002 A 8 8 0 0 1 662 3612.0002 H 362 A 8 8 0 0 1 354 3604.0002 V 3536.4001 A 8 8 0 0 1 362 3528.4001 Z M 362 3529.4001 H 662 A 7 7 0 0 1 669 3536.4001 V 3604.0002 A 7 7 0 0 1 662 3611.0002 H 362 A 7 7 0 0 1 355 3604.0002 V 3536.4001 A 7 7 0 0 1 362 3529.4001 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="3552.4001" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">contrast(40%)</text>
+<text x="367" y="3552.4001" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">contrast(40%)</text>
 <path d="M 371 3564.8 H 653 A 4 4 0 0 1 657 3568.8 V 3595 A 4 4 0 0 1 653 3599 H 371 A 4 4 0 0 1 367 3595 V 3568.8 A 4 4 0 0 1 371 3564.8 Z" fill="#8e44ad"/>
-<text x="375" y="3585.8" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">düşük kontrast</text>
+<text x="375" y="3585.8" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">düşük kontrast</text>
 <path d="M 692 3528.4001 H 992 A 8 8 0 0 1 1000 3536.4001 V 3604.0002 A 8 8 0 0 1 992 3612.0002 H 692 A 8 8 0 0 1 684 3604.0002 V 3536.4001 A 8 8 0 0 1 692 3528.4001 Z" fill="#ffffff"/>
 <path d="M 692 3528.4001 H 992 A 8 8 0 0 1 1000 3536.4001 V 3604.0002 A 8 8 0 0 1 992 3612.0002 H 692 A 8 8 0 0 1 684 3604.0002 V 3536.4001 A 8 8 0 0 1 692 3528.4001 Z M 692 3529.4001 H 992 A 7 7 0 0 1 999 3536.4001 V 3604.0002 A 7 7 0 0 1 992 3611.0002 H 692 A 7 7 0 0 1 685 3604.0002 V 3536.4001 A 7 7 0 0 1 692 3529.4001 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="3552.4001" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">sepia(100%)</text>
+<text x="697" y="3552.4001" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">sepia(100%)</text>
 <path d="M 701 3564.8 H 983 A 4 4 0 0 1 987 3568.8 V 3595 A 4 4 0 0 1 983 3599 H 701 A 4 4 0 0 1 697 3595 V 3568.8 A 4 4 0 0 1 701 3564.8 Z" fill="#2f6fdd"/>
-<text x="705" y="3585.8" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">sepya</text>
+<text x="705" y="3585.8" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">sepya</text>
 <path d="M 32 3626.0002 H 332 A 8 8 0 0 1 340 3634.0002 V 3701.6003 A 8 8 0 0 1 332 3709.6003 H 32 A 8 8 0 0 1 24 3701.6003 V 3634.0002 A 8 8 0 0 1 32 3626.0002 Z" fill="#ffffff"/>
 <path d="M 32 3626.0002 H 332 A 8 8 0 0 1 340 3634.0002 V 3701.6003 A 8 8 0 0 1 332 3709.6003 H 32 A 8 8 0 0 1 24 3701.6003 V 3634.0002 A 8 8 0 0 1 32 3626.0002 Z M 32 3627.0002 H 332 A 7 7 0 0 1 339 3634.0002 V 3701.6003 A 7 7 0 0 1 332 3708.6003 H 32 A 7 7 0 0 1 25 3701.6003 V 3634.0002 A 7 7 0 0 1 32 3627.0002 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="3650.0002" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">saturate(30%)</text>
+<text x="37" y="3650.0002" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">saturate(30%)</text>
 <path d="M 41 3662.4001 H 323 A 4 4 0 0 1 327 3666.4001 V 3692.6 A 4 4 0 0 1 323 3696.6 H 41 A 4 4 0 0 1 37 3692.6 V 3666.4001 A 4 4 0 0 1 41 3662.4001 Z" fill="#e52e71"/>
-<text x="45" y="3683.4001" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">soluk</text>
+<text x="45" y="3683.4001" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">soluk</text>
 <rect x="24" y="3765.4004" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="3754.6003" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Form Kontrolleri</text>
+<text x="24" y="3754.6003" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Form Kontrolleri</text>
 <path d="M 32 3777.4004 H 332 A 8 8 0 0 1 340 3785.4004 V 3841.2004 A 8 8 0 0 1 332 3849.2004 H 32 A 8 8 0 0 1 24 3841.2004 V 3785.4004 A 8 8 0 0 1 32 3777.4004 Z" fill="#ffffff"/>
 <path d="M 32 3777.4004 H 332 A 8 8 0 0 1 340 3785.4004 V 3841.2004 A 8 8 0 0 1 332 3849.2004 H 32 A 8 8 0 0 1 24 3841.2004 V 3785.4004 A 8 8 0 0 1 32 3777.4004 Z M 32 3778.4004 H 332 A 7 7 0 0 1 339 3785.4004 V 3841.2004 A 7 7 0 0 1 332 3848.2004 H 32 A 7 7 0 0 1 25 3841.2004 V 3785.4004 A 7 7 0 0 1 32 3778.4004 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="3801.4004" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">accent-color</text>
+<text x="37" y="3801.4004" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">accent-color</text>
 <path d="M 42 3815.9004 H 51 A 3 3 0 0 1 54 3818.9004 V 3827.9004 A 3 3 0 0 1 51 3830.9004 H 42 A 3 3 0 0 1 39 3827.9004 V 3818.9004 A 3 3 0 0 1 42 3815.9004 Z" fill="#e52e71"/>
 <path d="M 42 3815.9004 H 51 A 3 3 0 0 1 54 3818.9004 V 3827.9004 A 3 3 0 0 1 51 3830.9004 H 42 A 3 3 0 0 1 39 3827.9004 V 3818.9004 A 3 3 0 0 1 42 3815.9004 Z M 42 3816.9004 H 51 A 2 2 0 0 1 53 3818.9004 V 3827.9004 A 2 2 0 0 1 51 3829.9004 H 42 A 2 2 0 0 1 40 3827.9004 V 3818.9004 A 2 2 0 0 1 42 3816.9004 Z" fill="#e52e71" fill-rule="evenodd"/>
 <polyline points="42.6,3824.1504 45.45,3827.0005 50.7,3820.4004" fill="none" stroke="#ffffff" stroke-width="2.40" stroke-linecap="round" stroke-linejoin="round"/>
 <clipPath id="clip3"><rect x="40" y="3816.9004" width="13" height="13"/></clipPath><g clip-path="url(#clip3)">
 </g>
-<text x="64" y="3832.9004" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">işaretli</text>
+<text x="64" y="3832.9004" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">işaretli</text>
 <path d="M 145 3815.9004 H 146 A 7 7 0 0 1 153 3822.9004 V 3823.9004 A 7 7 0 0 1 146 3830.9004 H 145 A 7 7 0 0 1 138 3823.9004 V 3822.9004 A 7 7 0 0 1 145 3815.9004 Z" fill="#e52e71"/>
 <path d="M 145 3815.9004 H 146 A 7 7 0 0 1 153 3822.9004 V 3823.9004 A 7 7 0 0 1 146 3830.9004 H 145 A 7 7 0 0 1 138 3823.9004 V 3822.9004 A 7 7 0 0 1 145 3815.9004 Z M 145 3816.9004 H 146 A 6 6 0 0 1 152 3822.9004 V 3823.9004 A 6 6 0 0 1 146 3829.9004 H 145 A 6 6 0 0 1 139 3823.9004 V 3822.9004 A 6 6 0 0 1 145 3816.9004 Z" fill="#e52e71" fill-rule="evenodd"/>
 <circle cx="145.5" cy="3823.4004" r="3.00" fill="#ffffff"/>
 <clipPath id="clip4"><rect x="139" y="3816.9004" width="13" height="13"/></clipPath><g clip-path="url(#clip4)">
 </g>
-<text x="163" y="3832.9004" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">seçili</text>
+<text x="163" y="3832.9004" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">seçili</text>
 <path d="M 362 3777.4004 H 662 A 8 8 0 0 1 670 3785.4004 V 3856.2004 A 8 8 0 0 1 662 3864.2004 H 362 A 8 8 0 0 1 354 3856.2004 V 3785.4004 A 8 8 0 0 1 362 3777.4004 Z" fill="#ffffff"/>
 <path d="M 362 3777.4004 H 662 A 8 8 0 0 1 670 3785.4004 V 3856.2004 A 8 8 0 0 1 662 3864.2004 H 362 A 8 8 0 0 1 354 3856.2004 V 3785.4004 A 8 8 0 0 1 362 3777.4004 Z M 362 3778.4004 H 662 A 7 7 0 0 1 669 3785.4004 V 3856.2004 A 7 7 0 0 1 662 3863.2004 H 362 A 7 7 0 0 1 355 3856.2004 V 3785.4004 A 7 7 0 0 1 362 3778.4004 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="3801.4004" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">caret-color: #e52e71</text>
+<text x="367" y="3801.4004" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">caret-color: #e52e71</text>
 <path d="M 372 3815.8003 H 639 A 3 3 0 0 1 642 3818.8003 V 3843.0002 A 3 3 0 0 1 639 3846.0002 H 372 A 3 3 0 0 1 369 3843.0002 V 3818.8003 A 3 3 0 0 1 372 3815.8003 Z" fill="#ffffff"/>
 <path d="M 372 3815.8003 H 639 A 3 3 0 0 1 642 3818.8003 V 3843.0002 A 3 3 0 0 1 639 3846.0002 H 372 A 3 3 0 0 1 369 3843.0002 V 3818.8003 A 3 3 0 0 1 372 3815.8003 Z M 372 3817.8003 H 639 A 1 1 0 0 1 640 3818.8003 V 3843.0002 A 1 1 0 0 1 639 3844.0002 H 372 A 1 1 0 0 1 371 3843.0002 V 3818.8003 A 1 1 0 0 1 372 3817.8003 Z" fill="#2f6fdd" fill-rule="evenodd"/>
 <clipPath id="clip5"><rect x="371" y="3817.8003" width="269" height="26.199999"/></clipPath><g clip-path="url(#clip5)">
-<text x="375" y="3834.8003" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="13" font-weight="400">odakla ve yaz</text>
+<text x="375" y="3834.8003" fill="#1c1e21" font-family="serif" font-size="13" font-weight="400">odakla ve yaz</text>
 </g>
 <rect x="24" y="3920.0005" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="3909.2004" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Cursor</text>
+<text x="24" y="3909.2004" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Cursor</text>
 <path d="M 30 3932.0005 H 338 A 6 6 0 0 1 344 3938.0005 V 3959.4004 A 6 6 0 0 1 338 3965.4004 H 30 A 6 6 0 0 1 24 3959.4004 V 3938.0005 A 6 6 0 0 1 30 3932.0005 Z" fill="#fafbfc"/>
 <path d="M 30 3932.0005 H 338 A 6 6 0 0 1 344 3938.0005 V 3959.4004 A 6 6 0 0 1 338 3965.4004 H 30 A 6 6 0 0 1 24 3959.4004 V 3938.0005 A 6 6 0 0 1 30 3932.0005 Z M 30 3933.0005 H 338 A 5 5 0 0 1 343 3938.0005 V 3959.4004 A 5 5 0 0 1 338 3964.4004 H 30 A 5 5 0 0 1 25 3959.4004 V 3938.0005 A 5 5 0 0 1 30 3933.0005 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="160.9" y="3952.0005" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">pointer</text>
+<text x="160.9" y="3952.0005" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">pointer</text>
 <path d="M 358 3932.0005 H 666 A 6 6 0 0 1 672 3938.0005 V 3959.4004 A 6 6 0 0 1 666 3965.4004 H 358 A 6 6 0 0 1 352 3959.4004 V 3938.0005 A 6 6 0 0 1 358 3932.0005 Z" fill="#fafbfc"/>
 <path d="M 358 3932.0005 H 666 A 6 6 0 0 1 672 3938.0005 V 3959.4004 A 6 6 0 0 1 666 3965.4004 H 358 A 6 6 0 0 1 352 3959.4004 V 3938.0005 A 6 6 0 0 1 358 3932.0005 Z M 358 3933.0005 H 666 A 5 5 0 0 1 671 3938.0005 V 3959.4004 A 5 5 0 0 1 666 3964.4004 H 358 A 5 5 0 0 1 353 3959.4004 V 3938.0005 A 5 5 0 0 1 358 3933.0005 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="498.8" y="3952.0005" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">text</text>
+<text x="498.8" y="3952.0005" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">text</text>
 <path d="M 686 3932.0005 H 994 A 6 6 0 0 1 1000 3938.0005 V 3959.4004 A 6 6 0 0 1 994 3965.4004 H 686 A 6 6 0 0 1 680 3959.4004 V 3938.0005 A 6 6 0 0 1 686 3932.0005 Z" fill="#fafbfc"/>
 <path d="M 686 3932.0005 H 994 A 6 6 0 0 1 1000 3938.0005 V 3959.4004 A 6 6 0 0 1 994 3965.4004 H 686 A 6 6 0 0 1 680 3959.4004 V 3938.0005 A 6 6 0 0 1 686 3932.0005 Z M 686 3933.0005 H 994 A 5 5 0 0 1 999 3938.0005 V 3959.4004 A 5 5 0 0 1 994 3964.4004 H 686 A 5 5 0 0 1 681 3959.4004 V 3938.0005 A 5 5 0 0 1 686 3933.0005 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="826.8" y="3952.0005" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">move</text>
+<text x="826.8" y="3952.0005" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">move</text>
 <path d="M 30 3973.4004 H 338 A 6 6 0 0 1 344 3979.4004 V 4000.8003 A 6 6 0 0 1 338 4006.8003 H 30 A 6 6 0 0 1 24 4000.8003 V 3979.4004 A 6 6 0 0 1 30 3973.4004 Z" fill="#fafbfc"/>
 <path d="M 30 3973.4004 H 338 A 6 6 0 0 1 344 3979.4004 V 4000.8003 A 6 6 0 0 1 338 4006.8003 H 30 A 6 6 0 0 1 24 4000.8003 V 3979.4004 A 6 6 0 0 1 30 3973.4004 Z M 30 3974.4004 H 338 A 5 5 0 0 1 343 3979.4004 V 4000.8003 A 5 5 0 0 1 338 4005.8003 H 30 A 5 5 0 0 1 25 4000.8003 V 3979.4004 A 5 5 0 0 1 30 3974.4004 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="154.3" y="3993.4004" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">crosshair</text>
+<text x="154.3" y="3993.4004" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">crosshair</text>
 <path d="M 358 3973.4004 H 666 A 6 6 0 0 1 672 3979.4004 V 4000.8003 A 6 6 0 0 1 666 4006.8003 H 358 A 6 6 0 0 1 352 4000.8003 V 3979.4004 A 6 6 0 0 1 358 3973.4004 Z" fill="#fafbfc"/>
 <path d="M 358 3973.4004 H 666 A 6 6 0 0 1 672 3979.4004 V 4000.8003 A 6 6 0 0 1 666 4006.8003 H 358 A 6 6 0 0 1 352 4000.8003 V 3979.4004 A 6 6 0 0 1 358 3973.4004 Z M 358 3974.4004 H 666 A 5 5 0 0 1 671 3979.4004 V 4000.8003 A 5 5 0 0 1 666 4005.8003 H 358 A 5 5 0 0 1 353 4000.8003 V 3979.4004 A 5 5 0 0 1 358 3974.4004 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="498.8" y="3993.4004" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">wait</text>
+<text x="498.8" y="3993.4004" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">wait</text>
 <path d="M 686 3973.4004 H 994 A 6 6 0 0 1 1000 3979.4004 V 4000.8003 A 6 6 0 0 1 994 4006.8003 H 686 A 6 6 0 0 1 680 4000.8003 V 3979.4004 A 6 6 0 0 1 686 3973.4004 Z" fill="#fafbfc"/>
 <path d="M 686 3973.4004 H 994 A 6 6 0 0 1 1000 3979.4004 V 4000.8003 A 6 6 0 0 1 994 4006.8003 H 686 A 6 6 0 0 1 680 4000.8003 V 3979.4004 A 6 6 0 0 1 686 3973.4004 Z M 686 3974.4004 H 994 A 5 5 0 0 1 999 3979.4004 V 4000.8003 A 5 5 0 0 1 994 4005.8003 H 686 A 5 5 0 0 1 681 4000.8003 V 3979.4004 A 5 5 0 0 1 686 3974.4004 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="826.8" y="3993.4004" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">help</text>
+<text x="826.8" y="3993.4004" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">help</text>
 <path d="M 30 4014.8003 H 338 A 6 6 0 0 1 344 4020.8003 V 4042.2002 A 6 6 0 0 1 338 4048.2002 H 30 A 6 6 0 0 1 24 4042.2002 V 4020.8003 A 6 6 0 0 1 30 4014.8003 Z" fill="#fafbfc"/>
 <path d="M 30 4014.8003 H 338 A 6 6 0 0 1 344 4020.8003 V 4042.2002 A 6 6 0 0 1 338 4048.2002 H 30 A 6 6 0 0 1 24 4042.2002 V 4020.8003 A 6 6 0 0 1 30 4014.8003 Z M 30 4015.8003 H 338 A 5 5 0 0 1 343 4020.8003 V 4042.2002 A 5 5 0 0 1 338 4047.2002 H 30 A 5 5 0 0 1 25 4042.2002 V 4020.8003 A 5 5 0 0 1 30 4015.8003 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="147.7" y="4034.8003" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">not-allowed</text>
+<text x="147.7" y="4034.8003" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">not-allowed</text>
 <path d="M 358 4014.8003 H 666 A 6 6 0 0 1 672 4020.8003 V 4042.2002 A 6 6 0 0 1 666 4048.2002 H 358 A 6 6 0 0 1 352 4042.2002 V 4020.8003 A 6 6 0 0 1 358 4014.8003 Z" fill="#fafbfc"/>
 <path d="M 358 4014.8003 H 666 A 6 6 0 0 1 672 4020.8003 V 4042.2002 A 6 6 0 0 1 666 4048.2002 H 358 A 6 6 0 0 1 352 4042.2002 V 4020.8003 A 6 6 0 0 1 358 4014.8003 Z M 358 4015.8003 H 666 A 5 5 0 0 1 671 4020.8003 V 4042.2002 A 5 5 0 0 1 666 4047.2002 H 358 A 5 5 0 0 1 353 4042.2002 V 4020.8003 A 5 5 0 0 1 358 4015.8003 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="498.8" y="4034.8003" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">grab</text>
+<text x="498.8" y="4034.8003" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">grab</text>
 <path d="M 686 4014.8003 H 994 A 6 6 0 0 1 1000 4020.8003 V 4042.2002 A 6 6 0 0 1 994 4048.2002 H 686 A 6 6 0 0 1 680 4042.2002 V 4020.8003 A 6 6 0 0 1 686 4014.8003 Z" fill="#fafbfc"/>
 <path d="M 686 4014.8003 H 994 A 6 6 0 0 1 1000 4020.8003 V 4042.2002 A 6 6 0 0 1 994 4048.2002 H 686 A 6 6 0 0 1 680 4042.2002 V 4020.8003 A 6 6 0 0 1 686 4014.8003 Z M 686 4015.8003 H 994 A 5 5 0 0 1 999 4020.8003 V 4042.2002 A 5 5 0 0 1 994 4047.2002 H 686 A 5 5 0 0 1 681 4042.2002 V 4020.8003 A 5 5 0 0 1 686 4015.8003 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="813.6" y="4034.8003" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">grabbing</text>
+<text x="813.6" y="4034.8003" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">grabbing</text>
 <path d="M 30 4056.2002 H 338 A 6 6 0 0 1 344 4062.2002 V 4083.6 A 6 6 0 0 1 338 4089.6 H 30 A 6 6 0 0 1 24 4083.6 V 4062.2002 A 6 6 0 0 1 30 4056.2002 Z" fill="#fafbfc"/>
 <path d="M 30 4056.2002 H 338 A 6 6 0 0 1 344 4062.2002 V 4083.6 A 6 6 0 0 1 338 4089.6 H 30 A 6 6 0 0 1 24 4083.6 V 4062.2002 A 6 6 0 0 1 30 4056.2002 Z M 30 4057.2002 H 338 A 5 5 0 0 1 343 4062.2002 V 4083.6 A 5 5 0 0 1 338 4088.6 H 30 A 5 5 0 0 1 25 4083.6 V 4062.2002 A 5 5 0 0 1 30 4057.2002 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="154.3" y="4076.2002" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">ew-resize</text>
+<text x="154.3" y="4076.2002" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">ew-resize</text>
 <path d="M 358 4056.2002 H 666 A 6 6 0 0 1 672 4062.2002 V 4083.6 A 6 6 0 0 1 666 4089.6 H 358 A 6 6 0 0 1 352 4083.6 V 4062.2002 A 6 6 0 0 1 358 4056.2002 Z" fill="#fafbfc"/>
 <path d="M 358 4056.2002 H 666 A 6 6 0 0 1 672 4062.2002 V 4083.6 A 6 6 0 0 1 666 4089.6 H 358 A 6 6 0 0 1 352 4083.6 V 4062.2002 A 6 6 0 0 1 358 4056.2002 Z M 358 4057.2002 H 666 A 5 5 0 0 1 671 4062.2002 V 4083.6 A 5 5 0 0 1 666 4088.6 H 358 A 5 5 0 0 1 353 4083.6 V 4062.2002 A 5 5 0 0 1 358 4057.2002 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="482.3" y="4076.2002" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">ns-resize</text>
+<text x="482.3" y="4076.2002" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">ns-resize</text>
 <path d="M 686 4056.2002 H 994 A 6 6 0 0 1 1000 4062.2002 V 4083.6 A 6 6 0 0 1 994 4089.6 H 686 A 6 6 0 0 1 680 4083.6 V 4062.2002 A 6 6 0 0 1 686 4056.2002 Z" fill="#fafbfc"/>
 <path d="M 686 4056.2002 H 994 A 6 6 0 0 1 1000 4062.2002 V 4083.6 A 6 6 0 0 1 994 4089.6 H 686 A 6 6 0 0 1 680 4083.6 V 4062.2002 A 6 6 0 0 1 686 4056.2002 Z M 686 4057.2002 H 994 A 5 5 0 0 1 999 4062.2002 V 4083.6 A 5 5 0 0 1 994 4088.6 H 686 A 5 5 0 0 1 681 4083.6 V 4062.2002 A 5 5 0 0 1 686 4057.2002 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="807" y="4076.2002" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">col-resize</text>
+<text x="807" y="4076.2002" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">col-resize</text>
 <path d="M 30 4097.6 H 338 A 6 6 0 0 1 344 4103.6 V 4125 A 6 6 0 0 1 338 4131 H 30 A 6 6 0 0 1 24 4125 V 4103.6 A 6 6 0 0 1 30 4097.6 Z" fill="#fafbfc"/>
 <path d="M 30 4097.6 H 338 A 6 6 0 0 1 344 4103.6 V 4125 A 6 6 0 0 1 338 4131 H 30 A 6 6 0 0 1 24 4125 V 4103.6 A 6 6 0 0 1 30 4097.6 Z M 30 4098.6 H 338 A 5 5 0 0 1 343 4103.6 V 4125 A 5 5 0 0 1 338 4130 H 30 A 5 5 0 0 1 25 4125 V 4103.6 A 5 5 0 0 1 30 4098.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="151" y="4117.6" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">row-resize</text>
+<text x="151" y="4117.6" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">row-resize</text>
 <path d="M 358 4097.6 H 666 A 6 6 0 0 1 672 4103.6 V 4125 A 6 6 0 0 1 666 4131 H 358 A 6 6 0 0 1 352 4125 V 4103.6 A 6 6 0 0 1 358 4097.6 Z" fill="#fafbfc"/>
 <path d="M 358 4097.6 H 666 A 6 6 0 0 1 672 4103.6 V 4125 A 6 6 0 0 1 666 4131 H 358 A 6 6 0 0 1 352 4125 V 4103.6 A 6 6 0 0 1 358 4097.6 Z M 358 4098.6 H 666 A 5 5 0 0 1 671 4103.6 V 4125 A 5 5 0 0 1 666 4130 H 358 A 5 5 0 0 1 353 4125 V 4103.6 A 5 5 0 0 1 358 4098.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="485.6" y="4117.6" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">n-resize</text>
+<text x="485.6" y="4117.6" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">n-resize</text>
 <path d="M 686 4097.6 H 994 A 6 6 0 0 1 1000 4103.6 V 4125 A 6 6 0 0 1 994 4131 H 686 A 6 6 0 0 1 680 4125 V 4103.6 A 6 6 0 0 1 686 4097.6 Z" fill="#fafbfc"/>
 <path d="M 686 4097.6 H 994 A 6 6 0 0 1 1000 4103.6 V 4125 A 6 6 0 0 1 994 4131 H 686 A 6 6 0 0 1 680 4125 V 4103.6 A 6 6 0 0 1 686 4097.6 Z M 686 4098.6 H 994 A 5 5 0 0 1 999 4103.6 V 4125 A 5 5 0 0 1 994 4130 H 686 A 5 5 0 0 1 681 4125 V 4103.6 A 5 5 0 0 1 686 4098.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="813.6" y="4117.6" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">s-resize</text>
+<text x="813.6" y="4117.6" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">s-resize</text>
 <path d="M 30 4139 H 338 A 6 6 0 0 1 344 4145 V 4166.4 A 6 6 0 0 1 338 4172.4 H 30 A 6 6 0 0 1 24 4166.4 V 4145 A 6 6 0 0 1 30 4139 Z" fill="#fafbfc"/>
 <path d="M 30 4139 H 338 A 6 6 0 0 1 344 4145 V 4166.4 A 6 6 0 0 1 338 4172.4 H 30 A 6 6 0 0 1 24 4166.4 V 4145 A 6 6 0 0 1 30 4139 Z M 30 4140 H 338 A 5 5 0 0 1 343 4145 V 4166.4 A 5 5 0 0 1 338 4171.4 H 30 A 5 5 0 0 1 25 4166.4 V 4145 A 5 5 0 0 1 30 4140 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="157.6" y="4159" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">e-resize</text>
+<text x="157.6" y="4159" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">e-resize</text>
 <path d="M 358 4139 H 666 A 6 6 0 0 1 672 4145 V 4166.4 A 6 6 0 0 1 666 4172.4 H 358 A 6 6 0 0 1 352 4166.4 V 4145 A 6 6 0 0 1 358 4139 Z" fill="#fafbfc"/>
 <path d="M 358 4139 H 666 A 6 6 0 0 1 672 4145 V 4166.4 A 6 6 0 0 1 666 4172.4 H 358 A 6 6 0 0 1 352 4166.4 V 4145 A 6 6 0 0 1 358 4139 Z M 358 4140 H 666 A 5 5 0 0 1 671 4145 V 4166.4 A 5 5 0 0 1 666 4171.4 H 358 A 5 5 0 0 1 353 4166.4 V 4145 A 5 5 0 0 1 358 4140 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="485.6" y="4159" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">w-resize</text>
+<text x="485.6" y="4159" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">w-resize</text>
 <path d="M 686 4139 H 994 A 6 6 0 0 1 1000 4145 V 4166.4 A 6 6 0 0 1 994 4172.4 H 686 A 6 6 0 0 1 680 4166.4 V 4145 A 6 6 0 0 1 686 4139 Z" fill="#fafbfc"/>
 <path d="M 686 4139 H 994 A 6 6 0 0 1 1000 4145 V 4166.4 A 6 6 0 0 1 994 4172.4 H 686 A 6 6 0 0 1 680 4166.4 V 4145 A 6 6 0 0 1 686 4139 Z M 686 4140 H 994 A 5 5 0 0 1 999 4145 V 4166.4 A 5 5 0 0 1 994 4171.4 H 686 A 5 5 0 0 1 681 4166.4 V 4145 A 5 5 0 0 1 686 4140 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="816.9" y="4159" fill="#1c1e21" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">default</text>
+<text x="816.9" y="4159" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">default</text>
 <rect x="24" y="4228.1997" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="4217.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">pointer-events</text>
+<text x="24" y="4217.4" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">pointer-events</text>
 <path d="M 32 4240.1997 H 332 A 8 8 0 0 1 340 4248.1997 V 4392.4 A 8 8 0 0 1 332 4400.4 H 32 A 8 8 0 0 1 24 4392.4 V 4248.1997 A 8 8 0 0 1 32 4240.1997 Z" fill="#ffffff"/>
 <path d="M 32 4240.1997 H 332 A 8 8 0 0 1 340 4248.1997 V 4392.4 A 8 8 0 0 1 332 4400.4 H 32 A 8 8 0 0 1 24 4392.4 V 4248.1997 A 8 8 0 0 1 32 4240.1997 Z M 32 4241.1997 H 332 A 7 7 0 0 1 339 4248.1997 V 4392.4 A 7 7 0 0 1 332 4399.4 H 32 A 7 7 0 0 1 25 4392.4 V 4248.1997 A 7 7 0 0 1 32 4241.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="4264.1997" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">pointer-events: none</text>
+<text x="37" y="4264.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">pointer-events: none</text>
 <line x1="37" y1="4277.0996" x2="327" y2="4277.0996" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="326.5" y1="4276.5996" x2="326.5" y2="4350.5996" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="37" y1="4350.0996" x2="327" y2="4350.0996" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="37.5" y1="4276.5996" x2="37.5" y2="4350.5996" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <rect x="44" y="4283.5996" width="284" height="23.4" fill="rgba(47,111,221,0.149)"/>
-<text x="208.5" y="4298.5996" fill="#2f6fdd" font-family="system-ui, sans-serif" font-size="11" font-weight="400">tıklama geçiren perde</text>
-<text x="44" y="4299.5996" fill="#0000ee" font-family="system-ui, sans-serif" font-size="16" font-weight="400" text-decoration="underline">Bu link perdenin altında ama</text>
-<text x="44" y="4321.9995" fill="#0000ee" font-family="system-ui, sans-serif" font-size="16" font-weight="400" text-decoration="underline">tıklanabilir</text>
-<text x="37" y="4367.5996" fill="#8a9098" font-family="system-ui, sans-serif" font-size="11" font-weight="400">Mavi perde pointer-events: none — tıklama altındaki</text>
-<text x="37" y="4382.9995" fill="#8a9098" font-family="system-ui, sans-serif" font-size="11" font-weight="400">linke düşer.</text>
+<text x="208.5" y="4298.5996" fill="#2f6fdd" font-family="serif" font-size="11" font-weight="400">tıklama geçiren perde</text>
+<text x="44" y="4299.5996" fill="#0000ee" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">Bu link perdenin altında ama</text>
+<text x="44" y="4321.9995" fill="#0000ee" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">tıklanabilir</text>
+<text x="37" y="4367.5996" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">Mavi perde pointer-events: none — tıklama altındaki</text>
+<text x="37" y="4382.9995" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">linke düşer.</text>
 <rect x="24" y="4456.1997" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="4445.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Seçiciler</text>
+<text x="24" y="4445.4" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Seçiciler</text>
 <path d="M 32 4468.1997 H 332 A 8 8 0 0 1 340 4476.1997 V 4547.9995 A 8 8 0 0 1 332 4555.9995 H 32 A 8 8 0 0 1 24 4547.9995 V 4476.1997 A 8 8 0 0 1 32 4468.1997 Z" fill="#ffffff"/>
 <path d="M 32 4468.1997 H 332 A 8 8 0 0 1 340 4476.1997 V 4547.9995 A 8 8 0 0 1 332 4555.9995 H 32 A 8 8 0 0 1 24 4547.9995 V 4476.1997 A 8 8 0 0 1 32 4468.1997 Z M 32 4469.1997 H 332 A 7 7 0 0 1 339 4476.1997 V 4547.9995 A 7 7 0 0 1 332 4554.9995 H 32 A 7 7 0 0 1 25 4547.9995 V 4476.1997 A 7 7 0 0 1 32 4469.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="4492.1997" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">:hover</text>
+<text x="37" y="4492.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:hover</text>
 <path d="M 41 4504.5996 H 323 A 4 4 0 0 1 327 4508.5996 V 4538.9995 A 4 4 0 0 1 323 4542.9995 H 41 A 4 4 0 0 1 37 4538.9995 V 4508.5996 A 4 4 0 0 1 41 4504.5996 Z" fill="#d6e4ff"/>
-<text x="45" y="4528.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">üzerime gel — renk değişir</text>
+<text x="45" y="4528.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">üzerime gel — renk değişir</text>
 <path d="M 362 4468.1997 H 662 A 8 8 0 0 1 670 4476.1997 V 4599.1997 A 8 8 0 0 1 662 4607.1997 H 362 A 8 8 0 0 1 354 4599.1997 V 4476.1997 A 8 8 0 0 1 362 4468.1997 Z" fill="#ffffff"/>
 <path d="M 362 4468.1997 H 662 A 8 8 0 0 1 670 4476.1997 V 4599.1997 A 8 8 0 0 1 662 4607.1997 H 362 A 8 8 0 0 1 354 4599.1997 V 4476.1997 A 8 8 0 0 1 362 4468.1997 Z M 362 4469.1997 H 662 A 7 7 0 0 1 669 4476.1997 V 4599.1997 A 7 7 0 0 1 662 4606.1997 H 362 A 7 7 0 0 1 355 4599.1997 V 4476.1997 A 7 7 0 0 1 362 4469.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="4492.1997" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">:nth-child(odd) + :first-child</text>
+<text x="367" y="4492.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:nth-child(odd) + :first-child</text>
 <rect x="387" y="4504.5996" width="270" height="22.400002" fill="#eef1f4"/>
 <rect x="387" y="4504.5996" width="8" height="22.4" fill="#eef1f4"/>
-<text x="387" y="4520.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="700">•</text>
-<text x="403" y="4520.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="700">birinci (kalın)</text>
-<text x="387" y="4542.9995" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">•</text>
-<text x="403" y="4542.9995" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">ikinci</text>
+<text x="387" y="4520.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="700">•</text>
+<text x="403" y="4520.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="700">birinci (kalın)</text>
+<text x="387" y="4542.9995" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
+<text x="403" y="4542.9995" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">ikinci</text>
 <rect x="387" y="4549.4" width="270" height="22.400002" fill="#eef1f4"/>
 <rect x="387" y="4549.4" width="8" height="22.4" fill="#eef1f4"/>
-<text x="387" y="4565.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">•</text>
-<text x="403" y="4565.4" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">üçüncü</text>
-<text x="387" y="4587.8" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">•</text>
-<text x="403" y="4587.8" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">dördüncü</text>
+<text x="387" y="4565.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
+<text x="403" y="4565.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">üçüncü</text>
+<text x="387" y="4587.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
+<text x="403" y="4587.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">dördüncü</text>
 <path d="M 692 4468.1997 H 992 A 8 8 0 0 1 1000 4476.1997 V 4531.9995 A 8 8 0 0 1 992 4539.9995 H 692 A 8 8 0 0 1 684 4531.9995 V 4476.1997 A 8 8 0 0 1 692 4468.1997 Z" fill="#ffffff"/>
 <path d="M 692 4468.1997 H 992 A 8 8 0 0 1 1000 4476.1997 V 4531.9995 A 8 8 0 0 1 992 4539.9995 H 692 A 8 8 0 0 1 684 4531.9995 V 4476.1997 A 8 8 0 0 1 692 4468.1997 Z M 692 4469.1997 H 992 A 7 7 0 0 1 999 4476.1997 V 4531.9995 A 7 7 0 0 1 992 4538.9995 H 692 A 7 7 0 0 1 685 4531.9995 V 4476.1997 A 7 7 0 0 1 692 4469.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="4492.1997" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">:has(input:checked)</text>
+<text x="697" y="4492.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:has(input:checked)</text>
 <path d="M 702 4506.6997 H 711 A 3 3 0 0 1 714 4509.6997 V 4518.6997 A 3 3 0 0 1 711 4521.6997 H 702 A 3 3 0 0 1 699 4518.6997 V 4509.6997 A 3 3 0 0 1 702 4506.6997 Z" fill="#2266aa"/>
 <path d="M 702 4506.6997 H 711 A 3 3 0 0 1 714 4509.6997 V 4518.6997 A 3 3 0 0 1 711 4521.6997 H 702 A 3 3 0 0 1 699 4518.6997 V 4509.6997 A 3 3 0 0 1 702 4506.6997 Z M 702 4507.6997 H 711 A 2 2 0 0 1 713 4509.6997 V 4518.6997 A 2 2 0 0 1 711 4520.6997 H 702 A 2 2 0 0 1 700 4518.6997 V 4509.6997 A 2 2 0 0 1 702 4507.6997 Z" fill="#2266aa" fill-rule="evenodd"/>
 <polyline points="702.6,4514.9497 705.45,4517.8 710.7,4511.1997" fill="none" stroke="#ffffff" stroke-width="2.40" stroke-linecap="round" stroke-linejoin="round"/>
 <clipPath id="clip6"><rect x="700" y="4507.6997" width="13" height="13"/></clipPath><g clip-path="url(#clip6)">
 </g>
-<text x="724" y="4523.6997" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">işaretliyken kart yeşillenir</text>
+<text x="724" y="4523.6997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">işaretliyken kart yeşillenir</text>
 <path d="M 32 4621.1997 H 332 A 8 8 0 0 1 340 4629.1997 V 4697.9995 A 8 8 0 0 1 332 4705.9995 H 32 A 8 8 0 0 1 24 4697.9995 V 4629.1997 A 8 8 0 0 1 32 4621.1997 Z" fill="#ffffff"/>
 <path d="M 32 4621.1997 H 332 A 8 8 0 0 1 340 4629.1997 V 4697.9995 A 8 8 0 0 1 332 4705.9995 H 32 A 8 8 0 0 1 24 4697.9995 V 4629.1997 A 8 8 0 0 1 32 4621.1997 Z M 32 4622.1997 H 332 A 7 7 0 0 1 339 4629.1997 V 4697.9995 A 7 7 0 0 1 332 4704.9995 H 32 A 7 7 0 0 1 25 4697.9995 V 4629.1997 A 7 7 0 0 1 32 4622.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="4645.1997" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">:disabled</text>
+<text x="37" y="4645.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:disabled</text>
 <path d="M 42 4659.5996 H 216 A 3 3 0 0 1 219 4662.5996 V 4684.8 A 3 3 0 0 1 216 4687.8 H 42 A 3 3 0 0 1 39 4684.8 V 4662.5996 A 3 3 0 0 1 42 4659.5996 Z" fill="#e8eaed"/>
 <path d="M 42 4659.5996 H 216 A 3 3 0 0 1 219 4662.5996 V 4684.8 A 3 3 0 0 1 216 4687.8 H 42 A 3 3 0 0 1 39 4684.8 V 4662.5996 A 3 3 0 0 1 42 4659.5996 Z M 42 4660.5996 H 216 A 2 2 0 0 1 218 4662.5996 V 4684.8 A 2 2 0 0 1 216 4686.8 H 42 A 2 2 0 0 1 40 4684.8 V 4662.5996 A 2 2 0 0 1 42 4660.5996 Z" fill="#bbbbbb" fill-rule="evenodd"/>
 <clipPath id="clip7"><rect x="40" y="4660.5996" width="178" height="26.199999"/></clipPath><g clip-path="url(#clip7)">
-<text x="44" y="4677.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="13" font-weight="400">devre dışı</text>
+<text x="44" y="4677.5996" fill="#1c1e21" font-family="serif" font-size="13" font-weight="400">devre dışı</text>
 </g>
 <path d="M 362 4621.1997 H 662 A 8 8 0 0 1 670 4629.1997 V 4684.9995 A 8 8 0 0 1 662 4692.9995 H 362 A 8 8 0 0 1 354 4684.9995 V 4629.1997 A 8 8 0 0 1 362 4621.1997 Z" fill="#ffffff"/>
 <path d="M 362 4621.1997 H 662 A 8 8 0 0 1 670 4629.1997 V 4684.9995 A 8 8 0 0 1 662 4692.9995 H 362 A 8 8 0 0 1 354 4684.9995 V 4629.1997 A 8 8 0 0 1 362 4621.1997 Z M 362 4622.1997 H 662 A 7 7 0 0 1 669 4629.1997 V 4684.9995 A 7 7 0 0 1 662 4691.9995 H 362 A 7 7 0 0 1 355 4684.9995 V 4629.1997 A 7 7 0 0 1 362 4622.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="4645.1997" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">öznitelik seçici a[target]</text>
-<text x="367" y="4673.5996" fill="#e52e71" font-family="system-ui, sans-serif" font-size="16" font-weight="700" text-decoration="underline">target&apos;lı link</text>
-<text x="487" y="4673.5996" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">·</text>
-<text x="503" y="4673.5996" fill="#0000ee" font-family="system-ui, sans-serif" font-size="16" font-weight="400" text-decoration="underline">normal link</text>
+<text x="367" y="4645.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">öznitelik seçici a[target]</text>
+<text x="367" y="4673.5996" fill="#e52e71" font-family="serif" font-size="16" font-weight="700" text-decoration="underline">target&apos;lı link</text>
+<text x="487" y="4673.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">·</text>
+<text x="503" y="4673.5996" fill="#0000ee" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">normal link</text>
 <rect x="24" y="4761.7993" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="4750.9995" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Mantıksal Özellikler ve inset</text>
+<text x="24" y="4750.9995" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Mantıksal Özellikler ve inset</text>
 <path d="M 32 4773.7993 H 332 A 8 8 0 0 1 340 4781.7993 V 4879.9995 A 8 8 0 0 1 332 4887.9995 H 32 A 8 8 0 0 1 24 4879.9995 V 4781.7993 A 8 8 0 0 1 32 4773.7993 Z" fill="#ffffff"/>
 <path d="M 32 4773.7993 H 332 A 8 8 0 0 1 340 4781.7993 V 4879.9995 A 8 8 0 0 1 332 4887.9995 H 32 A 8 8 0 0 1 24 4879.9995 V 4781.7993 A 8 8 0 0 1 32 4773.7993 Z M 32 4774.7993 H 332 A 7 7 0 0 1 339 4781.7993 V 4879.9995 A 7 7 0 0 1 332 4886.9995 H 32 A 7 7 0 0 1 25 4879.9995 V 4781.7993 A 7 7 0 0 1 32 4774.7993 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="4797.7993" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">margin-inline / padding-block / inline-size</text>
+<text x="37" y="4797.7993" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">margin-inline / padding-block / inline-size</text>
 <path d="M 65 4810.199 H 288 A 4 4 0 0 1 292 4814.199 V 4870.999 A 4 4 0 0 1 288 4874.999 H 65 A 4 4 0 0 1 61 4870.999 V 4814.199 A 4 4 0 0 1 65 4810.199 Z M 65 4812.199 H 288 A 2 2 0 0 1 290 4814.199 V 4870.999 A 2 2 0 0 1 288 4872.999 H 65 A 2 2 0 0 1 63 4870.999 V 4814.199 A 2 2 0 0 1 65 4812.199 Z" fill="#2ea043" fill-rule="evenodd"/>
-<text x="75" y="4836.199" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">mantıksal eksenlerle</text>
-<text x="75" y="4858.599" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">boyutlanmış kutu</text>
+<text x="75" y="4836.199" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">mantıksal eksenlerle</text>
+<text x="75" y="4858.599" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">boyutlanmış kutu</text>
 <path d="M 362 4773.7993 H 662 A 8 8 0 0 1 670 4781.7993 V 4871.199 A 8 8 0 0 1 662 4879.199 H 362 A 8 8 0 0 1 354 4871.199 V 4781.7993 A 8 8 0 0 1 362 4773.7993 Z" fill="#ffffff"/>
 <path d="M 362 4773.7993 H 662 A 8 8 0 0 1 670 4781.7993 V 4871.199 A 8 8 0 0 1 662 4879.199 H 362 A 8 8 0 0 1 354 4871.199 V 4781.7993 A 8 8 0 0 1 362 4773.7993 Z M 362 4774.7993 H 662 A 7 7 0 0 1 669 4781.7993 V 4871.199 A 7 7 0 0 1 662 4878.199 H 362 A 7 7 0 0 1 355 4871.199 V 4781.7993 A 7 7 0 0 1 362 4774.7993 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="4797.7993" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">inset: 6px 12px</text>
+<text x="367" y="4797.7993" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">inset: 6px 12px</text>
 <line x1="367" y1="4810.699" x2="657" y2="4810.699" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="656.5" y1="4810.199" x2="656.5" y2="4866.199" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="367" y1="4865.699" x2="657" y2="4865.699" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="367.5" y1="4810.199" x2="367.5" y2="4866.199" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <path d="M 383 4817.199 H 529 A 3 3 0 0 1 532 4820.199 V 4844.599 A 3 3 0 0 1 529 4847.599 H 383 A 3 3 0 0 1 380 4844.599 V 4820.199 A 3 3 0 0 1 383 4817.199 Z" fill="#d6e4ff"/>
-<text x="384" y="4837.199" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">inset ile yerleşti</text>
+<text x="384" y="4837.199" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">inset ile yerleşti</text>
 <rect x="24" y="4943.7993" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="4932.9995" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">object-fit</text>
+<text x="24" y="4932.9995" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">object-fit</text>
 <path d="M 32 4955.7993 H 332 A 8 8 0 0 1 340 4963.7993 V 5114.599 A 8 8 0 0 1 332 5122.599 H 32 A 8 8 0 0 1 24 5114.599 V 4963.7993 A 8 8 0 0 1 32 4955.7993 Z" fill="#ffffff"/>
 <path d="M 32 4955.7993 H 332 A 8 8 0 0 1 340 4963.7993 V 5114.599 A 8 8 0 0 1 332 5122.599 H 32 A 8 8 0 0 1 24 5114.599 V 4963.7993 A 8 8 0 0 1 32 4955.7993 Z M 32 4956.7993 H 332 A 7 7 0 0 1 339 4963.7993 V 5114.599 A 7 7 0 0 1 332 5121.599 H 32 A 7 7 0 0 1 25 5114.599 V 4963.7993 A 7 7 0 0 1 32 4956.7993 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="4979.7993" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">object-fit: cover</text>
+<text x="37" y="4979.7993" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">object-fit: cover</text>
 <rect x="37" y="4992.199" width="122" height="1" fill="#999999"/>
 <rect x="158" y="4992.199" width="1" height="62" fill="#999999"/>
 <rect x="37" y="5053.199" width="122" height="1" fill="#999999"/>
@@ -716,32 +716,32 @@
 <rect x="158" y="4992.199" width="1" height="62" fill="#808080"/>
 <rect x="37" y="5053.199" width="122" height="1" fill="#808080"/>
 <rect x="37" y="4992.199" width="1" height="62" fill="#808080"/>
-<text x="37" y="5074.3994" fill="#8a9098" font-family="system-ui, sans-serif" font-size="11" font-weight="400">Kaynak data-URI (yükleyici data: şemasını indirmez);</text>
-<text x="37" y="5089.7993" fill="#8a9098" font-family="system-ui, sans-serif" font-size="11" font-weight="400">kutu ve alt metin gösterilir. Masaüstünde gerçek</text>
-<text x="37" y="5105.199" fill="#8a9098" font-family="system-ui, sans-serif" font-size="11" font-weight="400">dosyalı img ile cover/contain davranışı görülür.</text>
+<text x="37" y="5074.3994" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">Kaynak data-URI (yükleyici data: şemasını indirmez);</text>
+<text x="37" y="5089.7993" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">kutu ve alt metin gösterilir. Masaüstünde gerçek</text>
+<text x="37" y="5105.199" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">dosyalı img ile cover/contain davranışı görülür.</text>
 <rect x="24" y="5178.399" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="5167.599" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">Media Query</text>
+<text x="24" y="5167.599" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Media Query</text>
 <path d="M 32 5190.399 H 332 A 8 8 0 0 1 340 5198.399 V 5302.799 A 8 8 0 0 1 332 5310.799 H 32 A 8 8 0 0 1 24 5302.799 V 5198.399 A 8 8 0 0 1 32 5190.399 Z" fill="#ffffff"/>
 <path d="M 32 5190.399 H 332 A 8 8 0 0 1 340 5198.399 V 5302.799 A 8 8 0 0 1 332 5310.799 H 32 A 8 8 0 0 1 24 5302.799 V 5198.399 A 8 8 0 0 1 32 5190.399 Z M 32 5191.399 H 332 A 7 7 0 0 1 339 5198.399 V 5302.799 A 7 7 0 0 1 332 5309.799 H 32 A 7 7 0 0 1 25 5302.799 V 5198.399 A 7 7 0 0 1 32 5191.399 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="5214.399" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">@media (max-width: 600px)</text>
+<text x="37" y="5214.399" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">@media (max-width: 600px)</text>
 <path d="M 41 5226.799 H 323 A 4 4 0 0 1 327 5230.799 V 5256.999 A 4 4 0 0 1 323 5260.999 H 41 A 4 4 0 0 1 37 5256.999 V 5230.799 A 4 4 0 0 1 41 5226.799 Z" fill="#2ea043"/>
-<text x="45" y="5247.799" fill="#ffffff" font-family="system-ui, sans-serif" font-size="13" font-weight="400">viewport ≤ 600px&apos;te kırmızı</text>
-<text x="37" y="5277.999" fill="#8a9098" font-family="system-ui, sans-serif" font-size="11" font-weight="400">Şu anki render viewport&apos;u 1024px — kutu yeşil kalır;</text>
-<text x="37" y="5293.399" fill="#8a9098" font-family="system-ui, sans-serif" font-size="11" font-weight="400">pencereyi daraltınca kırmızıya döner.</text>
+<text x="45" y="5247.799" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">viewport ≤ 600px&apos;te kırmızı</text>
+<text x="37" y="5277.999" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">Şu anki render viewport&apos;u 1024px — kutu yeşil kalır;</text>
+<text x="37" y="5293.399" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">pencereyi daraltınca kırmızıya döner.</text>
 <rect x="24" y="5366.5986" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="5355.799" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="17" font-weight="700">::before / ::after</text>
+<text x="24" y="5355.799" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">::before / ::after</text>
 <path d="M 32 5378.5986 H 332 A 8 8 0 0 1 340 5386.5986 V 5442.3984 A 8 8 0 0 1 332 5450.3984 H 32 A 8 8 0 0 1 24 5442.3984 V 5386.5986 A 8 8 0 0 1 32 5378.5986 Z" fill="#ffffff"/>
 <path d="M 32 5378.5986 H 332 A 8 8 0 0 1 340 5386.5986 V 5442.3984 A 8 8 0 0 1 332 5450.3984 H 32 A 8 8 0 0 1 24 5442.3984 V 5386.5986 A 8 8 0 0 1 32 5378.5986 Z M 32 5379.5986 H 332 A 7 7 0 0 1 339 5386.5986 V 5442.3984 A 7 7 0 0 1 332 5449.3984 H 32 A 7 7 0 0 1 25 5442.3984 V 5386.5986 A 7 7 0 0 1 32 5379.5986 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="5402.5986" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">content ile ikon</text>
-<text x="37" y="5430.9985" fill="#ff8a00" font-family="system-ui, sans-serif" font-size="16" font-weight="400">★</text>
-<text x="53" y="5430.9985" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">yıldızlı metin</text>
-<text x="173" y="5430.9985" fill="#ff8a00" font-family="system-ui, sans-serif" font-size="16" font-weight="400">★</text>
+<text x="37" y="5402.5986" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">content ile ikon</text>
+<text x="37" y="5430.9985" fill="#ff8a00" font-family="serif" font-size="16" font-weight="400">★</text>
+<text x="53" y="5430.9985" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">yıldızlı metin</text>
+<text x="173" y="5430.9985" fill="#ff8a00" font-family="serif" font-size="16" font-weight="400">★</text>
 <path d="M 362 5378.5986 H 662 A 8 8 0 0 1 670 5386.5986 V 5442.3984 A 8 8 0 0 1 662 5450.3984 H 362 A 8 8 0 0 1 354 5442.3984 V 5386.5986 A 8 8 0 0 1 362 5378.5986 Z" fill="#ffffff"/>
 <path d="M 362 5378.5986 H 662 A 8 8 0 0 1 670 5386.5986 V 5442.3984 A 8 8 0 0 1 662 5450.3984 H 362 A 8 8 0 0 1 354 5442.3984 V 5386.5986 A 8 8 0 0 1 362 5378.5986 Z M 362 5379.5986 H 662 A 7 7 0 0 1 669 5386.5986 V 5442.3984 A 7 7 0 0 1 662 5449.3984 H 362 A 7 7 0 0 1 355 5442.3984 V 5386.5986 A 7 7 0 0 1 362 5379.5986 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="5402.5986" fill="#6a7078" font-family="ui-monospace, Menlo, monospace" font-size="11" font-weight="400">::after rozeti</text>
-<text x="367" y="5430.9985" fill="#1c1e21" font-family="system-ui, sans-serif" font-size="16" font-weight="400">özellik</text>
+<text x="367" y="5402.5986" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">::after rozeti</text>
+<text x="367" y="5430.9985" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">özellik</text>
 <rect x="423" y="5414.9985" width="20" height="22.4" fill="#e52e71"/>
-<text x="423" y="5430.9985" fill="#ffffff" font-family="system-ui, sans-serif" font-size="10" font-weight="400">yeni</text>
+<text x="423" y="5430.9985" fill="#ffffff" font-family="serif" font-size="10" font-weight="400">yeni</text>
 <path d="M 919.5 10 H 1010 A 4 4 0 0 1 1014 14 V 29.400002 A 4 4 0 0 1 1010 33.4 H 919.5 A 4 4 0 0 1 915.5 29.400002 V 14 A 4 4 0 0 1 919.5 10 Z" fill="#1c1e21"/>
-<text x="923.5" y="25" fill="#ffffff" font-family="system-ui, sans-serif" font-size="11" font-weight="400">position: fixed</text>
+<text x="923.5" y="25" fill="#ffffff" font-family="serif" font-size="11" font-weight="400">position: fixed</text>
 </svg>
