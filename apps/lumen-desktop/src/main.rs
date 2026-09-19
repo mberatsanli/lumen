@@ -15,10 +15,11 @@
 //! Cmd/Ctrl+C copies and Cmd/Ctrl+A selects the whole page. Cmd/Ctrl+F
 //! opens the find bar (type to search, Enter cycles matches, Escape
 //! closes). F12 toggles a debug HUD with FPS, frame
-//! times, memory and page statistics. The address and find inputs support full editing: caret
+//! times, memory (process RSS plus heap per tab) and page statistics. The address and find inputs support full editing: caret
 //! movement, Shift+arrows selection, Home/End, Cmd/Ctrl+A/C/X/V.
 
 mod popups;
+mod tab_memory;
 mod text_input;
 
 use lumen_browser::{EditOp, Motion, RepaintDamage, Session};
@@ -155,32 +156,34 @@ fn spawn_loader(
 ) {
     let proxy = proxy.clone();
     std::thread::spawn(move || {
-        session.set_viewport(viewport);
-        // Milestones of a streaming navigation land on the event loop
-        // as partial pages (see [`ShellEvent::PartialPage`]).
-        let mut snapshot = |page: lumen_engine::Page| {
-            let _ = proxy.send_event(ShellEvent::PartialPage {
+        tab_memory::in_tab(tab, move || {
+            session.set_viewport(viewport);
+            // Milestones of a streaming navigation land on the event loop
+            // as partial pages (see [`ShellEvent::PartialPage`]).
+            let mut snapshot = |page: lumen_engine::Page| {
+                let _ = proxy.send_event(ShellEvent::PartialPage {
+                    tab,
+                    page: Box::new(page),
+                });
+            };
+            let result = match nav {
+                Nav::Submit(node) => session.submit_form(node).map(|_| ()),
+                Nav::Load(url) => session.load_streaming(url, &mut snapshot).map(|_| ()),
+                Nav::Follow(href) => session.follow_streaming(&href, &mut snapshot).map(|_| ()),
+                Nav::Back => session.back().map(|_| ()),
+                Nav::Forward => session.forward().map(|_| ()),
+                Nav::Refresh => session.refresh().map(|_| ()),
+            };
+            // Failure means the event loop is gone (window closed while
+            // loading); the navigation result has nowhere to go.
+            if let Err(error) = proxy.send_event(ShellEvent::NavDone(Box::new(NavDone {
                 tab,
-                page: Box::new(page),
-            });
-        };
-        let result = match nav {
-            Nav::Submit(node) => session.submit_form(node).map(|_| ()),
-            Nav::Load(url) => session.load_streaming(url, &mut snapshot).map(|_| ()),
-            Nav::Follow(href) => session.follow_streaming(&href, &mut snapshot).map(|_| ()),
-            Nav::Back => session.back().map(|_| ()),
-            Nav::Forward => session.forward().map(|_| ()),
-            Nav::Refresh => session.refresh().map(|_| ()),
-        };
-        // Failure means the event loop is gone (window closed while
-        // loading); the navigation result has nowhere to go.
-        if let Err(error) = proxy.send_event(ShellEvent::NavDone(Box::new(NavDone {
-            tab,
-            session,
-            error: result.err().map(|error| error.to_string()),
-        }))) {
-            eprintln!("note: navigation finished after shutdown: {error}");
-        }
+                session,
+                error: result.err().map(|error| error.to_string()),
+            }))) {
+                eprintln!("note: navigation finished after shutdown: {error}");
+            }
+        })
     });
 }
 
@@ -292,6 +295,7 @@ impl Bookmarks {
 }
 
 fn main() {
+    tab_memory::enable();
     // Split flags from the positional file/URL: `--debug`/`-d` opens the
     // HUD on launch.
     let mut debug = false;
@@ -394,6 +398,11 @@ fn page_edit_action(key: &Key, command: bool, shift: bool, alt: bool) -> Option<
         Key::Character(text) => PageEdit::Op(EditOp::Insert(text.to_string())),
         _ => return None,
     })
+}
+
+/// `bytes` as a HUD figure.
+fn megabytes(bytes: u64) -> String {
+    format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
 }
 
 /// The slot of tab `id`, if it still exists — a navigation result whose
@@ -733,16 +742,19 @@ impl App {
         if font.is_none() {
             eprintln!("note: no system font found, using the built-in bitmap font");
         }
-        let mut session = Session::new(
-            DefaultLoader,
-            Size {
-                width: 1024.0,
-                height: 768.0,
-            },
-        );
-        if let Some(font) = &font {
-            session.set_measurer(Box::new(SharedFont(font.clone())));
-        }
+        let session = tab_memory::in_tab(0, || {
+            let mut session = Session::new(
+                DefaultLoader,
+                Size {
+                    width: 1024.0,
+                    height: 768.0,
+                },
+            );
+            if let Some(font) = &font {
+                session.set_measurer(Box::new(SharedFont(font.clone())));
+            }
+            session
+        });
         Self {
             input,
             state: SessionState::Ready(Box::new(session)),
@@ -869,9 +881,9 @@ impl App {
 
     /// Opens a blank tab, switches to it, and focuses the address bar.
     fn new_tab(&mut self) {
-        let session = self.blank_session();
         let id = self.next_tab_id;
         self.next_tab_id += 1;
+        let session = tab_memory::in_tab(id, || self.blank_session());
         self.park_active();
         self.tabs.push(Tab {
             id,
@@ -892,6 +904,12 @@ impl App {
         if self.tabs.len() <= 1 || index >= self.tabs.len() {
             return;
         }
+        let closed = self.tabs[index].id;
+        self.close_tab_at(index);
+        tab_memory::forget(closed);
+    }
+
+    fn close_tab_at(&mut self, index: usize) {
         if index == self.active {
             // Park so the vec slot is real, then drop it and adopt a
             // neighbour.
@@ -2467,7 +2485,7 @@ impl App {
         let loader = session.loader_handle();
         let proxy = self.proxy.clone();
         std::thread::spawn(move || {
-            let results = Session::fetch_images(loader.as_ref(), tasks);
+            let results = tab_memory::in_tab(tab, || Session::fetch_images(loader.as_ref(), tasks));
             if let Err(error) = proxy.send_event(ShellEvent::ImagesReady {
                 tab,
                 serial,
@@ -2808,7 +2826,7 @@ impl App {
         };
 
         let viewport = self.viewport();
-        let lines = [
+        let mut lines = vec![
             format!("fps {fps}  frame {average_ms:.1} ms (max {worst_ms:.1})"),
             format!("last frame: {}", self.last_frame_kind),
             format!(
@@ -2827,7 +2845,20 @@ impl App {
                 self.scale() * 100.0
             ),
             format!("generation {}", self.page_generation),
+            format!("heap: shell {}", megabytes(tab_memory::shell_bytes())),
         ];
+        for index in 0..self.tabs.len() {
+            let marker = if index == self.active { '>' } else { ' ' };
+            let mut label = self.tab_title(index);
+            if label.chars().count() > 18 {
+                label = label.chars().take(17).chain(['…']).collect();
+            }
+            lines.push(format!(
+                "{marker}tab {} {label:<18} {:>9}",
+                index + 1,
+                megabytes(tab_memory::tab_bytes(self.tabs[index].id))
+            ));
+        }
 
         let line_height = 16.0;
         let panel_width = 300.0;
@@ -2957,7 +2988,11 @@ impl App {
                 );
             }
             if let Some(caret) = overlay.caret {
-                fill(to_window(caret), lumen_css::Color::rgb(0x20, 0x20, 0x20), 255);
+                fill(
+                    to_window(caret),
+                    lumen_css::Color::rgb(0x20, 0x20, 0x20),
+                    255,
+                );
             }
         }
         // Inner scrollbars: a thin thumb on every scrollable box.
@@ -3282,6 +3317,11 @@ impl App {
             }
             self.follow_script_navigation();
         }
+        // Framebuffers, the shell UI and GPU resources outlive any one tab.
+        tab_memory::in_shell(|| self.paint_frame(frame_started));
+    }
+
+    fn paint_frame(&mut self, frame_started: Instant) {
         let scale = self.scale();
         let chrome = self.chrome_commands();
         let Some(size) = self.window.as_ref().map(|window| window.inner_size()) else {
@@ -3948,11 +3988,7 @@ impl ApplicationHandler<ShellEvent> for App {
         let gpu_forced_off = std::env::var("LUMEN_RASTER").is_ok_and(|value| value == "cpu");
         if !gpu_forced_off {
             let size = window.inner_size();
-            self.gpu = lumen_gpu::GpuRenderer::for_surface(
-                window.clone(),
-                size.width,
-                size.height,
-            );
+            self.gpu = lumen_gpu::GpuRenderer::for_surface(window.clone(), size.width, size.height);
             if self.gpu.is_some() {
                 eprintln!("note: GPU rasterization enabled (LUMEN_RASTER=cpu to disable)");
             }
@@ -3978,7 +4014,10 @@ impl ApplicationHandler<ShellEvent> for App {
         self.window = Some(window);
 
         match url_from_user_input(&self.input) {
-            Ok(url) => self.start_nav(Nav::Load(url)),
+            Ok(url) => {
+                let tab = self.tabs[self.active].id;
+                tab_memory::in_tab(tab, || self.start_nav(Nav::Load(url)));
+            }
             Err(error) => {
                 eprintln!("error: cannot load {}: {error}", self.input);
                 event_loop.exit();
@@ -3990,6 +4029,37 @@ impl ApplicationHandler<ShellEvent> for App {
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: ShellEvent) {
+        let tab = match &event {
+            ShellEvent::NavDone(done) => done.tab,
+            ShellEvent::PartialPage { tab, .. }
+            | ShellEvent::FetchReady { tab }
+            | ShellEvent::ImagesReady { tab, .. } => *tab,
+        };
+        // A result for a closed tab is dropped by its handler; charging
+        // it would only resurrect that tab's bookkeeping.
+        if tab_position(&self.tabs, tab).is_none() {
+            return;
+        }
+        tab_memory::in_tab(tab, || self.on_user_event(event));
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.on_about_to_wait(event_loop);
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        let tab = self.tabs[self.active].id;
+        tab_memory::in_tab(tab, || self.on_window_event(event_loop, window_id, event));
+    }
+}
+
+impl App {
+    fn on_user_event(&mut self, event: ShellEvent) {
         match event {
             ShellEvent::NavDone(done) => self.navigation_done(*done),
             ShellEvent::PartialPage { tab, page } => self.partial_page_arrived(tab, *page),
@@ -4002,7 +4072,7 @@ impl ApplicationHandler<ShellEvent> for App {
         }
     }
 
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    fn on_about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         // Keep the loading progress bar animating.
         if matches!(self.state, SessionState::Loading { .. }) {
             self.request_redraw();
@@ -4026,7 +4096,7 @@ impl ApplicationHandler<ShellEvent> for App {
         }
     }
 
-    fn window_event(
+    fn on_window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
         _window_id: WindowId,

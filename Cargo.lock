@@ -1779,6 +1779,7 @@ dependencies = [
  "serde",
  "serde_json",
  "softbuffer",
+ "tracking-allocator",
  "winit",
 ]
 
@@ -3528,6 +3529,12 @@ name = "tracing-core"
 version = "0.1.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
+
+[[package]]
+name = "tracking-allocator"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b61e0cb3385e17df7db29c565b40fd0350dfe8a076c7eea83d416e30cfd0581"
 
 [[package]]
 name = "ttf-parser"
