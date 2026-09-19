@@ -252,8 +252,9 @@ fn agent() -> &'static ureq::Agent {
 /// 403 unknown or empty agents.
 pub const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Lumen/0.1";
 
-/// Headers every HTTP request carries, browser-style. No
-/// `Accept-Encoding`: this build does not decompress.
+/// Headers every HTTP request carries, browser-style. ureq adds
+/// `Accept-Encoding: gzip, br` itself and decodes the body reader, so
+/// [`MAX_BODY_BYTES`] caps the decompressed size.
 const DEFAULT_HEADERS: [(&str, &str); 3] = [
     ("User-Agent", USER_AGENT),
     (
@@ -562,10 +563,40 @@ mod tests {
             head.contains(&format!("user-agent: {}", USER_AGENT.to_ascii_lowercase())),
             "missing User-Agent in {head}"
         );
-        assert!(head.contains("accept: text/html"), "missing Accept in {head}");
+        assert!(
+            head.contains("accept: text/html"),
+            "missing Accept in {head}"
+        );
         assert!(
             head.contains("accept-language: en-us"),
             "missing Accept-Language in {head}"
+        );
+    }
+
+    #[test]
+    fn gzip_bodies_are_requested_and_decoded() {
+        // gzip of "hello, compressed lumen".
+        const GZIPPED: [u8; 43] = [
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x13, 0xcb, 0x48, 0xcd, 0xc9,
+            0xc9, 0xd7, 0x51, 0x48, 0xce, 0xcf, 0x2d, 0x28, 0x4a, 0x2d, 0x2e, 0x4e, 0x4d, 0x51,
+            0xc8, 0x29, 0xcd, 0x4d, 0xcd, 0x03, 0x00, 0x7a, 0x39, 0xcd, 0x3b, 0x17, 0x00, 0x00,
+            0x00,
+        ];
+        let mut response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            GZIPPED.len()
+        )
+        .into_bytes();
+        response.extend_from_slice(&GZIPPED);
+        let (base, rx) = serve_bytes(vec![response]);
+        let loaded = HttpLoader
+            .load(&ResourceRequest::get(Url::parse(&base).unwrap()))
+            .unwrap();
+        assert_eq!(loaded.text(), "hello, compressed lumen");
+        let head = seen(rx)[0].to_ascii_lowercase();
+        assert!(
+            head.contains("accept-encoding: ") && head.contains("gzip") && head.contains("br"),
+            "missing Accept-Encoding in {head}"
         );
     }
 
@@ -618,6 +649,11 @@ mod tests {
     /// response, then reports the request heads it saw. Responses must
     /// carry `Connection: close` so ureq never pools a dead socket.
     fn serve(responses: Vec<String>) -> (String, std::sync::mpsc::Receiver<Vec<String>>) {
+        serve_bytes(responses.into_iter().map(String::into_bytes).collect())
+    }
+
+    /// [`serve`] for responses whose body is not UTF-8 (compressed).
+    fn serve_bytes(responses: Vec<Vec<u8>>) -> (String, std::sync::mpsc::Receiver<Vec<String>>) {
         use std::io::{BufRead as _, Write as _};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -638,7 +674,7 @@ mod tests {
                 }
                 seen.push(head);
                 let mut stream = stream;
-                stream.write_all(response.as_bytes()).unwrap();
+                stream.write_all(response).unwrap();
             }
             tx.send(seen).unwrap();
         });

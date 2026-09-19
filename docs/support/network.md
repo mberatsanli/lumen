@@ -34,7 +34,7 @@ Normative references: [URL](https://url.spec.whatwg.org/),
 | Response body bytes | ✅ | ✅ | ✅ | ✅ | Fully buffered in memory |
 | `Content-Type` capture | ⚠️ | ✅ | ✅ | ✅ | Stored but not used to choose a parser |
 | HTTP error pages | ❌ | ✅ | ✅ | ✅ | Non-success responses surface as load errors |
-| Content encoding (`gzip`, Brotli) | ❌ | ✅ | ✅ | ✅ | Decompression is not enabled in the HTTP client |
+| Content encoding (`gzip`, Brotli) | ✅ | ✅ | ✅ | ✅ | ureq sends `Accept-Encoding: gzip, br` and decodes the body; the size cap applies after decompression |
 | External stylesheets | ⚠️ | ✅ | ✅ | ✅ | Matching `<link>` elements are fetched in document order; no media/type/CORS processing |
 | Images, fonts and scripts | ❌ | ✅ | ✅ | ✅ | Subresource fetching is not orchestrated |
 | Request headers and user agent | ❌ | ✅ | ✅ | ✅ | No browser-level header policy |
