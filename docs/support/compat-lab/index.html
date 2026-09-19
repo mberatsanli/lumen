@@ -19,9 +19,9 @@
     <header class="hero">
       <h1>Lumen Compatibility Lab</h1>
       <p>
-        Open this same folder in Lumen and in Chrome. Chrome shows the web
-        platform behavior; Lumen shows which pieces are implemented, ignored
-        or still missing.
+        Open this folder in Lumen: every probe below states the behavior
+        the web platform specifies, so the page shows which pieces are
+        implemented, ignored or still missing.
       </p>
       <p class="css-loaded">External CSS loaded from <code>assets/lab.css</code>.</p>
       <p id="js-status" class="js-pending">External JS has not run.</p>
@@ -100,7 +100,7 @@
       <section class="section">
         <h2>How to read differences</h2>
         <ul class="status-list">
-          <li>If Chrome changes text but Lumen does not, script execution is missing.</li>
+          <li>If a scripted probe never changes its text, script execution is missing.</li>
           <li>If a styled probe is plain in Lumen, that stylesheet or CSS feature did not apply.</li>
           <li>If a control is visible but not interactive, parsing works but browser behavior is missing.</li>
           <li>If a link loads but history or fragment behavior differs, navigation support is partial.</li>

@@ -9,22 +9,22 @@ developer observability.
 
 ## Current inspection surfaces
 
-| Capability | Lumen | Chrome | Firefox | Safari | Note |
-|---|:-:|:-:|:-:|:-:|---|
-| DOM tree dump | ⚠️ | ✅ | ✅ | ✅ | CLI `dump-dom`; not live in the desktop shell |
-| CSS parser dump | ⚠️ | ✅ | ✅ | ✅ | CLI `parse-css`; no matched-rule UI |
-| Computed style dump | ⚠️ | ✅ | ✅ | ✅ | CLI `dump-style`; no cascade trace |
-| Layout tree dump | ⚠️ | ✅ | ✅ | ✅ | CLI `dump-layout`; no box overlay |
-| Display-list dump | ⚠️ | ✅ | ✅ | ✅ | CLI `dump-display-list` |
-| Render snapshot | ⚠️ | ✅ | ✅ | ✅ | CLI `render` emits SVG |
-| Visual compatibility lab | ✅ | — | — | — | `docs/support/compat-lab/index.html` |
-| Live element picker | ❌ | ✅ | ✅ | ✅ | |
-| Live style editing | ❌ | ✅ | ✅ | ✅ | |
-| Network request table | ❌ | ✅ | ✅ | ✅ | |
-| Console | ❌ | ✅ | ✅ | ✅ | No JavaScript runtime |
-| JavaScript debugger | ❌ | ✅ | ✅ | ✅ | |
-| Performance timeline | ❌ | ✅ | ✅ | ✅ | |
-| Accessibility tree inspector | ❌ | ✅ | ✅ | ✅ | |
+| Capability | Lumen | Note |
+|---|:-:|---|
+| DOM tree dump | ⚠️ | CLI `dump-dom`; not live in the desktop shell |
+| CSS parser dump | ⚠️ | CLI `parse-css`; no matched-rule UI |
+| Computed style dump | ⚠️ | CLI `dump-style`; no cascade trace |
+| Layout tree dump | ⚠️ | CLI `dump-layout`; no box overlay |
+| Display-list dump | ⚠️ | CLI `dump-display-list` |
+| Render snapshot | ⚠️ | CLI `render` emits SVG |
+| Visual compatibility lab | ✅ | `docs/support/compat-lab/index.html` |
+| Live element picker | ❌ | |
+| Live style editing | ❌ | |
+| Network request table | ❌ | |
+| Console | ❌ | No JavaScript runtime |
+| JavaScript debugger | ❌ | |
+| Performance timeline | ❌ | |
+| Accessibility tree inspector | ❌ | |
 
 ## First useful DevTools milestones
 

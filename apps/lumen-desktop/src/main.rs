@@ -1926,7 +1926,7 @@ impl App {
 
     fn click(&mut self) {
         // An open validation bubble dismisses on any click; the click
-        // itself still goes through (Chrome behaves the same).
+        // itself still goes through.
         if self.violation_popup.take().is_some() {
             self.request_redraw();
         }
@@ -2182,7 +2182,7 @@ impl App {
     }
 
     /// Opens the validation bubble for a blocked submit: a dark
-    /// Chrome-style card below the violating control.
+    /// Card below the violating control.
     fn open_violation_popup(&mut self) {
         let Some(session) = self.session() else {
             return;
@@ -2752,7 +2752,7 @@ impl App {
 
     fn open_find_bar(&mut self) {
         match &mut self.find_input {
-            // Reopening keeps the query and selects it (as Chrome does), so
+            // Reopening keeps the query and selects it, so
             // typing replaces it and Enter reuses it.
             Some(input) => input.select_all(),
             None => self.find_input = Some(TextInput::empty()),
@@ -3166,7 +3166,7 @@ impl App {
         Some(commands)
     }
 
-    /// Form-validation bubble: a dark Chrome-style card under the
+    /// Form-validation bubble: a dark card under the
     /// violating control. It only draws while the session still reports
     /// the violation — a cleared one closes the bubble.
     fn violation_popup_commands(&self) -> Option<Vec<DisplayCommand>> {

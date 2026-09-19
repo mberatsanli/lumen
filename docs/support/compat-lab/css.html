@@ -41,13 +41,13 @@
       <section class="section">
         <h2>Cascade and values</h2>
         <p class="sample-box important-test">
-          <code>!important</code> should make this green in Chrome.
+          <code>!important</code> should make this green.
         </p>
         <p class="sample-box calc-test">
-          <code>calc(100% - 48px)</code> should reduce this box width in Chrome.
+          <code>calc(100% - 48px)</code> should reduce this box width.
         </p>
         <p class="sample-box rem-test">
-          <code>rem</code> font sizing should be larger in Chrome.
+          <code>rem</code> font sizing should be larger.
         </p>
       </section>
 
@@ -80,7 +80,7 @@
           Border radius and box shadow.
         </p>
         <p class="sample-box overflow-test">
-          Overflow hidden should clip this long text in Chrome when it exceeds the box height.
+          Overflow hidden should clip this long text when it exceeds the box height.
         </p>
         <p class="sample-box gradient-test">
           Linear gradient background.
@@ -89,16 +89,16 @@
           Transform should rotate and move this box.
         </p>
         <p class="sample-box animation-test">
-          Animation should pulse this box in Chrome.
+          Animation should pulse this box.
         </p>
       </section>
 
       <section class="section">
         <h2>Background images</h2>
         <p class="muted">
-          These probes use <code>assets/background-tile.svg</code>. Chrome
-          should show image painting, repetition, positioning and sizing.
-          Lumen currently makes missing image-backed background support obvious.
+          These probes use <code>assets/background-tile.svg</code> to exercise
+          image painting, repetition, positioning and sizing, so missing
+          image-backed background support is obvious.
         </p>
 
         <h3>Image, color fallback and repeat</h3>
@@ -171,9 +171,9 @@
       <section class="section">
         <h2>Borders and radii</h2>
         <p class="muted">
-          These probes isolate per-side borders and per-corner radius behavior.
-          Chrome should show every side and corner independently; Lumen should
-          make unsupported pieces obvious.
+          These probes isolate per-side borders and per-corner radius behavior:
+          every side and corner should render independently, so unsupported
+          pieces stand out.
         </p>
 
         <h3>Per-side border longhands</h3>
@@ -199,10 +199,10 @@
             <code>border-top: 8px solid red</code> shorthand.
           </p>
           <p class="border-probe border-style-dashed">
-            Dashed style in Chrome; Lumen currently renders solid or ignores style.
+            Dashed style; Lumen currently renders solid or ignores style.
           </p>
           <p class="border-probe border-style-dotted">
-            Dotted style in Chrome; useful for border-style parsing.
+            Dotted style; useful for border-style parsing.
           </p>
         </div>
 
@@ -222,7 +222,7 @@
       <section class="section">
         <h2>Media query</h2>
         <p class="sample-box media-query-test">
-          Narrow the browser below 800px. Chrome applies the media query.
+          Narrow the browser below 800px to apply the media query.
         </p>
       </section>
     </main>

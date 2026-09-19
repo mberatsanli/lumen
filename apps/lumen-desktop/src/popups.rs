@@ -24,7 +24,7 @@ pub(crate) struct ColorPopup {
     pub(crate) hovered: Option<usize>,
 }
 
-/// An open form-validation bubble drawn by the shell (Chrome-style).
+/// An open form-validation bubble drawn by the shell.
 pub(crate) struct ViolationPopup {
     pub(crate) node: usize,
     pub(crate) message: String,
@@ -36,7 +36,7 @@ pub(crate) struct ViolationPopup {
 const VIOLATION_MARGIN: f32 = 4.0;
 
 /// The validation bubble's card geometry: below the violating control
-/// like Chrome's bubble, sized to its text and clamped so the card never
+/// sized to its text and clamped so the card never
 /// leaves the page horizontally.
 pub(crate) fn violation_rect(control: Rect, text_width: f32, page_width: f32) -> Rect {
     let width = (text_width + 24.0)

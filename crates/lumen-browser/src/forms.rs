@@ -6,12 +6,12 @@ use crate::{LoadError, Page, ResourceLoader, Session, resolve};
 use lumen_html::NodeId;
 
 /// A form control that failed constraint validation, blocking the
-/// submission (Chrome reports the first one in a bubble by the control).
+/// submission (the shell shows the first one in a bubble by the control).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormViolation {
     /// The first invalid control in document order.
     pub node: NodeId,
-    /// Chrome-style validation message (engine UI text stays English).
+    /// The message the shell shows (engine UI text stays English).
     pub message: String,
 }
 
@@ -425,7 +425,7 @@ impl<L: ResourceLoader> Session<L> {
 
     /// Checks the form containing `node` against the supported
     /// constraint-validation rules (`required`, number `min`/`max`) in
-    /// document order, returning the first violation — like Chrome, one
+    /// document order, returning the first violation — one
     /// blocked control is reported at a time.
     #[must_use]
     pub fn validate_form(&self, node: NodeId) -> Option<FormViolation> {
@@ -466,7 +466,7 @@ impl<L: ResourceLoader> Session<L> {
                 });
             }
             // Range constraints only apply to a parseable number; the
-            // message quotes the attribute text as written, like Chrome.
+            // message quotes the attribute text as written.
             if tag == "input" && kind == "number" && !value.trim().is_empty() {
                 let limit = |name: &str| {
                     element
@@ -511,7 +511,7 @@ impl<L: ResourceLoader> Session<L> {
     pub fn submit_form(&mut self, node: NodeId) -> Result<&Page, LoadError> {
         // Constraint validation runs before anything submits: the first
         // violation blocks the navigation and stays on the session for
-        // the shell to show (Chrome's bubble), leaving the page in place.
+        // the shell to show in its bubble, leaving the page in place.
         self.form_violation = self.validate_form(node);
         if self.form_violation.is_some() {
             return Ok(self.page.as_ref().expect("a validated page is loaded"));

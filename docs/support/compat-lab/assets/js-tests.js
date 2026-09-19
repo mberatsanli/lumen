@@ -41,7 +41,7 @@
   if (storageButton) {
     storageButton.addEventListener("click", function () {
       try {
-        window.localStorage.setItem("lumen-compat-lab", "stored in Chrome");
+        window.localStorage.setItem("lumen-compat-lab", "stored");
         text("storage-test-output", window.localStorage.getItem("lumen-compat-lab"));
       } catch (error) {
         text("storage-test-output", "Storage error: " + error.message);
