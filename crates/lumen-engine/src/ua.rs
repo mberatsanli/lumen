@@ -8,7 +8,11 @@ use std::sync::OnceLock;
 /// The built-in user-agent stylesheet (weakest cascade origin).
 ///
 /// Display defaults are code-side (see `default_display`); this sheet only
-/// carries typography and spacing defaults. The document-flow values are
+/// carries typography and spacing defaults. Form controls do not inherit
+/// the document's font: they use the platform's small control face at a
+/// fixed size, so a page-wide `font-family` never reshapes them.
+///
+/// The document-flow values are
 /// the ones the HTML Standard's "Rendering" section suggests; pages are
 /// authored against them, so a different default shifts every box below.
 pub fn user_agent_stylesheet() -> &'static Stylesheet {
@@ -46,48 +50,52 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             th { font-weight: 700; text-align: center; }
             sub { vertical-align: sub; font-size: 0.83em; }
             sup { vertical-align: super; font-size: 0.83em; }
-            input, select, textarea, button { border: 1px solid #767676; border-radius: 3px;
-                background-color: #ffffff; padding: 3px 8px; font-size: 13px; margin: 2px; }
-            input { width: 170px; min-height: 1.1em; white-space: pre;
-                overflow: hidden; }
-            input[type=submit], input[type=button], button { background-color: #ebebeb;
-                width: auto; padding: 3px 12px; }
-            input[type=checkbox], input[type=radio] { width: 13px; height: 13px; padding: 0;
-                min-height: 0; border-radius: 3px; border-color: #8a8a8a; }
-            input[type=radio] { border-radius: 7px; }
-            select { border: 1px solid #767676; border-radius: 3px; padding: 3px 24px 3px 8px;
-                background-color: #ffffff; font-size: 13px; min-height: 1.1em;
-                --lumen-mark: arrow; }
-            option { display: none; }
-            textarea { white-space: pre; overflow: auto; }
-            fieldset { border: 1px solid #b9b2a2; border-radius: 4px;
-                padding: 8px 12px; margin-top: 8px; margin-bottom: 8px; }
-            legend { font-weight: 700; font-size: 0.9em; }
-            progress, meter, input[type=range] { width: 160px; height: 10px; padding: 0;
-                border: 1px solid #b9b2a2; border-radius: 5px; background-color: #e8e4da;
-                min-height: 0; }
-            input[type=range] { height: 14px; border-radius: 7px; }
-            label { color: inherit; }
+            input, select, textarea, button { font-size: 13.3333px;
+                font-family: sans-serif; box-sizing: border-box; margin: 0; }
+            input, textarea { border: 2px inset #767676; background-color: #ffffff;
+                padding: 1px 2px; box-sizing: content-box; }
+            input { width: 153px; min-height: 1.1em; white-space: pre; overflow: hidden; }
+            input[type=submit], input[type=button], input[type=reset], button {
+                border: 2px outset #767676; background-color: #ebebeb;
+                padding: 1px 6px; width: auto; box-sizing: border-box; }
+            input[type=checkbox], input[type=radio] { width: 13px; height: 13px;
+                padding: 0; min-height: 0; border: 1px solid #8a8a8a; border-radius: 3px;
+                box-sizing: border-box; margin: 3px 3px 3px 4px; }
+            input[type=radio] { border-radius: 7px; margin-left: 5px; }
             input[type=checkbox]:checked, input[type=radio]:checked {
                 background-color: #2266aa; border-color: #2266aa; }
             input[type=checkbox]:checked { --lumen-mark: check; }
             input[type=radio]:checked { --lumen-mark: dot; }
             input[type=hidden] { display: none !important; }
-            select { width: auto; }
-            textarea { width: 300px; height: 64px; }
+            input[type=color] { width: 50px; height: 27px; padding: 1px 2px;
+                border: 1px solid #767676; min-height: 0; box-sizing: border-box; }
+            input[type=number] { width: 80px; }
+            input[type=range] { width: 129px; height: 16px; padding: 0; min-height: 0;
+                margin: 2px; border: 1px solid #b9b2a2; border-radius: 8px;
+                background-color: #e8e4da; box-sizing: border-box; }
+            select { border: 1px solid #767676; border-radius: 3px; padding: 0 4px;
+                background-color: #ffffff; height: 19px; width: auto;
+                box-sizing: border-box; --lumen-mark: arrow; }
+            option { display: none; }
+            textarea { font-family: monospace; white-space: pre; overflow: auto;
+                padding: 2px; border: 1px solid #767676; width: 177px; height: 30px; }
+            fieldset { border: 2px groove #b9b2a2; padding: 0.35em 0.75em 0.625em;
+                margin-inline: 2px; margin-top: 1em; margin-bottom: 1em; }
+            legend { padding: 0 2px; }
+            progress, meter { width: 160px; height: 16px; padding: 0; min-height: 0;
+                border: 1px solid #b9b2a2; border-radius: 8px; background-color: #e8e4da;
+                box-sizing: border-box; }
+            label { color: inherit; }
             select[multiple] { display: inline-block; width: 200px; max-height: 108px;
-                overflow: auto; padding: 4px; --lumen-mark: none; }
+                overflow: auto; padding: 4px; height: auto; --lumen-mark: none; }
             select[multiple] option { display: block; padding: 2px 8px; margin: 1px 0;
                 border-radius: 3px; min-height: 1.1em; }
             select[multiple] option:checked { background-color: #2266aa; color: #ffffff; }
             optgroup { display: none; }
             select[multiple] optgroup { display: block; padding: 2px 4px;
                 font-weight: 700; font-size: 0.85em; color: #6b675e; }
-            select[multiple] optgroup option { font-weight: 400; font-size: 13px;
+            select[multiple] optgroup option { font-weight: 400; font-size: 13.3333px;
                 color: #232019; }
-            input[type=color] { width: 44px; height: 26px; padding: 2px; min-height: 0;
-                border-color: #8a8a8a; }
-            input[type=number] { width: 80px; }
         ";
         lumen_css::parse_stylesheet(source)
     })

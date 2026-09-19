@@ -28,6 +28,14 @@ impl lumen_engine::TextMeasurer for CountingMeasurer<'_> {
     fn normal_line_height(&self, style: &TextStyle) -> Option<f32> {
         self.inner.normal_line_height(style)
     }
+
+    fn content_extent(&self, style: &TextStyle) -> Option<(f32, f32)> {
+        self.inner.content_extent(style)
+    }
+
+    fn x_height(&self, style: &TextStyle) -> Option<f32> {
+        self.inner.x_height(style)
+    }
 }
 
 fn main() {

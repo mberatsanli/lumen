@@ -386,6 +386,56 @@ struct LineBuilder<'a> {
     space_widths: std::collections::HashMap<SpaceKey, f32>,
 }
 
+/// The baseline offset of `vertical-align: sub` / `super` (positive
+/// lowers the text). The shift is a third of the *surrounding* text's
+/// size — the baseline a superscript is raised from belongs to its
+/// parent, not to the smaller type riding on it.
+fn sub_super_shift(style: &ComputedStyle, parent_font_size: f32) -> f32 {
+    match style.vertical_align {
+        VerticalAlign::Sub => parent_font_size / 3.0,
+        VerticalAlign::Super => -parent_font_size / 3.0,
+        _ => 0.0,
+    }
+}
+
+/// Form controls keep aligning on the text inside them even though they
+/// clip what overflows; a scroll container does not.
+fn keeps_baseline_while_clipping(layout: &LayoutBox) -> bool {
+    match &layout.kind {
+        crate::LayoutKind::Element(tag) => {
+            matches!(tag.as_str(), "input" | "button" | "select")
+        }
+        crate::LayoutKind::Inline { .. } => false,
+    }
+}
+
+/// Where an atomic inline's baseline sits, measured from its margin-box
+/// top: the baseline of its own last line box. `None` when it has no line
+/// box to align on (it is empty, or it clips its overflow), and the box
+/// then sits with its bottom margin edge on the baseline.
+fn atomic_ascent(laid: &LayoutBox) -> Option<f32> {
+    fn last_baseline(layout: &LayoutBox) -> Option<f32> {
+        if layout.style.overflow_y != crate::style::Overflow::Visible
+            && !keeps_baseline_while_clipping(layout)
+        {
+            return None;
+        }
+        let own = match &layout.kind {
+            crate::LayoutKind::Inline { lines } => lines
+                .last()
+                .map(|line| layout.content_box().y + line.y + line.baseline),
+            crate::LayoutKind::Element(_) => None,
+        };
+        layout
+            .children
+            .iter()
+            .filter_map(last_baseline)
+            .chain(own)
+            .reduce(f32::max)
+    }
+    last_baseline(laid).map(|baseline| baseline - laid.margin_box().y)
+}
+
 /// Hashable identity of the [`TextStyle`] inputs (f32s compared bitwise;
 /// layout never produces -0.0/NaN font sizes).
 type SpaceKey = (u32, crate::text::FaceKey, u32);
@@ -403,6 +453,75 @@ impl<'a> LineBuilder<'a> {
         self.styles.by_node.get(&node_id).unwrap_or(self.container)
     }
 
+    /// How far an inline box in `style` reaches above and below the
+    /// baseline: its content area plus half of its leading on each side.
+    fn leaded_extent(&self, style: &ComputedStyle) -> (f32, f32) {
+        let text_style = self.text_style_of(style);
+        let (ascent, descent) = self
+            .measurer
+            .content_extent(&text_style)
+            // Without real metrics, split the em 0.8 above the baseline.
+            .unwrap_or((style.font_size * 0.8, style.font_size * 0.2));
+        let half_leading = (self.line_height_of(style) - (ascent + descent)) / 2.0;
+        (ascent + half_leading, descent + half_leading)
+    }
+
+    /// How far an atomic inline reaches above and below the baseline it
+    /// aligns on.
+    fn atomic_extent(&self, laid: &LayoutBox) -> (f32, f32) {
+        let height = laid.margin_box().height;
+        if laid.style.vertical_align == VerticalAlign::Middle {
+            // `middle` centers the box on the baseline raised by half an
+            // x-height, so it reaches further up than down.
+            let half_x = self.x_height() / 2.0;
+            return (height / 2.0 + half_x, height / 2.0 - half_x);
+        }
+        let ascent = atomic_ascent(laid)
+            .or_else(|| self.empty_control_ascent(laid))
+            .unwrap_or(height);
+        (ascent, height - ascent)
+    }
+
+    /// An empty single-line control still aligns on where its text would
+    /// sit: its own font's ascent below its top edge.
+    fn empty_control_ascent(&self, laid: &LayoutBox) -> Option<f32> {
+        if !keeps_baseline_while_clipping(laid) {
+            return None;
+        }
+        let (ascent, _) = self
+            .measurer
+            .content_extent(&self.text_style_of(&laid.style))?;
+        Some(laid.content_box().y - laid.margin_box().y + ascent)
+    }
+
+    /// Half of what `vertical-align: middle` centers against, in the
+    /// block's own font.
+    fn x_height(&self) -> f32 {
+        self.measurer
+            .x_height(&self.text_style_of(self.container))
+            // Without real metrics, half an em is the usual stand-in.
+            .unwrap_or(self.container.font_size * 0.5)
+    }
+
+    /// The baseline offset a fragment's `vertical-align` applies before
+    /// the line is sized (positive lowers it).
+    fn baseline_shift(&self, content: &FragmentContent) -> f32 {
+        match content {
+            FragmentContent::Text { style, .. } => sub_super_shift(style, self.container.font_size),
+            FragmentContent::Box(_) => 0.0,
+        }
+    }
+
+    fn text_style_of(&self, style: &ComputedStyle) -> TextStyle {
+        TextStyle {
+            font_size: style.font_size,
+            font_weight: style.font_weight,
+            families: style.font_family.clone(),
+            italic: style.italic,
+            letter_spacing: style.letter_spacing,
+        }
+    }
+
     /// The used line height of text in `style`: `normal` comes from the
     /// font when the measurer has one, anything else from the cascade.
     fn line_height_of(&self, style: &ComputedStyle) -> f32 {
@@ -410,13 +529,7 @@ impl<'a> LineBuilder<'a> {
             return style.line_height;
         }
         self.measurer
-            .normal_line_height(&TextStyle {
-                font_size: style.font_size,
-                font_weight: style.font_weight,
-                families: style.font_family.clone(),
-                italic: style.italic,
-                letter_spacing: style.letter_spacing,
-            })
+            .normal_line_height(&self.text_style_of(style))
             .unwrap_or(style.line_height)
     }
 
@@ -675,31 +788,26 @@ impl<'a> LineBuilder<'a> {
             fragments = kept;
         }
 
-        // Content extent around the baseline: text contributes an
-        // 0.8/0.2 ascent/descent split of its font size (a practical
-        // approximation of real font metrics), atomic boxes sit with
-        // their full height above the baseline.
-        let mut height = self.line_height_of(self.container);
-        let mut ascent = self.container.font_size * 0.8;
-        let mut descent = self.container.font_size * 0.2;
+        // Every inline box on the line contributes its content area (the
+        // font's ascent and descent) plus half of its leading — the
+        // difference between its line-height and that content area — above
+        // and below the baseline. The line box spans the tallest
+        // contribution on each side. The block's own font takes part as
+        // the strut, so an empty line still has the block's line height.
+        let (mut above, mut below) = self.leaded_extent(self.container);
         for fragment in &fragments {
-            match &fragment.content {
-                FragmentContent::Text { style, .. } => {
-                    height = height.max(self.line_height_of(style));
-                    ascent = ascent.max(style.font_size * 0.8);
-                    descent = descent.max(style.font_size * 0.2);
-                }
-                FragmentContent::Box(laid) => {
-                    ascent = ascent.max(laid.margin_box().height);
-                }
-            }
+            let (fragment_above, fragment_below) = match &fragment.content {
+                FragmentContent::Text { style, .. } => self.leaded_extent(style),
+                FragmentContent::Box(laid) => self.atomic_extent(laid),
+            };
+            // A box raised or lowered off the baseline carries its extent
+            // with it (`vertical-align: sub` / `super`).
+            let shift = self.baseline_shift(&fragment.content);
+            above = above.max(fragment_above - shift);
+            below = below.max(fragment_below + shift);
         }
-        let content = ascent + descent;
-        height = height.max(content);
-        // Half-leading: CSS splits the extra line-height evenly above and
-        // below the content, so a tall line-height centers its text (and
-        // baseline-aligned atomic boxes) vertically.
-        let baseline = (height - content) / 2.0 + ascent;
+        let height = above + below;
+        let baseline = above;
 
         let leftover = (self.line_width - self.pen_x).max(0.0);
         // Justify: wrapped lines stretch, spreading the leftover across
@@ -729,7 +837,9 @@ impl<'a> LineBuilder<'a> {
                     let align = laid.style.vertical_align;
                     let top = match align {
                         VerticalAlign::Top => 0.0,
-                        VerticalAlign::Middle => (height - box_height) / 2.0,
+                        VerticalAlign::Middle => {
+                            baseline - (box_height / 2.0 + self.x_height() / 2.0)
+                        }
                         VerticalAlign::Bottom => height - box_height,
                         _ => default_top,
                     };
@@ -739,14 +849,14 @@ impl<'a> LineBuilder<'a> {
                 }
                 // Text fragments carry a baseline offset for painting.
                 FragmentContent::Text { style, .. } => {
-                    let ascent = style.font_size * 0.8;
+                    let (ascent, _) = self.leaded_extent(style);
                     fragment.dy = match style.vertical_align {
-                        VerticalAlign::Baseline => 0.0,
                         VerticalAlign::Top => -(baseline - ascent),
                         VerticalAlign::Middle => (height - ascent) / 2.0 - (baseline - ascent),
                         VerticalAlign::Bottom => height - baseline,
-                        VerticalAlign::Sub => 0.25 * style.font_size,
-                        VerticalAlign::Super => -0.4 * style.font_size,
+                        VerticalAlign::Baseline | VerticalAlign::Sub | VerticalAlign::Super => {
+                            sub_super_shift(style, self.container.font_size)
+                        }
                     };
                 }
             }

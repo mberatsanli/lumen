@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="5502.3984" viewBox="0 0 1024 5502.3984">
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="5504.932" viewBox="0 0 1024 5504.932">
 <rect width="100%" height="100%" fill="white"/>
-<rect x="0" y="0" width="1024" height="5502.3984" fill="#f4f5f7"/>
-<rect x="0" y="0" width="1024" height="5502.3984" fill="#f4f5f7"/>
+<rect x="0" y="0" width="1024" height="5504.932" fill="#f4f5f7"/>
+<rect x="0" y="0" width="1024" height="5504.932" fill="#f4f5f7"/>
 <text x="24" y="48" fill="#1c1e21" font-family="serif" font-size="24" font-weight="700">Lumen CSS Test Panosu</text>
 <text x="24" y="74.6" fill="#5a6068" font-family="serif" font-size="13" font-weight="400">Motorun desteklediği tüm CSS özellik aileleri — her kart bir özelliği görsel olarak gösterir.</text>
 <rect x="24" y="131.59999" width="976" height="2" fill="#d0d4d9"/>
@@ -227,15 +227,15 @@
 <text x="703" y="1647.6" fill="#1c1e21" font-family="monospace" font-size="16" font-weight="400">  b</text>
 <rect x="24" y="1728.7999" width="976" height="2" fill="#d0d4d9"/>
 <text x="24" y="1717.9999" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Layout</text>
-<path d="M 32 1740.7999 H 332 A 8 8 0 0 1 340 1748.7999 V 1819.7999 A 8 8 0 0 1 332 1827.7999 H 32 A 8 8 0 0 1 24 1819.7999 V 1748.7999 A 8 8 0 0 1 32 1740.7999 Z" fill="#ffffff"/>
-<path d="M 32 1740.7999 H 332 A 8 8 0 0 1 340 1748.7999 V 1819.7999 A 8 8 0 0 1 332 1827.7999 H 32 A 8 8 0 0 1 24 1819.7999 V 1748.7999 A 8 8 0 0 1 32 1740.7999 Z M 32 1741.7999 H 332 A 7 7 0 0 1 339 1748.7999 V 1819.7999 A 7 7 0 0 1 332 1826.7999 H 32 A 7 7 0 0 1 25 1819.7999 V 1748.7999 A 7 7 0 0 1 32 1741.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 1740.7999 H 332 A 8 8 0 0 1 340 1748.7999 V 1816.6 A 8 8 0 0 1 332 1824.6 H 32 A 8 8 0 0 1 24 1816.6 V 1748.7999 A 8 8 0 0 1 32 1740.7999 Z" fill="#ffffff"/>
+<path d="M 32 1740.7999 H 332 A 8 8 0 0 1 340 1748.7999 V 1816.6 A 8 8 0 0 1 332 1824.6 H 32 A 8 8 0 0 1 24 1816.6 V 1748.7999 A 8 8 0 0 1 32 1740.7999 Z M 32 1741.7999 H 332 A 7 7 0 0 1 339 1748.7999 V 1816.6 A 7 7 0 0 1 332 1823.6 H 32 A 7 7 0 0 1 25 1816.6 V 1748.7999 A 7 7 0 0 1 32 1741.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="1764.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">display: inline-block</text>
-<path d="M 42 1779.2 H 104 A 3 3 0 0 1 107 1782.2 V 1806.6 A 3 3 0 0 1 104 1809.6 H 42 A 3 3 0 0 1 39 1806.6 V 1782.2 A 3 3 0 0 1 42 1779.2 Z" fill="#d6e4ff"/>
-<text x="69" y="1799.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">A</text>
-<path d="M 114 1779.2 H 176 A 3 3 0 0 1 179 1782.2 V 1806.6 A 3 3 0 0 1 176 1809.6 H 114 A 3 3 0 0 1 111 1806.6 V 1782.2 A 3 3 0 0 1 114 1779.2 Z" fill="#d6e4ff"/>
-<text x="141" y="1799.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">B</text>
-<path d="M 186 1779.2 H 248 A 3 3 0 0 1 251 1782.2 V 1806.6 A 3 3 0 0 1 248 1809.6 H 186 A 3 3 0 0 1 183 1806.6 V 1782.2 A 3 3 0 0 1 186 1779.2 Z" fill="#d6e4ff"/>
-<text x="213" y="1799.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">C</text>
+<path d="M 42 1766.7999 H 104 A 3 3 0 0 1 107 1769.7999 V 1794.2 A 3 3 0 0 1 104 1797.2 H 42 A 3 3 0 0 1 39 1794.2 V 1769.7999 A 3 3 0 0 1 42 1766.7999 Z" fill="#d6e4ff"/>
+<text x="69" y="1786.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">A</text>
+<path d="M 114 1766.7999 H 176 A 3 3 0 0 1 179 1769.7999 V 1794.2 A 3 3 0 0 1 176 1797.2 H 114 A 3 3 0 0 1 111 1794.2 V 1769.7999 A 3 3 0 0 1 114 1766.7999 Z" fill="#d6e4ff"/>
+<text x="141" y="1786.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">B</text>
+<path d="M 186 1766.7999 H 248 A 3 3 0 0 1 251 1769.7999 V 1794.2 A 3 3 0 0 1 248 1797.2 H 186 A 3 3 0 0 1 183 1794.2 V 1769.7999 A 3 3 0 0 1 186 1766.7999 Z" fill="#d6e4ff"/>
+<text x="213" y="1786.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">C</text>
 <path d="M 362 1740.7999 H 662 A 8 8 0 0 1 670 1748.7999 V 1852.9999 A 8 8 0 0 1 662 1860.9999 H 362 A 8 8 0 0 1 354 1852.9999 V 1748.7999 A 8 8 0 0 1 362 1740.7999 Z" fill="#ffffff"/>
 <path d="M 362 1740.7999 H 662 A 8 8 0 0 1 670 1748.7999 V 1852.9999 A 8 8 0 0 1 662 1860.9999 H 362 A 8 8 0 0 1 354 1852.9999 V 1748.7999 A 8 8 0 0 1 362 1740.7999 Z M 362 1741.7999 H 662 A 7 7 0 0 1 669 1748.7999 V 1852.9999 A 7 7 0 0 1 662 1859.9999 H 362 A 7 7 0 0 1 355 1852.9999 V 1748.7999 A 7 7 0 0 1 362 1741.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="1764.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">float + clear</text>
@@ -547,201 +547,207 @@
 <text x="45" y="3683.4001" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">soluk</text>
 <rect x="24" y="3765.4004" width="976" height="2" fill="#d0d4d9"/>
 <text x="24" y="3754.6003" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Form Kontrolleri</text>
-<path d="M 32 3777.4004 H 332 A 8 8 0 0 1 340 3785.4004 V 3841.2004 A 8 8 0 0 1 332 3849.2004 H 32 A 8 8 0 0 1 24 3841.2004 V 3785.4004 A 8 8 0 0 1 32 3777.4004 Z" fill="#ffffff"/>
-<path d="M 32 3777.4004 H 332 A 8 8 0 0 1 340 3785.4004 V 3841.2004 A 8 8 0 0 1 332 3849.2004 H 32 A 8 8 0 0 1 24 3841.2004 V 3785.4004 A 8 8 0 0 1 32 3777.4004 Z M 32 3778.4004 H 332 A 7 7 0 0 1 339 3785.4004 V 3841.2004 A 7 7 0 0 1 332 3848.2004 H 32 A 7 7 0 0 1 25 3841.2004 V 3785.4004 A 7 7 0 0 1 32 3778.4004 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 3777.4004 H 332 A 8 8 0 0 1 340 3785.4004 V 3844.2004 A 8 8 0 0 1 332 3852.2004 H 32 A 8 8 0 0 1 24 3844.2004 V 3785.4004 A 8 8 0 0 1 32 3777.4004 Z" fill="#ffffff"/>
+<path d="M 32 3777.4004 H 332 A 8 8 0 0 1 340 3785.4004 V 3844.2004 A 8 8 0 0 1 332 3852.2004 H 32 A 8 8 0 0 1 24 3844.2004 V 3785.4004 A 8 8 0 0 1 32 3777.4004 Z M 32 3778.4004 H 332 A 7 7 0 0 1 339 3785.4004 V 3844.2004 A 7 7 0 0 1 332 3851.2004 H 32 A 7 7 0 0 1 25 3844.2004 V 3785.4004 A 7 7 0 0 1 32 3778.4004 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="3801.4004" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">accent-color</text>
-<path d="M 42 3815.9004 H 51 A 3 3 0 0 1 54 3818.9004 V 3827.9004 A 3 3 0 0 1 51 3830.9004 H 42 A 3 3 0 0 1 39 3827.9004 V 3818.9004 A 3 3 0 0 1 42 3815.9004 Z" fill="#e52e71"/>
-<path d="M 42 3815.9004 H 51 A 3 3 0 0 1 54 3818.9004 V 3827.9004 A 3 3 0 0 1 51 3830.9004 H 42 A 3 3 0 0 1 39 3827.9004 V 3818.9004 A 3 3 0 0 1 42 3815.9004 Z M 42 3816.9004 H 51 A 2 2 0 0 1 53 3818.9004 V 3827.9004 A 2 2 0 0 1 51 3829.9004 H 42 A 2 2 0 0 1 40 3827.9004 V 3818.9004 A 2 2 0 0 1 42 3816.9004 Z" fill="#e52e71" fill-rule="evenodd"/>
-<polyline points="42.6,3824.1504 45.45,3827.0005 50.7,3820.4004" fill="none" stroke="#ffffff" stroke-width="2.40" stroke-linecap="round" stroke-linejoin="round"/>
-<clipPath id="clip3"><rect x="40" y="3816.9004" width="13" height="13"/></clipPath><g clip-path="url(#clip3)">
+<path d="M 44 3816.8003 H 51 A 3 3 0 0 1 54 3819.8003 V 3826.8003 A 3 3 0 0 1 51 3829.8003 H 44 A 3 3 0 0 1 41 3826.8003 V 3819.8003 A 3 3 0 0 1 44 3816.8003 Z" fill="#e52e71"/>
+<path d="M 44 3816.8003 H 51 A 3 3 0 0 1 54 3819.8003 V 3826.8003 A 3 3 0 0 1 51 3829.8003 H 44 A 3 3 0 0 1 41 3826.8003 V 3819.8003 A 3 3 0 0 1 44 3816.8003 Z M 44 3817.8003 H 51 A 2 2 0 0 1 53 3819.8003 V 3826.8003 A 2 2 0 0 1 51 3828.8003 H 44 A 2 2 0 0 1 42 3826.8003 V 3819.8003 A 2 2 0 0 1 44 3817.8003 Z" fill="#e52e71" fill-rule="evenodd"/>
+<polyline points="44.12,3823.9502 46.59,3826.4204 51.14,3820.7002" fill="none" stroke="#ffffff" stroke-width="2.08" stroke-linecap="round" stroke-linejoin="round"/>
+<clipPath id="clip3"><rect x="42" y="3817.8003" width="11" height="11"/></clipPath><g clip-path="url(#clip3)">
 </g>
-<text x="64" y="3832.9004" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">işaretli</text>
-<path d="M 145 3815.9004 H 146 A 7 7 0 0 1 153 3822.9004 V 3823.9004 A 7 7 0 0 1 146 3830.9004 H 145 A 7 7 0 0 1 138 3823.9004 V 3822.9004 A 7 7 0 0 1 145 3815.9004 Z" fill="#e52e71"/>
-<path d="M 145 3815.9004 H 146 A 7 7 0 0 1 153 3822.9004 V 3823.9004 A 7 7 0 0 1 146 3830.9004 H 145 A 7 7 0 0 1 138 3823.9004 V 3822.9004 A 7 7 0 0 1 145 3815.9004 Z M 145 3816.9004 H 146 A 6 6 0 0 1 152 3822.9004 V 3823.9004 A 6 6 0 0 1 146 3829.9004 H 145 A 6 6 0 0 1 139 3823.9004 V 3822.9004 A 6 6 0 0 1 145 3816.9004 Z" fill="#e52e71" fill-rule="evenodd"/>
-<circle cx="145.5" cy="3823.4004" r="3.00" fill="#ffffff"/>
-<clipPath id="clip4"><rect x="139" y="3816.9004" width="13" height="13"/></clipPath><g clip-path="url(#clip4)">
+<text x="65" y="3832.8003" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">işaretli</text>
+<path d="M 148.5 3816.8003 H 148.5 A 6.5 6.5 0 0 1 155 3823.3003 V 3823.3003 A 6.5 6.5 0 0 1 148.5 3829.8003 H 148.5 A 6.5 6.5 0 0 1 142 3823.3003 V 3823.3003 A 6.5 6.5 0 0 1 148.5 3816.8003 Z" fill="#e52e71"/>
+<path d="M 148.5 3816.8003 H 148.5 A 6.5 6.5 0 0 1 155 3823.3003 V 3823.3003 A 6.5 6.5 0 0 1 148.5 3829.8003 H 148.5 A 6.5 6.5 0 0 1 142 3823.3003 V 3823.3003 A 6.5 6.5 0 0 1 148.5 3816.8003 Z M 148.5 3817.8003 H 148.5 A 5.5 5.5 0 0 1 154 3823.3003 V 3823.3003 A 5.5 5.5 0 0 1 148.5 3828.8003 H 148.5 A 5.5 5.5 0 0 1 143 3823.3003 V 3823.3003 A 5.5 5.5 0 0 1 148.5 3817.8003 Z" fill="#e52e71" fill-rule="evenodd"/>
+<circle cx="148.5" cy="3823.3003" r="2.60" fill="#ffffff"/>
+<clipPath id="clip4"><rect x="143" y="3817.8003" width="11" height="11"/></clipPath><g clip-path="url(#clip4)">
 </g>
-<text x="163" y="3832.9004" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">seçili</text>
-<path d="M 362 3777.4004 H 662 A 8 8 0 0 1 670 3785.4004 V 3856.2004 A 8 8 0 0 1 662 3864.2004 H 362 A 8 8 0 0 1 354 3856.2004 V 3785.4004 A 8 8 0 0 1 362 3777.4004 Z" fill="#ffffff"/>
-<path d="M 362 3777.4004 H 662 A 8 8 0 0 1 670 3785.4004 V 3856.2004 A 8 8 0 0 1 662 3864.2004 H 362 A 8 8 0 0 1 354 3856.2004 V 3785.4004 A 8 8 0 0 1 362 3777.4004 Z M 362 3778.4004 H 662 A 7 7 0 0 1 669 3785.4004 V 3856.2004 A 7 7 0 0 1 662 3863.2004 H 362 A 7 7 0 0 1 355 3856.2004 V 3785.4004 A 7 7 0 0 1 362 3778.4004 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="166" y="3832.8003" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">seçili</text>
+<path d="M 362 3777.4004 H 662 A 8 8 0 0 1 670 3785.4004 V 3855.867 A 8 8 0 0 1 662 3863.867 H 362 A 8 8 0 0 1 354 3855.867 V 3785.4004 A 8 8 0 0 1 362 3777.4004 Z" fill="#ffffff"/>
+<path d="M 362 3777.4004 H 662 A 8 8 0 0 1 670 3785.4004 V 3855.867 A 8 8 0 0 1 662 3863.867 H 362 A 8 8 0 0 1 354 3855.867 V 3785.4004 A 8 8 0 0 1 362 3777.4004 Z M 362 3778.4004 H 662 A 7 7 0 0 1 669 3785.4004 V 3855.867 A 7 7 0 0 1 662 3862.867 H 362 A 7 7 0 0 1 355 3855.867 V 3785.4004 A 7 7 0 0 1 362 3778.4004 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="3801.4004" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">caret-color: #e52e71</text>
-<path d="M 372 3815.8003 H 639 A 3 3 0 0 1 642 3818.8003 V 3843.0002 A 3 3 0 0 1 639 3846.0002 H 372 A 3 3 0 0 1 369 3843.0002 V 3818.8003 A 3 3 0 0 1 372 3815.8003 Z" fill="#ffffff"/>
-<path d="M 372 3815.8003 H 639 A 3 3 0 0 1 642 3818.8003 V 3843.0002 A 3 3 0 0 1 639 3846.0002 H 372 A 3 3 0 0 1 369 3843.0002 V 3818.8003 A 3 3 0 0 1 372 3815.8003 Z M 372 3817.8003 H 639 A 1 1 0 0 1 640 3818.8003 V 3843.0002 A 1 1 0 0 1 639 3844.0002 H 372 A 1 1 0 0 1 371 3843.0002 V 3818.8003 A 1 1 0 0 1 372 3817.8003 Z" fill="#2f6fdd" fill-rule="evenodd"/>
-<clipPath id="clip5"><rect x="371" y="3817.8003" width="269" height="26.199999"/></clipPath><g clip-path="url(#clip5)">
-<text x="375" y="3834.8003" fill="#1c1e21" font-family="serif" font-size="13" font-weight="400">odakla ve yaz</text>
+<rect x="367" y="3813.8003" width="273" height="30.666618" fill="#ffffff"/>
+<rect x="367" y="3813.8003" width="273" height="2" fill="#2f6fdd"/>
+<rect x="638" y="3813.8003" width="2" height="30.666618" fill="#2f6fdd"/>
+<rect x="367" y="3842.4668" width="273" height="2" fill="#2f6fdd"/>
+<rect x="367" y="3813.8003" width="2" height="30.666618" fill="#2f6fdd"/>
+<clipPath id="clip5"><rect x="369" y="3815.8003" width="269" height="26.666618"/></clipPath><g clip-path="url(#clip5)">
+<text x="373" y="3833.1335" fill="#1c1e21" font-family="sans-serif" font-size="13.3333" font-weight="400">odakla ve yaz</text>
 </g>
-<rect x="24" y="3920.0005" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="3909.2004" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Cursor</text>
-<path d="M 30 3932.0005 H 338 A 6 6 0 0 1 344 3938.0005 V 3959.4004 A 6 6 0 0 1 338 3965.4004 H 30 A 6 6 0 0 1 24 3959.4004 V 3938.0005 A 6 6 0 0 1 30 3932.0005 Z" fill="#fafbfc"/>
-<path d="M 30 3932.0005 H 338 A 6 6 0 0 1 344 3938.0005 V 3959.4004 A 6 6 0 0 1 338 3965.4004 H 30 A 6 6 0 0 1 24 3959.4004 V 3938.0005 A 6 6 0 0 1 30 3932.0005 Z M 30 3933.0005 H 338 A 5 5 0 0 1 343 3938.0005 V 3959.4004 A 5 5 0 0 1 338 3964.4004 H 30 A 5 5 0 0 1 25 3959.4004 V 3938.0005 A 5 5 0 0 1 30 3933.0005 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="160.9" y="3952.0005" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">pointer</text>
-<path d="M 358 3932.0005 H 666 A 6 6 0 0 1 672 3938.0005 V 3959.4004 A 6 6 0 0 1 666 3965.4004 H 358 A 6 6 0 0 1 352 3959.4004 V 3938.0005 A 6 6 0 0 1 358 3932.0005 Z" fill="#fafbfc"/>
-<path d="M 358 3932.0005 H 666 A 6 6 0 0 1 672 3938.0005 V 3959.4004 A 6 6 0 0 1 666 3965.4004 H 358 A 6 6 0 0 1 352 3959.4004 V 3938.0005 A 6 6 0 0 1 358 3932.0005 Z M 358 3933.0005 H 666 A 5 5 0 0 1 671 3938.0005 V 3959.4004 A 5 5 0 0 1 666 3964.4004 H 358 A 5 5 0 0 1 353 3959.4004 V 3938.0005 A 5 5 0 0 1 358 3933.0005 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="498.8" y="3952.0005" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">text</text>
-<path d="M 686 3932.0005 H 994 A 6 6 0 0 1 1000 3938.0005 V 3959.4004 A 6 6 0 0 1 994 3965.4004 H 686 A 6 6 0 0 1 680 3959.4004 V 3938.0005 A 6 6 0 0 1 686 3932.0005 Z" fill="#fafbfc"/>
-<path d="M 686 3932.0005 H 994 A 6 6 0 0 1 1000 3938.0005 V 3959.4004 A 6 6 0 0 1 994 3965.4004 H 686 A 6 6 0 0 1 680 3959.4004 V 3938.0005 A 6 6 0 0 1 686 3932.0005 Z M 686 3933.0005 H 994 A 5 5 0 0 1 999 3938.0005 V 3959.4004 A 5 5 0 0 1 994 3964.4004 H 686 A 5 5 0 0 1 681 3959.4004 V 3938.0005 A 5 5 0 0 1 686 3933.0005 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="826.8" y="3952.0005" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">move</text>
-<path d="M 30 3973.4004 H 338 A 6 6 0 0 1 344 3979.4004 V 4000.8003 A 6 6 0 0 1 338 4006.8003 H 30 A 6 6 0 0 1 24 4000.8003 V 3979.4004 A 6 6 0 0 1 30 3973.4004 Z" fill="#fafbfc"/>
-<path d="M 30 3973.4004 H 338 A 6 6 0 0 1 344 3979.4004 V 4000.8003 A 6 6 0 0 1 338 4006.8003 H 30 A 6 6 0 0 1 24 4000.8003 V 3979.4004 A 6 6 0 0 1 30 3973.4004 Z M 30 3974.4004 H 338 A 5 5 0 0 1 343 3979.4004 V 4000.8003 A 5 5 0 0 1 338 4005.8003 H 30 A 5 5 0 0 1 25 4000.8003 V 3979.4004 A 5 5 0 0 1 30 3974.4004 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="154.3" y="3993.4004" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">crosshair</text>
-<path d="M 358 3973.4004 H 666 A 6 6 0 0 1 672 3979.4004 V 4000.8003 A 6 6 0 0 1 666 4006.8003 H 358 A 6 6 0 0 1 352 4000.8003 V 3979.4004 A 6 6 0 0 1 358 3973.4004 Z" fill="#fafbfc"/>
-<path d="M 358 3973.4004 H 666 A 6 6 0 0 1 672 3979.4004 V 4000.8003 A 6 6 0 0 1 666 4006.8003 H 358 A 6 6 0 0 1 352 4000.8003 V 3979.4004 A 6 6 0 0 1 358 3973.4004 Z M 358 3974.4004 H 666 A 5 5 0 0 1 671 3979.4004 V 4000.8003 A 5 5 0 0 1 666 4005.8003 H 358 A 5 5 0 0 1 353 4000.8003 V 3979.4004 A 5 5 0 0 1 358 3974.4004 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="498.8" y="3993.4004" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">wait</text>
-<path d="M 686 3973.4004 H 994 A 6 6 0 0 1 1000 3979.4004 V 4000.8003 A 6 6 0 0 1 994 4006.8003 H 686 A 6 6 0 0 1 680 4000.8003 V 3979.4004 A 6 6 0 0 1 686 3973.4004 Z" fill="#fafbfc"/>
-<path d="M 686 3973.4004 H 994 A 6 6 0 0 1 1000 3979.4004 V 4000.8003 A 6 6 0 0 1 994 4006.8003 H 686 A 6 6 0 0 1 680 4000.8003 V 3979.4004 A 6 6 0 0 1 686 3973.4004 Z M 686 3974.4004 H 994 A 5 5 0 0 1 999 3979.4004 V 4000.8003 A 5 5 0 0 1 994 4005.8003 H 686 A 5 5 0 0 1 681 4000.8003 V 3979.4004 A 5 5 0 0 1 686 3974.4004 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="826.8" y="3993.4004" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">help</text>
-<path d="M 30 4014.8003 H 338 A 6 6 0 0 1 344 4020.8003 V 4042.2002 A 6 6 0 0 1 338 4048.2002 H 30 A 6 6 0 0 1 24 4042.2002 V 4020.8003 A 6 6 0 0 1 30 4014.8003 Z" fill="#fafbfc"/>
-<path d="M 30 4014.8003 H 338 A 6 6 0 0 1 344 4020.8003 V 4042.2002 A 6 6 0 0 1 338 4048.2002 H 30 A 6 6 0 0 1 24 4042.2002 V 4020.8003 A 6 6 0 0 1 30 4014.8003 Z M 30 4015.8003 H 338 A 5 5 0 0 1 343 4020.8003 V 4042.2002 A 5 5 0 0 1 338 4047.2002 H 30 A 5 5 0 0 1 25 4042.2002 V 4020.8003 A 5 5 0 0 1 30 4015.8003 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="147.7" y="4034.8003" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">not-allowed</text>
-<path d="M 358 4014.8003 H 666 A 6 6 0 0 1 672 4020.8003 V 4042.2002 A 6 6 0 0 1 666 4048.2002 H 358 A 6 6 0 0 1 352 4042.2002 V 4020.8003 A 6 6 0 0 1 358 4014.8003 Z" fill="#fafbfc"/>
-<path d="M 358 4014.8003 H 666 A 6 6 0 0 1 672 4020.8003 V 4042.2002 A 6 6 0 0 1 666 4048.2002 H 358 A 6 6 0 0 1 352 4042.2002 V 4020.8003 A 6 6 0 0 1 358 4014.8003 Z M 358 4015.8003 H 666 A 5 5 0 0 1 671 4020.8003 V 4042.2002 A 5 5 0 0 1 666 4047.2002 H 358 A 5 5 0 0 1 353 4042.2002 V 4020.8003 A 5 5 0 0 1 358 4015.8003 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="498.8" y="4034.8003" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">grab</text>
-<path d="M 686 4014.8003 H 994 A 6 6 0 0 1 1000 4020.8003 V 4042.2002 A 6 6 0 0 1 994 4048.2002 H 686 A 6 6 0 0 1 680 4042.2002 V 4020.8003 A 6 6 0 0 1 686 4014.8003 Z" fill="#fafbfc"/>
-<path d="M 686 4014.8003 H 994 A 6 6 0 0 1 1000 4020.8003 V 4042.2002 A 6 6 0 0 1 994 4048.2002 H 686 A 6 6 0 0 1 680 4042.2002 V 4020.8003 A 6 6 0 0 1 686 4014.8003 Z M 686 4015.8003 H 994 A 5 5 0 0 1 999 4020.8003 V 4042.2002 A 5 5 0 0 1 994 4047.2002 H 686 A 5 5 0 0 1 681 4042.2002 V 4020.8003 A 5 5 0 0 1 686 4015.8003 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="813.6" y="4034.8003" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">grabbing</text>
-<path d="M 30 4056.2002 H 338 A 6 6 0 0 1 344 4062.2002 V 4083.6 A 6 6 0 0 1 338 4089.6 H 30 A 6 6 0 0 1 24 4083.6 V 4062.2002 A 6 6 0 0 1 30 4056.2002 Z" fill="#fafbfc"/>
-<path d="M 30 4056.2002 H 338 A 6 6 0 0 1 344 4062.2002 V 4083.6 A 6 6 0 0 1 338 4089.6 H 30 A 6 6 0 0 1 24 4083.6 V 4062.2002 A 6 6 0 0 1 30 4056.2002 Z M 30 4057.2002 H 338 A 5 5 0 0 1 343 4062.2002 V 4083.6 A 5 5 0 0 1 338 4088.6 H 30 A 5 5 0 0 1 25 4083.6 V 4062.2002 A 5 5 0 0 1 30 4057.2002 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="154.3" y="4076.2002" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">ew-resize</text>
-<path d="M 358 4056.2002 H 666 A 6 6 0 0 1 672 4062.2002 V 4083.6 A 6 6 0 0 1 666 4089.6 H 358 A 6 6 0 0 1 352 4083.6 V 4062.2002 A 6 6 0 0 1 358 4056.2002 Z" fill="#fafbfc"/>
-<path d="M 358 4056.2002 H 666 A 6 6 0 0 1 672 4062.2002 V 4083.6 A 6 6 0 0 1 666 4089.6 H 358 A 6 6 0 0 1 352 4083.6 V 4062.2002 A 6 6 0 0 1 358 4056.2002 Z M 358 4057.2002 H 666 A 5 5 0 0 1 671 4062.2002 V 4083.6 A 5 5 0 0 1 666 4088.6 H 358 A 5 5 0 0 1 353 4083.6 V 4062.2002 A 5 5 0 0 1 358 4057.2002 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="482.3" y="4076.2002" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">ns-resize</text>
-<path d="M 686 4056.2002 H 994 A 6 6 0 0 1 1000 4062.2002 V 4083.6 A 6 6 0 0 1 994 4089.6 H 686 A 6 6 0 0 1 680 4083.6 V 4062.2002 A 6 6 0 0 1 686 4056.2002 Z" fill="#fafbfc"/>
-<path d="M 686 4056.2002 H 994 A 6 6 0 0 1 1000 4062.2002 V 4083.6 A 6 6 0 0 1 994 4089.6 H 686 A 6 6 0 0 1 680 4083.6 V 4062.2002 A 6 6 0 0 1 686 4056.2002 Z M 686 4057.2002 H 994 A 5 5 0 0 1 999 4062.2002 V 4083.6 A 5 5 0 0 1 994 4088.6 H 686 A 5 5 0 0 1 681 4083.6 V 4062.2002 A 5 5 0 0 1 686 4057.2002 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="807" y="4076.2002" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">col-resize</text>
-<path d="M 30 4097.6 H 338 A 6 6 0 0 1 344 4103.6 V 4125 A 6 6 0 0 1 338 4131 H 30 A 6 6 0 0 1 24 4125 V 4103.6 A 6 6 0 0 1 30 4097.6 Z" fill="#fafbfc"/>
-<path d="M 30 4097.6 H 338 A 6 6 0 0 1 344 4103.6 V 4125 A 6 6 0 0 1 338 4131 H 30 A 6 6 0 0 1 24 4125 V 4103.6 A 6 6 0 0 1 30 4097.6 Z M 30 4098.6 H 338 A 5 5 0 0 1 343 4103.6 V 4125 A 5 5 0 0 1 338 4130 H 30 A 5 5 0 0 1 25 4125 V 4103.6 A 5 5 0 0 1 30 4098.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="151" y="4117.6" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">row-resize</text>
-<path d="M 358 4097.6 H 666 A 6 6 0 0 1 672 4103.6 V 4125 A 6 6 0 0 1 666 4131 H 358 A 6 6 0 0 1 352 4125 V 4103.6 A 6 6 0 0 1 358 4097.6 Z" fill="#fafbfc"/>
-<path d="M 358 4097.6 H 666 A 6 6 0 0 1 672 4103.6 V 4125 A 6 6 0 0 1 666 4131 H 358 A 6 6 0 0 1 352 4125 V 4103.6 A 6 6 0 0 1 358 4097.6 Z M 358 4098.6 H 666 A 5 5 0 0 1 671 4103.6 V 4125 A 5 5 0 0 1 666 4130 H 358 A 5 5 0 0 1 353 4125 V 4103.6 A 5 5 0 0 1 358 4098.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="485.6" y="4117.6" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">n-resize</text>
-<path d="M 686 4097.6 H 994 A 6 6 0 0 1 1000 4103.6 V 4125 A 6 6 0 0 1 994 4131 H 686 A 6 6 0 0 1 680 4125 V 4103.6 A 6 6 0 0 1 686 4097.6 Z" fill="#fafbfc"/>
-<path d="M 686 4097.6 H 994 A 6 6 0 0 1 1000 4103.6 V 4125 A 6 6 0 0 1 994 4131 H 686 A 6 6 0 0 1 680 4125 V 4103.6 A 6 6 0 0 1 686 4097.6 Z M 686 4098.6 H 994 A 5 5 0 0 1 999 4103.6 V 4125 A 5 5 0 0 1 994 4130 H 686 A 5 5 0 0 1 681 4125 V 4103.6 A 5 5 0 0 1 686 4098.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="813.6" y="4117.6" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">s-resize</text>
-<path d="M 30 4139 H 338 A 6 6 0 0 1 344 4145 V 4166.4 A 6 6 0 0 1 338 4172.4 H 30 A 6 6 0 0 1 24 4166.4 V 4145 A 6 6 0 0 1 30 4139 Z" fill="#fafbfc"/>
-<path d="M 30 4139 H 338 A 6 6 0 0 1 344 4145 V 4166.4 A 6 6 0 0 1 338 4172.4 H 30 A 6 6 0 0 1 24 4166.4 V 4145 A 6 6 0 0 1 30 4139 Z M 30 4140 H 338 A 5 5 0 0 1 343 4145 V 4166.4 A 5 5 0 0 1 338 4171.4 H 30 A 5 5 0 0 1 25 4166.4 V 4145 A 5 5 0 0 1 30 4140 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="157.6" y="4159" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">e-resize</text>
-<path d="M 358 4139 H 666 A 6 6 0 0 1 672 4145 V 4166.4 A 6 6 0 0 1 666 4172.4 H 358 A 6 6 0 0 1 352 4166.4 V 4145 A 6 6 0 0 1 358 4139 Z" fill="#fafbfc"/>
-<path d="M 358 4139 H 666 A 6 6 0 0 1 672 4145 V 4166.4 A 6 6 0 0 1 666 4172.4 H 358 A 6 6 0 0 1 352 4166.4 V 4145 A 6 6 0 0 1 358 4139 Z M 358 4140 H 666 A 5 5 0 0 1 671 4145 V 4166.4 A 5 5 0 0 1 666 4171.4 H 358 A 5 5 0 0 1 353 4166.4 V 4145 A 5 5 0 0 1 358 4140 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="485.6" y="4159" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">w-resize</text>
-<path d="M 686 4139 H 994 A 6 6 0 0 1 1000 4145 V 4166.4 A 6 6 0 0 1 994 4172.4 H 686 A 6 6 0 0 1 680 4166.4 V 4145 A 6 6 0 0 1 686 4139 Z" fill="#fafbfc"/>
-<path d="M 686 4139 H 994 A 6 6 0 0 1 1000 4145 V 4166.4 A 6 6 0 0 1 994 4172.4 H 686 A 6 6 0 0 1 680 4166.4 V 4145 A 6 6 0 0 1 686 4139 Z M 686 4140 H 994 A 5 5 0 0 1 999 4145 V 4166.4 A 5 5 0 0 1 994 4171.4 H 686 A 5 5 0 0 1 681 4166.4 V 4145 A 5 5 0 0 1 686 4140 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="816.9" y="4159" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">default</text>
-<rect x="24" y="4228.1997" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="4217.4" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">pointer-events</text>
-<path d="M 32 4240.1997 H 332 A 8 8 0 0 1 340 4248.1997 V 4392.4 A 8 8 0 0 1 332 4400.4 H 32 A 8 8 0 0 1 24 4392.4 V 4248.1997 A 8 8 0 0 1 32 4240.1997 Z" fill="#ffffff"/>
-<path d="M 32 4240.1997 H 332 A 8 8 0 0 1 340 4248.1997 V 4392.4 A 8 8 0 0 1 332 4400.4 H 32 A 8 8 0 0 1 24 4392.4 V 4248.1997 A 8 8 0 0 1 32 4240.1997 Z M 32 4241.1997 H 332 A 7 7 0 0 1 339 4248.1997 V 4392.4 A 7 7 0 0 1 332 4399.4 H 32 A 7 7 0 0 1 25 4392.4 V 4248.1997 A 7 7 0 0 1 32 4241.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="4264.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">pointer-events: none</text>
-<line x1="37" y1="4277.0996" x2="327" y2="4277.0996" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
-<line x1="326.5" y1="4276.5996" x2="326.5" y2="4350.5996" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
-<line x1="37" y1="4350.0996" x2="327" y2="4350.0996" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
-<line x1="37.5" y1="4276.5996" x2="37.5" y2="4350.5996" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
-<rect x="44" y="4283.5996" width="284" height="23.4" fill="rgba(47,111,221,0.149)"/>
-<text x="208.5" y="4298.5996" fill="#2f6fdd" font-family="serif" font-size="11" font-weight="400">tıklama geçiren perde</text>
-<text x="44" y="4299.5996" fill="#0000ee" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">Bu link perdenin altında ama</text>
-<text x="44" y="4321.9995" fill="#0000ee" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">tıklanabilir</text>
-<text x="37" y="4367.5996" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">Mavi perde pointer-events: none — tıklama altındaki</text>
-<text x="37" y="4382.9995" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">linke düşer.</text>
-<rect x="24" y="4456.1997" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="4445.4" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Seçiciler</text>
-<path d="M 32 4468.1997 H 332 A 8 8 0 0 1 340 4476.1997 V 4547.9995 A 8 8 0 0 1 332 4555.9995 H 32 A 8 8 0 0 1 24 4547.9995 V 4476.1997 A 8 8 0 0 1 32 4468.1997 Z" fill="#ffffff"/>
-<path d="M 32 4468.1997 H 332 A 8 8 0 0 1 340 4476.1997 V 4547.9995 A 8 8 0 0 1 332 4555.9995 H 32 A 8 8 0 0 1 24 4547.9995 V 4476.1997 A 8 8 0 0 1 32 4468.1997 Z M 32 4469.1997 H 332 A 7 7 0 0 1 339 4476.1997 V 4547.9995 A 7 7 0 0 1 332 4554.9995 H 32 A 7 7 0 0 1 25 4547.9995 V 4476.1997 A 7 7 0 0 1 32 4469.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="4492.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:hover</text>
-<path d="M 41 4504.5996 H 323 A 4 4 0 0 1 327 4508.5996 V 4538.9995 A 4 4 0 0 1 323 4542.9995 H 41 A 4 4 0 0 1 37 4538.9995 V 4508.5996 A 4 4 0 0 1 41 4504.5996 Z" fill="#d6e4ff"/>
-<text x="45" y="4528.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">üzerime gel — renk değişir</text>
-<path d="M 362 4468.1997 H 662 A 8 8 0 0 1 670 4476.1997 V 4599.1997 A 8 8 0 0 1 662 4607.1997 H 362 A 8 8 0 0 1 354 4599.1997 V 4476.1997 A 8 8 0 0 1 362 4468.1997 Z" fill="#ffffff"/>
-<path d="M 362 4468.1997 H 662 A 8 8 0 0 1 670 4476.1997 V 4599.1997 A 8 8 0 0 1 662 4607.1997 H 362 A 8 8 0 0 1 354 4599.1997 V 4476.1997 A 8 8 0 0 1 362 4468.1997 Z M 362 4469.1997 H 662 A 7 7 0 0 1 669 4476.1997 V 4599.1997 A 7 7 0 0 1 662 4606.1997 H 362 A 7 7 0 0 1 355 4599.1997 V 4476.1997 A 7 7 0 0 1 362 4469.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="4492.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:nth-child(odd) + :first-child</text>
-<rect x="387" y="4504.5996" width="270" height="22.400002" fill="#eef1f4"/>
-<rect x="387" y="4504.5996" width="8" height="22.4" fill="#eef1f4"/>
-<text x="387" y="4520.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="700">•</text>
-<text x="403" y="4520.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="700">birinci (kalın)</text>
-<text x="387" y="4542.9995" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
-<text x="403" y="4542.9995" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">ikinci</text>
-<rect x="387" y="4549.4" width="270" height="22.400002" fill="#eef1f4"/>
-<rect x="387" y="4549.4" width="8" height="22.4" fill="#eef1f4"/>
-<text x="387" y="4565.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
-<text x="403" y="4565.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">üçüncü</text>
-<text x="387" y="4587.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
-<text x="403" y="4587.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">dördüncü</text>
-<path d="M 692 4468.1997 H 992 A 8 8 0 0 1 1000 4476.1997 V 4531.9995 A 8 8 0 0 1 992 4539.9995 H 692 A 8 8 0 0 1 684 4531.9995 V 4476.1997 A 8 8 0 0 1 692 4468.1997 Z" fill="#ffffff"/>
-<path d="M 692 4468.1997 H 992 A 8 8 0 0 1 1000 4476.1997 V 4531.9995 A 8 8 0 0 1 992 4539.9995 H 692 A 8 8 0 0 1 684 4531.9995 V 4476.1997 A 8 8 0 0 1 692 4468.1997 Z M 692 4469.1997 H 992 A 7 7 0 0 1 999 4476.1997 V 4531.9995 A 7 7 0 0 1 992 4538.9995 H 692 A 7 7 0 0 1 685 4531.9995 V 4476.1997 A 7 7 0 0 1 692 4469.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="697" y="4492.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:has(input:checked)</text>
-<path d="M 702 4506.6997 H 711 A 3 3 0 0 1 714 4509.6997 V 4518.6997 A 3 3 0 0 1 711 4521.6997 H 702 A 3 3 0 0 1 699 4518.6997 V 4509.6997 A 3 3 0 0 1 702 4506.6997 Z" fill="#2266aa"/>
-<path d="M 702 4506.6997 H 711 A 3 3 0 0 1 714 4509.6997 V 4518.6997 A 3 3 0 0 1 711 4521.6997 H 702 A 3 3 0 0 1 699 4518.6997 V 4509.6997 A 3 3 0 0 1 702 4506.6997 Z M 702 4507.6997 H 711 A 2 2 0 0 1 713 4509.6997 V 4518.6997 A 2 2 0 0 1 711 4520.6997 H 702 A 2 2 0 0 1 700 4518.6997 V 4509.6997 A 2 2 0 0 1 702 4507.6997 Z" fill="#2266aa" fill-rule="evenodd"/>
-<polyline points="702.6,4514.9497 705.45,4517.8 710.7,4511.1997" fill="none" stroke="#ffffff" stroke-width="2.40" stroke-linecap="round" stroke-linejoin="round"/>
-<clipPath id="clip6"><rect x="700" y="4507.6997" width="13" height="13"/></clipPath><g clip-path="url(#clip6)">
+<rect x="24" y="3919.667" width="976" height="2" fill="#d0d4d9"/>
+<text x="24" y="3908.867" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Cursor</text>
+<path d="M 30 3931.667 H 338 A 6 6 0 0 1 344 3937.667 V 3959.067 A 6 6 0 0 1 338 3965.067 H 30 A 6 6 0 0 1 24 3959.067 V 3937.667 A 6 6 0 0 1 30 3931.667 Z" fill="#fafbfc"/>
+<path d="M 30 3931.667 H 338 A 6 6 0 0 1 344 3937.667 V 3959.067 A 6 6 0 0 1 338 3965.067 H 30 A 6 6 0 0 1 24 3959.067 V 3937.667 A 6 6 0 0 1 30 3931.667 Z M 30 3932.667 H 338 A 5 5 0 0 1 343 3937.667 V 3959.067 A 5 5 0 0 1 338 3964.067 H 30 A 5 5 0 0 1 25 3959.067 V 3937.667 A 5 5 0 0 1 30 3932.667 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="160.9" y="3951.667" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">pointer</text>
+<path d="M 358 3931.667 H 666 A 6 6 0 0 1 672 3937.667 V 3959.067 A 6 6 0 0 1 666 3965.067 H 358 A 6 6 0 0 1 352 3959.067 V 3937.667 A 6 6 0 0 1 358 3931.667 Z" fill="#fafbfc"/>
+<path d="M 358 3931.667 H 666 A 6 6 0 0 1 672 3937.667 V 3959.067 A 6 6 0 0 1 666 3965.067 H 358 A 6 6 0 0 1 352 3959.067 V 3937.667 A 6 6 0 0 1 358 3931.667 Z M 358 3932.667 H 666 A 5 5 0 0 1 671 3937.667 V 3959.067 A 5 5 0 0 1 666 3964.067 H 358 A 5 5 0 0 1 353 3959.067 V 3937.667 A 5 5 0 0 1 358 3932.667 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="498.8" y="3951.667" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">text</text>
+<path d="M 686 3931.667 H 994 A 6 6 0 0 1 1000 3937.667 V 3959.067 A 6 6 0 0 1 994 3965.067 H 686 A 6 6 0 0 1 680 3959.067 V 3937.667 A 6 6 0 0 1 686 3931.667 Z" fill="#fafbfc"/>
+<path d="M 686 3931.667 H 994 A 6 6 0 0 1 1000 3937.667 V 3959.067 A 6 6 0 0 1 994 3965.067 H 686 A 6 6 0 0 1 680 3959.067 V 3937.667 A 6 6 0 0 1 686 3931.667 Z M 686 3932.667 H 994 A 5 5 0 0 1 999 3937.667 V 3959.067 A 5 5 0 0 1 994 3964.067 H 686 A 5 5 0 0 1 681 3959.067 V 3937.667 A 5 5 0 0 1 686 3932.667 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="826.8" y="3951.667" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">move</text>
+<path d="M 30 3973.067 H 338 A 6 6 0 0 1 344 3979.067 V 4000.4668 A 6 6 0 0 1 338 4006.4668 H 30 A 6 6 0 0 1 24 4000.4668 V 3979.067 A 6 6 0 0 1 30 3973.067 Z" fill="#fafbfc"/>
+<path d="M 30 3973.067 H 338 A 6 6 0 0 1 344 3979.067 V 4000.4668 A 6 6 0 0 1 338 4006.4668 H 30 A 6 6 0 0 1 24 4000.4668 V 3979.067 A 6 6 0 0 1 30 3973.067 Z M 30 3974.067 H 338 A 5 5 0 0 1 343 3979.067 V 4000.4668 A 5 5 0 0 1 338 4005.4668 H 30 A 5 5 0 0 1 25 4000.4668 V 3979.067 A 5 5 0 0 1 30 3974.067 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="154.3" y="3993.067" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">crosshair</text>
+<path d="M 358 3973.067 H 666 A 6 6 0 0 1 672 3979.067 V 4000.4668 A 6 6 0 0 1 666 4006.4668 H 358 A 6 6 0 0 1 352 4000.4668 V 3979.067 A 6 6 0 0 1 358 3973.067 Z" fill="#fafbfc"/>
+<path d="M 358 3973.067 H 666 A 6 6 0 0 1 672 3979.067 V 4000.4668 A 6 6 0 0 1 666 4006.4668 H 358 A 6 6 0 0 1 352 4000.4668 V 3979.067 A 6 6 0 0 1 358 3973.067 Z M 358 3974.067 H 666 A 5 5 0 0 1 671 3979.067 V 4000.4668 A 5 5 0 0 1 666 4005.4668 H 358 A 5 5 0 0 1 353 4000.4668 V 3979.067 A 5 5 0 0 1 358 3974.067 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="498.8" y="3993.067" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">wait</text>
+<path d="M 686 3973.067 H 994 A 6 6 0 0 1 1000 3979.067 V 4000.4668 A 6 6 0 0 1 994 4006.4668 H 686 A 6 6 0 0 1 680 4000.4668 V 3979.067 A 6 6 0 0 1 686 3973.067 Z" fill="#fafbfc"/>
+<path d="M 686 3973.067 H 994 A 6 6 0 0 1 1000 3979.067 V 4000.4668 A 6 6 0 0 1 994 4006.4668 H 686 A 6 6 0 0 1 680 4000.4668 V 3979.067 A 6 6 0 0 1 686 3973.067 Z M 686 3974.067 H 994 A 5 5 0 0 1 999 3979.067 V 4000.4668 A 5 5 0 0 1 994 4005.4668 H 686 A 5 5 0 0 1 681 4000.4668 V 3979.067 A 5 5 0 0 1 686 3974.067 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="826.8" y="3993.067" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">help</text>
+<path d="M 30 4014.4668 H 338 A 6 6 0 0 1 344 4020.4668 V 4041.8667 A 6 6 0 0 1 338 4047.8667 H 30 A 6 6 0 0 1 24 4041.8667 V 4020.4668 A 6 6 0 0 1 30 4014.4668 Z" fill="#fafbfc"/>
+<path d="M 30 4014.4668 H 338 A 6 6 0 0 1 344 4020.4668 V 4041.8667 A 6 6 0 0 1 338 4047.8667 H 30 A 6 6 0 0 1 24 4041.8667 V 4020.4668 A 6 6 0 0 1 30 4014.4668 Z M 30 4015.4668 H 338 A 5 5 0 0 1 343 4020.4668 V 4041.8667 A 5 5 0 0 1 338 4046.8667 H 30 A 5 5 0 0 1 25 4041.8667 V 4020.4668 A 5 5 0 0 1 30 4015.4668 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="147.7" y="4034.4668" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">not-allowed</text>
+<path d="M 358 4014.4668 H 666 A 6 6 0 0 1 672 4020.4668 V 4041.8667 A 6 6 0 0 1 666 4047.8667 H 358 A 6 6 0 0 1 352 4041.8667 V 4020.4668 A 6 6 0 0 1 358 4014.4668 Z" fill="#fafbfc"/>
+<path d="M 358 4014.4668 H 666 A 6 6 0 0 1 672 4020.4668 V 4041.8667 A 6 6 0 0 1 666 4047.8667 H 358 A 6 6 0 0 1 352 4041.8667 V 4020.4668 A 6 6 0 0 1 358 4014.4668 Z M 358 4015.4668 H 666 A 5 5 0 0 1 671 4020.4668 V 4041.8667 A 5 5 0 0 1 666 4046.8667 H 358 A 5 5 0 0 1 353 4041.8667 V 4020.4668 A 5 5 0 0 1 358 4015.4668 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="498.8" y="4034.4668" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">grab</text>
+<path d="M 686 4014.4668 H 994 A 6 6 0 0 1 1000 4020.4668 V 4041.8667 A 6 6 0 0 1 994 4047.8667 H 686 A 6 6 0 0 1 680 4041.8667 V 4020.4668 A 6 6 0 0 1 686 4014.4668 Z" fill="#fafbfc"/>
+<path d="M 686 4014.4668 H 994 A 6 6 0 0 1 1000 4020.4668 V 4041.8667 A 6 6 0 0 1 994 4047.8667 H 686 A 6 6 0 0 1 680 4041.8667 V 4020.4668 A 6 6 0 0 1 686 4014.4668 Z M 686 4015.4668 H 994 A 5 5 0 0 1 999 4020.4668 V 4041.8667 A 5 5 0 0 1 994 4046.8667 H 686 A 5 5 0 0 1 681 4041.8667 V 4020.4668 A 5 5 0 0 1 686 4015.4668 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="813.6" y="4034.4668" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">grabbing</text>
+<path d="M 30 4055.8667 H 338 A 6 6 0 0 1 344 4061.8667 V 4083.2666 A 6 6 0 0 1 338 4089.2666 H 30 A 6 6 0 0 1 24 4083.2666 V 4061.8667 A 6 6 0 0 1 30 4055.8667 Z" fill="#fafbfc"/>
+<path d="M 30 4055.8667 H 338 A 6 6 0 0 1 344 4061.8667 V 4083.2666 A 6 6 0 0 1 338 4089.2666 H 30 A 6 6 0 0 1 24 4083.2666 V 4061.8667 A 6 6 0 0 1 30 4055.8667 Z M 30 4056.8667 H 338 A 5 5 0 0 1 343 4061.8667 V 4083.2666 A 5 5 0 0 1 338 4088.2666 H 30 A 5 5 0 0 1 25 4083.2666 V 4061.8667 A 5 5 0 0 1 30 4056.8667 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="154.3" y="4075.8667" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">ew-resize</text>
+<path d="M 358 4055.8667 H 666 A 6 6 0 0 1 672 4061.8667 V 4083.2666 A 6 6 0 0 1 666 4089.2666 H 358 A 6 6 0 0 1 352 4083.2666 V 4061.8667 A 6 6 0 0 1 358 4055.8667 Z" fill="#fafbfc"/>
+<path d="M 358 4055.8667 H 666 A 6 6 0 0 1 672 4061.8667 V 4083.2666 A 6 6 0 0 1 666 4089.2666 H 358 A 6 6 0 0 1 352 4083.2666 V 4061.8667 A 6 6 0 0 1 358 4055.8667 Z M 358 4056.8667 H 666 A 5 5 0 0 1 671 4061.8667 V 4083.2666 A 5 5 0 0 1 666 4088.2666 H 358 A 5 5 0 0 1 353 4083.2666 V 4061.8667 A 5 5 0 0 1 358 4056.8667 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="482.3" y="4075.8667" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">ns-resize</text>
+<path d="M 686 4055.8667 H 994 A 6 6 0 0 1 1000 4061.8667 V 4083.2666 A 6 6 0 0 1 994 4089.2666 H 686 A 6 6 0 0 1 680 4083.2666 V 4061.8667 A 6 6 0 0 1 686 4055.8667 Z" fill="#fafbfc"/>
+<path d="M 686 4055.8667 H 994 A 6 6 0 0 1 1000 4061.8667 V 4083.2666 A 6 6 0 0 1 994 4089.2666 H 686 A 6 6 0 0 1 680 4083.2666 V 4061.8667 A 6 6 0 0 1 686 4055.8667 Z M 686 4056.8667 H 994 A 5 5 0 0 1 999 4061.8667 V 4083.2666 A 5 5 0 0 1 994 4088.2666 H 686 A 5 5 0 0 1 681 4083.2666 V 4061.8667 A 5 5 0 0 1 686 4056.8667 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="807" y="4075.8667" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">col-resize</text>
+<path d="M 30 4097.2666 H 338 A 6 6 0 0 1 344 4103.2666 V 4124.6665 A 6 6 0 0 1 338 4130.6665 H 30 A 6 6 0 0 1 24 4124.6665 V 4103.2666 A 6 6 0 0 1 30 4097.2666 Z" fill="#fafbfc"/>
+<path d="M 30 4097.2666 H 338 A 6 6 0 0 1 344 4103.2666 V 4124.6665 A 6 6 0 0 1 338 4130.6665 H 30 A 6 6 0 0 1 24 4124.6665 V 4103.2666 A 6 6 0 0 1 30 4097.2666 Z M 30 4098.2666 H 338 A 5 5 0 0 1 343 4103.2666 V 4124.6665 A 5 5 0 0 1 338 4129.6665 H 30 A 5 5 0 0 1 25 4124.6665 V 4103.2666 A 5 5 0 0 1 30 4098.2666 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="151" y="4117.2666" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">row-resize</text>
+<path d="M 358 4097.2666 H 666 A 6 6 0 0 1 672 4103.2666 V 4124.6665 A 6 6 0 0 1 666 4130.6665 H 358 A 6 6 0 0 1 352 4124.6665 V 4103.2666 A 6 6 0 0 1 358 4097.2666 Z" fill="#fafbfc"/>
+<path d="M 358 4097.2666 H 666 A 6 6 0 0 1 672 4103.2666 V 4124.6665 A 6 6 0 0 1 666 4130.6665 H 358 A 6 6 0 0 1 352 4124.6665 V 4103.2666 A 6 6 0 0 1 358 4097.2666 Z M 358 4098.2666 H 666 A 5 5 0 0 1 671 4103.2666 V 4124.6665 A 5 5 0 0 1 666 4129.6665 H 358 A 5 5 0 0 1 353 4124.6665 V 4103.2666 A 5 5 0 0 1 358 4098.2666 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="485.6" y="4117.2666" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">n-resize</text>
+<path d="M 686 4097.2666 H 994 A 6 6 0 0 1 1000 4103.2666 V 4124.6665 A 6 6 0 0 1 994 4130.6665 H 686 A 6 6 0 0 1 680 4124.6665 V 4103.2666 A 6 6 0 0 1 686 4097.2666 Z" fill="#fafbfc"/>
+<path d="M 686 4097.2666 H 994 A 6 6 0 0 1 1000 4103.2666 V 4124.6665 A 6 6 0 0 1 994 4130.6665 H 686 A 6 6 0 0 1 680 4124.6665 V 4103.2666 A 6 6 0 0 1 686 4097.2666 Z M 686 4098.2666 H 994 A 5 5 0 0 1 999 4103.2666 V 4124.6665 A 5 5 0 0 1 994 4129.6665 H 686 A 5 5 0 0 1 681 4124.6665 V 4103.2666 A 5 5 0 0 1 686 4098.2666 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="813.6" y="4117.2666" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">s-resize</text>
+<path d="M 30 4138.6665 H 338 A 6 6 0 0 1 344 4144.6665 V 4166.0664 A 6 6 0 0 1 338 4172.0664 H 30 A 6 6 0 0 1 24 4166.0664 V 4144.6665 A 6 6 0 0 1 30 4138.6665 Z" fill="#fafbfc"/>
+<path d="M 30 4138.6665 H 338 A 6 6 0 0 1 344 4144.6665 V 4166.0664 A 6 6 0 0 1 338 4172.0664 H 30 A 6 6 0 0 1 24 4166.0664 V 4144.6665 A 6 6 0 0 1 30 4138.6665 Z M 30 4139.6665 H 338 A 5 5 0 0 1 343 4144.6665 V 4166.0664 A 5 5 0 0 1 338 4171.0664 H 30 A 5 5 0 0 1 25 4166.0664 V 4144.6665 A 5 5 0 0 1 30 4139.6665 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="157.6" y="4158.6665" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">e-resize</text>
+<path d="M 358 4138.6665 H 666 A 6 6 0 0 1 672 4144.6665 V 4166.0664 A 6 6 0 0 1 666 4172.0664 H 358 A 6 6 0 0 1 352 4166.0664 V 4144.6665 A 6 6 0 0 1 358 4138.6665 Z" fill="#fafbfc"/>
+<path d="M 358 4138.6665 H 666 A 6 6 0 0 1 672 4144.6665 V 4166.0664 A 6 6 0 0 1 666 4172.0664 H 358 A 6 6 0 0 1 352 4166.0664 V 4144.6665 A 6 6 0 0 1 358 4138.6665 Z M 358 4139.6665 H 666 A 5 5 0 0 1 671 4144.6665 V 4166.0664 A 5 5 0 0 1 666 4171.0664 H 358 A 5 5 0 0 1 353 4166.0664 V 4144.6665 A 5 5 0 0 1 358 4139.6665 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="485.6" y="4158.6665" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">w-resize</text>
+<path d="M 686 4138.6665 H 994 A 6 6 0 0 1 1000 4144.6665 V 4166.0664 A 6 6 0 0 1 994 4172.0664 H 686 A 6 6 0 0 1 680 4166.0664 V 4144.6665 A 6 6 0 0 1 686 4138.6665 Z" fill="#fafbfc"/>
+<path d="M 686 4138.6665 H 994 A 6 6 0 0 1 1000 4144.6665 V 4166.0664 A 6 6 0 0 1 994 4172.0664 H 686 A 6 6 0 0 1 680 4166.0664 V 4144.6665 A 6 6 0 0 1 686 4138.6665 Z M 686 4139.6665 H 994 A 5 5 0 0 1 999 4144.6665 V 4166.0664 A 5 5 0 0 1 994 4171.0664 H 686 A 5 5 0 0 1 681 4166.0664 V 4144.6665 A 5 5 0 0 1 686 4139.6665 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="816.9" y="4158.6665" fill="#1c1e21" font-family="monospace" font-size="11" font-weight="400">default</text>
+<rect x="24" y="4227.866" width="976" height="2" fill="#d0d4d9"/>
+<text x="24" y="4217.0664" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">pointer-events</text>
+<path d="M 32 4239.866 H 332 A 8 8 0 0 1 340 4247.866 V 4392.0664 A 8 8 0 0 1 332 4400.0664 H 32 A 8 8 0 0 1 24 4392.0664 V 4247.866 A 8 8 0 0 1 32 4239.866 Z" fill="#ffffff"/>
+<path d="M 32 4239.866 H 332 A 8 8 0 0 1 340 4247.866 V 4392.0664 A 8 8 0 0 1 332 4400.0664 H 32 A 8 8 0 0 1 24 4392.0664 V 4247.866 A 8 8 0 0 1 32 4239.866 Z M 32 4240.866 H 332 A 7 7 0 0 1 339 4247.866 V 4392.0664 A 7 7 0 0 1 332 4399.0664 H 32 A 7 7 0 0 1 25 4392.0664 V 4247.866 A 7 7 0 0 1 32 4240.866 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="37" y="4263.866" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">pointer-events: none</text>
+<line x1="37" y1="4276.766" x2="327" y2="4276.766" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
+<line x1="326.5" y1="4276.266" x2="326.5" y2="4350.266" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
+<line x1="37" y1="4349.766" x2="327" y2="4349.766" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
+<line x1="37.5" y1="4276.266" x2="37.5" y2="4350.266" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
+<rect x="44" y="4283.266" width="284" height="23.4" fill="rgba(47,111,221,0.149)"/>
+<text x="208.5" y="4298.266" fill="#2f6fdd" font-family="serif" font-size="11" font-weight="400">tıklama geçiren perde</text>
+<text x="44" y="4299.266" fill="#0000ee" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">Bu link perdenin altında ama</text>
+<text x="44" y="4321.666" fill="#0000ee" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">tıklanabilir</text>
+<text x="37" y="4367.266" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">Mavi perde pointer-events: none — tıklama altındaki</text>
+<text x="37" y="4382.666" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">linke düşer.</text>
+<rect x="24" y="4455.866" width="976" height="2" fill="#d0d4d9"/>
+<text x="24" y="4445.0664" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Seçiciler</text>
+<path d="M 32 4467.866 H 332 A 8 8 0 0 1 340 4475.866 V 4547.666 A 8 8 0 0 1 332 4555.666 H 32 A 8 8 0 0 1 24 4547.666 V 4475.866 A 8 8 0 0 1 32 4467.866 Z" fill="#ffffff"/>
+<path d="M 32 4467.866 H 332 A 8 8 0 0 1 340 4475.866 V 4547.666 A 8 8 0 0 1 332 4555.666 H 32 A 8 8 0 0 1 24 4547.666 V 4475.866 A 8 8 0 0 1 32 4467.866 Z M 32 4468.866 H 332 A 7 7 0 0 1 339 4475.866 V 4547.666 A 7 7 0 0 1 332 4554.666 H 32 A 7 7 0 0 1 25 4547.666 V 4475.866 A 7 7 0 0 1 32 4468.866 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="37" y="4491.866" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:hover</text>
+<path d="M 41 4504.266 H 323 A 4 4 0 0 1 327 4508.266 V 4538.666 A 4 4 0 0 1 323 4542.666 H 41 A 4 4 0 0 1 37 4538.666 V 4508.266 A 4 4 0 0 1 41 4504.266 Z" fill="#d6e4ff"/>
+<text x="45" y="4528.266" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">üzerime gel — renk değişir</text>
+<path d="M 362 4467.866 H 662 A 8 8 0 0 1 670 4475.866 V 4598.866 A 8 8 0 0 1 662 4606.866 H 362 A 8 8 0 0 1 354 4598.866 V 4475.866 A 8 8 0 0 1 362 4467.866 Z" fill="#ffffff"/>
+<path d="M 362 4467.866 H 662 A 8 8 0 0 1 670 4475.866 V 4598.866 A 8 8 0 0 1 662 4606.866 H 362 A 8 8 0 0 1 354 4598.866 V 4475.866 A 8 8 0 0 1 362 4467.866 Z M 362 4468.866 H 662 A 7 7 0 0 1 669 4475.866 V 4598.866 A 7 7 0 0 1 662 4605.866 H 362 A 7 7 0 0 1 355 4598.866 V 4475.866 A 7 7 0 0 1 362 4468.866 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="367" y="4491.866" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:nth-child(odd) + :first-child</text>
+<rect x="387" y="4504.266" width="270" height="22.400002" fill="#eef1f4"/>
+<rect x="387" y="4504.266" width="8" height="22.4" fill="#eef1f4"/>
+<text x="387" y="4520.266" fill="#1c1e21" font-family="serif" font-size="16" font-weight="700">•</text>
+<text x="403" y="4520.266" fill="#1c1e21" font-family="serif" font-size="16" font-weight="700">birinci (kalın)</text>
+<text x="387" y="4542.666" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
+<text x="403" y="4542.666" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">ikinci</text>
+<rect x="387" y="4549.0664" width="270" height="22.400002" fill="#eef1f4"/>
+<rect x="387" y="4549.0664" width="8" height="22.4" fill="#eef1f4"/>
+<text x="387" y="4565.0664" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
+<text x="403" y="4565.0664" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">üçüncü</text>
+<text x="387" y="4587.4663" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
+<text x="403" y="4587.4663" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">dördüncü</text>
+<path d="M 692 4467.866 H 992 A 8 8 0 0 1 1000 4475.866 V 4534.666 A 8 8 0 0 1 992 4542.666 H 692 A 8 8 0 0 1 684 4534.666 V 4475.866 A 8 8 0 0 1 692 4467.866 Z" fill="#ffffff"/>
+<path d="M 692 4467.866 H 992 A 8 8 0 0 1 1000 4475.866 V 4534.666 A 8 8 0 0 1 992 4542.666 H 692 A 8 8 0 0 1 684 4534.666 V 4475.866 A 8 8 0 0 1 692 4467.866 Z M 692 4468.866 H 992 A 7 7 0 0 1 999 4475.866 V 4534.666 A 7 7 0 0 1 992 4541.666 H 692 A 7 7 0 0 1 685 4534.666 V 4475.866 A 7 7 0 0 1 692 4468.866 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="697" y="4491.866" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:has(input:checked)</text>
+<path d="M 704 4507.266 H 711 A 3 3 0 0 1 714 4510.266 V 4517.266 A 3 3 0 0 1 711 4520.266 H 704 A 3 3 0 0 1 701 4517.266 V 4510.266 A 3 3 0 0 1 704 4507.266 Z" fill="#2266aa"/>
+<path d="M 704 4507.266 H 711 A 3 3 0 0 1 714 4510.266 V 4517.266 A 3 3 0 0 1 711 4520.266 H 704 A 3 3 0 0 1 701 4517.266 V 4510.266 A 3 3 0 0 1 704 4507.266 Z M 704 4508.266 H 711 A 2 2 0 0 1 713 4510.266 V 4517.266 A 2 2 0 0 1 711 4519.266 H 704 A 2 2 0 0 1 702 4517.266 V 4510.266 A 2 2 0 0 1 704 4508.266 Z" fill="#2266aa" fill-rule="evenodd"/>
+<polyline points="704.12,4514.416 706.59,4516.886 711.14,4511.166" fill="none" stroke="#ffffff" stroke-width="2.08" stroke-linecap="round" stroke-linejoin="round"/>
+<clipPath id="clip6"><rect x="702" y="4508.266" width="11" height="11"/></clipPath><g clip-path="url(#clip6)">
 </g>
-<text x="724" y="4523.6997" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">işaretliyken kart yeşillenir</text>
-<path d="M 32 4621.1997 H 332 A 8 8 0 0 1 340 4629.1997 V 4697.9995 A 8 8 0 0 1 332 4705.9995 H 32 A 8 8 0 0 1 24 4697.9995 V 4629.1997 A 8 8 0 0 1 32 4621.1997 Z" fill="#ffffff"/>
-<path d="M 32 4621.1997 H 332 A 8 8 0 0 1 340 4629.1997 V 4697.9995 A 8 8 0 0 1 332 4705.9995 H 32 A 8 8 0 0 1 24 4697.9995 V 4629.1997 A 8 8 0 0 1 32 4621.1997 Z M 32 4622.1997 H 332 A 7 7 0 0 1 339 4629.1997 V 4697.9995 A 7 7 0 0 1 332 4704.9995 H 32 A 7 7 0 0 1 25 4697.9995 V 4629.1997 A 7 7 0 0 1 32 4622.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="4645.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:disabled</text>
-<path d="M 42 4659.5996 H 216 A 3 3 0 0 1 219 4662.5996 V 4684.8 A 3 3 0 0 1 216 4687.8 H 42 A 3 3 0 0 1 39 4684.8 V 4662.5996 A 3 3 0 0 1 42 4659.5996 Z" fill="#e8eaed"/>
-<path d="M 42 4659.5996 H 216 A 3 3 0 0 1 219 4662.5996 V 4684.8 A 3 3 0 0 1 216 4687.8 H 42 A 3 3 0 0 1 39 4684.8 V 4662.5996 A 3 3 0 0 1 42 4659.5996 Z M 42 4660.5996 H 216 A 2 2 0 0 1 218 4662.5996 V 4684.8 A 2 2 0 0 1 216 4686.8 H 42 A 2 2 0 0 1 40 4684.8 V 4662.5996 A 2 2 0 0 1 42 4660.5996 Z" fill="#bbbbbb" fill-rule="evenodd"/>
-<clipPath id="clip7"><rect x="40" y="4660.5996" width="178" height="26.199999"/></clipPath><g clip-path="url(#clip7)">
-<text x="44" y="4677.5996" fill="#1c1e21" font-family="serif" font-size="13" font-weight="400">devre dışı</text>
+<text x="725" y="4523.266" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">işaretliyken kart yeşillenir</text>
+<path d="M 32 4620.866 H 332 A 8 8 0 0 1 340 4628.866 V 4697.333 A 8 8 0 0 1 332 4705.333 H 32 A 8 8 0 0 1 24 4697.333 V 4628.866 A 8 8 0 0 1 32 4620.866 Z" fill="#ffffff"/>
+<path d="M 32 4620.866 H 332 A 8 8 0 0 1 340 4628.866 V 4697.333 A 8 8 0 0 1 332 4705.333 H 32 A 8 8 0 0 1 24 4697.333 V 4628.866 A 8 8 0 0 1 32 4620.866 Z M 32 4621.866 H 332 A 7 7 0 0 1 339 4628.866 V 4697.333 A 7 7 0 0 1 332 4704.333 H 32 A 7 7 0 0 1 25 4697.333 V 4628.866 A 7 7 0 0 1 32 4621.866 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="37" y="4644.866" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:disabled</text>
+<rect x="37" y="4657.266" width="163" height="28.666618" fill="#e8eaed"/>
+<rect x="37" y="4657.266" width="163" height="1" fill="#bbbbbb"/>
+<rect x="199" y="4657.266" width="1" height="28.666618" fill="#bbbbbb"/>
+<rect x="37" y="4684.9326" width="163" height="1" fill="#bbbbbb"/>
+<rect x="37" y="4657.266" width="1" height="28.666618" fill="#bbbbbb"/>
+<clipPath id="clip7"><rect x="38" y="4658.266" width="161" height="26.666618"/></clipPath><g clip-path="url(#clip7)">
+<text x="42" y="4675.5996" fill="#1c1e21" font-family="sans-serif" font-size="13.3333" font-weight="400">devre dışı</text>
 </g>
-<path d="M 362 4621.1997 H 662 A 8 8 0 0 1 670 4629.1997 V 4684.9995 A 8 8 0 0 1 662 4692.9995 H 362 A 8 8 0 0 1 354 4684.9995 V 4629.1997 A 8 8 0 0 1 362 4621.1997 Z" fill="#ffffff"/>
-<path d="M 362 4621.1997 H 662 A 8 8 0 0 1 670 4629.1997 V 4684.9995 A 8 8 0 0 1 662 4692.9995 H 362 A 8 8 0 0 1 354 4684.9995 V 4629.1997 A 8 8 0 0 1 362 4621.1997 Z M 362 4622.1997 H 662 A 7 7 0 0 1 669 4629.1997 V 4684.9995 A 7 7 0 0 1 662 4691.9995 H 362 A 7 7 0 0 1 355 4684.9995 V 4629.1997 A 7 7 0 0 1 362 4622.1997 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="4645.1997" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">öznitelik seçici a[target]</text>
-<text x="367" y="4673.5996" fill="#e52e71" font-family="serif" font-size="16" font-weight="700" text-decoration="underline">target&apos;lı link</text>
-<text x="487" y="4673.5996" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">·</text>
-<text x="503" y="4673.5996" fill="#0000ee" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">normal link</text>
-<rect x="24" y="4761.7993" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="4750.9995" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Mantıksal Özellikler ve inset</text>
-<path d="M 32 4773.7993 H 332 A 8 8 0 0 1 340 4781.7993 V 4879.9995 A 8 8 0 0 1 332 4887.9995 H 32 A 8 8 0 0 1 24 4879.9995 V 4781.7993 A 8 8 0 0 1 32 4773.7993 Z" fill="#ffffff"/>
-<path d="M 32 4773.7993 H 332 A 8 8 0 0 1 340 4781.7993 V 4879.9995 A 8 8 0 0 1 332 4887.9995 H 32 A 8 8 0 0 1 24 4879.9995 V 4781.7993 A 8 8 0 0 1 32 4773.7993 Z M 32 4774.7993 H 332 A 7 7 0 0 1 339 4781.7993 V 4879.9995 A 7 7 0 0 1 332 4886.9995 H 32 A 7 7 0 0 1 25 4879.9995 V 4781.7993 A 7 7 0 0 1 32 4774.7993 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="4797.7993" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">margin-inline / padding-block / inline-size</text>
-<path d="M 65 4810.199 H 288 A 4 4 0 0 1 292 4814.199 V 4870.999 A 4 4 0 0 1 288 4874.999 H 65 A 4 4 0 0 1 61 4870.999 V 4814.199 A 4 4 0 0 1 65 4810.199 Z M 65 4812.199 H 288 A 2 2 0 0 1 290 4814.199 V 4870.999 A 2 2 0 0 1 288 4872.999 H 65 A 2 2 0 0 1 63 4870.999 V 4814.199 A 2 2 0 0 1 65 4812.199 Z" fill="#2ea043" fill-rule="evenodd"/>
-<text x="75" y="4836.199" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">mantıksal eksenlerle</text>
-<text x="75" y="4858.599" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">boyutlanmış kutu</text>
-<path d="M 362 4773.7993 H 662 A 8 8 0 0 1 670 4781.7993 V 4871.199 A 8 8 0 0 1 662 4879.199 H 362 A 8 8 0 0 1 354 4871.199 V 4781.7993 A 8 8 0 0 1 362 4773.7993 Z" fill="#ffffff"/>
-<path d="M 362 4773.7993 H 662 A 8 8 0 0 1 670 4781.7993 V 4871.199 A 8 8 0 0 1 662 4879.199 H 362 A 8 8 0 0 1 354 4871.199 V 4781.7993 A 8 8 0 0 1 362 4773.7993 Z M 362 4774.7993 H 662 A 7 7 0 0 1 669 4781.7993 V 4871.199 A 7 7 0 0 1 662 4878.199 H 362 A 7 7 0 0 1 355 4871.199 V 4781.7993 A 7 7 0 0 1 362 4774.7993 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="4797.7993" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">inset: 6px 12px</text>
-<line x1="367" y1="4810.699" x2="657" y2="4810.699" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
-<line x1="656.5" y1="4810.199" x2="656.5" y2="4866.199" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
-<line x1="367" y1="4865.699" x2="657" y2="4865.699" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
-<line x1="367.5" y1="4810.199" x2="367.5" y2="4866.199" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
-<path d="M 383 4817.199 H 529 A 3 3 0 0 1 532 4820.199 V 4844.599 A 3 3 0 0 1 529 4847.599 H 383 A 3 3 0 0 1 380 4844.599 V 4820.199 A 3 3 0 0 1 383 4817.199 Z" fill="#d6e4ff"/>
-<text x="384" y="4837.199" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">inset ile yerleşti</text>
-<rect x="24" y="4943.7993" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="4932.9995" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">object-fit</text>
-<path d="M 32 4955.7993 H 332 A 8 8 0 0 1 340 4963.7993 V 5114.599 A 8 8 0 0 1 332 5122.599 H 32 A 8 8 0 0 1 24 5114.599 V 4963.7993 A 8 8 0 0 1 32 4955.7993 Z" fill="#ffffff"/>
-<path d="M 32 4955.7993 H 332 A 8 8 0 0 1 340 4963.7993 V 5114.599 A 8 8 0 0 1 332 5122.599 H 32 A 8 8 0 0 1 24 5114.599 V 4963.7993 A 8 8 0 0 1 32 4955.7993 Z M 32 4956.7993 H 332 A 7 7 0 0 1 339 4963.7993 V 5114.599 A 7 7 0 0 1 332 5121.599 H 32 A 7 7 0 0 1 25 5114.599 V 4963.7993 A 7 7 0 0 1 32 4956.7993 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="4979.7993" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">object-fit: cover</text>
-<rect x="37" y="4992.199" width="122" height="1" fill="#999999"/>
-<rect x="158" y="4992.199" width="1" height="62" fill="#999999"/>
-<rect x="37" y="5053.199" width="122" height="1" fill="#999999"/>
-<rect x="37" y="4992.199" width="1" height="62" fill="#999999"/>
-<rect x="37" y="4992.199" width="122" height="1" fill="#808080"/>
-<rect x="158" y="4992.199" width="1" height="62" fill="#808080"/>
-<rect x="37" y="5053.199" width="122" height="1" fill="#808080"/>
-<rect x="37" y="4992.199" width="1" height="62" fill="#808080"/>
-<text x="37" y="5074.3994" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">Kaynak data-URI (yükleyici data: şemasını indirmez);</text>
-<text x="37" y="5089.7993" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">kutu ve alt metin gösterilir. Masaüstünde gerçek</text>
-<text x="37" y="5105.199" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">dosyalı img ile cover/contain davranışı görülür.</text>
-<rect x="24" y="5178.399" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="5167.599" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Media Query</text>
-<path d="M 32 5190.399 H 332 A 8 8 0 0 1 340 5198.399 V 5302.799 A 8 8 0 0 1 332 5310.799 H 32 A 8 8 0 0 1 24 5302.799 V 5198.399 A 8 8 0 0 1 32 5190.399 Z" fill="#ffffff"/>
-<path d="M 32 5190.399 H 332 A 8 8 0 0 1 340 5198.399 V 5302.799 A 8 8 0 0 1 332 5310.799 H 32 A 8 8 0 0 1 24 5302.799 V 5198.399 A 8 8 0 0 1 32 5190.399 Z M 32 5191.399 H 332 A 7 7 0 0 1 339 5198.399 V 5302.799 A 7 7 0 0 1 332 5309.799 H 32 A 7 7 0 0 1 25 5302.799 V 5198.399 A 7 7 0 0 1 32 5191.399 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="5214.399" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">@media (max-width: 600px)</text>
-<path d="M 41 5226.799 H 323 A 4 4 0 0 1 327 5230.799 V 5256.999 A 4 4 0 0 1 323 5260.999 H 41 A 4 4 0 0 1 37 5256.999 V 5230.799 A 4 4 0 0 1 41 5226.799 Z" fill="#2ea043"/>
-<text x="45" y="5247.799" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">viewport ≤ 600px&apos;te kırmızı</text>
-<text x="37" y="5277.999" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">Şu anki render viewport&apos;u 1024px — kutu yeşil kalır;</text>
-<text x="37" y="5293.399" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">pencereyi daraltınca kırmızıya döner.</text>
-<rect x="24" y="5366.5986" width="976" height="2" fill="#d0d4d9"/>
-<text x="24" y="5355.799" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">::before / ::after</text>
-<path d="M 32 5378.5986 H 332 A 8 8 0 0 1 340 5386.5986 V 5442.3984 A 8 8 0 0 1 332 5450.3984 H 32 A 8 8 0 0 1 24 5442.3984 V 5386.5986 A 8 8 0 0 1 32 5378.5986 Z" fill="#ffffff"/>
-<path d="M 32 5378.5986 H 332 A 8 8 0 0 1 340 5386.5986 V 5442.3984 A 8 8 0 0 1 332 5450.3984 H 32 A 8 8 0 0 1 24 5442.3984 V 5386.5986 A 8 8 0 0 1 32 5378.5986 Z M 32 5379.5986 H 332 A 7 7 0 0 1 339 5386.5986 V 5442.3984 A 7 7 0 0 1 332 5449.3984 H 32 A 7 7 0 0 1 25 5442.3984 V 5386.5986 A 7 7 0 0 1 32 5379.5986 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="37" y="5402.5986" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">content ile ikon</text>
-<text x="37" y="5430.9985" fill="#ff8a00" font-family="serif" font-size="16" font-weight="400">★</text>
-<text x="53" y="5430.9985" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">yıldızlı metin</text>
-<text x="173" y="5430.9985" fill="#ff8a00" font-family="serif" font-size="16" font-weight="400">★</text>
-<path d="M 362 5378.5986 H 662 A 8 8 0 0 1 670 5386.5986 V 5442.3984 A 8 8 0 0 1 662 5450.3984 H 362 A 8 8 0 0 1 354 5442.3984 V 5386.5986 A 8 8 0 0 1 362 5378.5986 Z" fill="#ffffff"/>
-<path d="M 362 5378.5986 H 662 A 8 8 0 0 1 670 5386.5986 V 5442.3984 A 8 8 0 0 1 662 5450.3984 H 362 A 8 8 0 0 1 354 5442.3984 V 5386.5986 A 8 8 0 0 1 362 5378.5986 Z M 362 5379.5986 H 662 A 7 7 0 0 1 669 5386.5986 V 5442.3984 A 7 7 0 0 1 662 5449.3984 H 362 A 7 7 0 0 1 355 5442.3984 V 5386.5986 A 7 7 0 0 1 362 5379.5986 Z" fill="#d8dce1" fill-rule="evenodd"/>
-<text x="367" y="5402.5986" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">::after rozeti</text>
-<text x="367" y="5430.9985" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">özellik</text>
-<rect x="423" y="5414.9985" width="20" height="22.4" fill="#e52e71"/>
-<text x="423" y="5430.9985" fill="#ffffff" font-family="serif" font-size="10" font-weight="400">yeni</text>
+<path d="M 362 4620.866 H 662 A 8 8 0 0 1 670 4628.866 V 4684.666 A 8 8 0 0 1 662 4692.666 H 362 A 8 8 0 0 1 354 4684.666 V 4628.866 A 8 8 0 0 1 362 4620.866 Z" fill="#ffffff"/>
+<path d="M 362 4620.866 H 662 A 8 8 0 0 1 670 4628.866 V 4684.666 A 8 8 0 0 1 662 4692.666 H 362 A 8 8 0 0 1 354 4684.666 V 4628.866 A 8 8 0 0 1 362 4620.866 Z M 362 4621.866 H 662 A 7 7 0 0 1 669 4628.866 V 4684.666 A 7 7 0 0 1 662 4691.666 H 362 A 7 7 0 0 1 355 4684.666 V 4628.866 A 7 7 0 0 1 362 4621.866 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="367" y="4644.866" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">öznitelik seçici a[target]</text>
+<text x="367" y="4673.266" fill="#e52e71" font-family="serif" font-size="16" font-weight="700" text-decoration="underline">target&apos;lı link</text>
+<text x="487" y="4673.266" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">·</text>
+<text x="503" y="4673.266" fill="#0000ee" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">normal link</text>
+<rect x="24" y="4761.133" width="976" height="2" fill="#d0d4d9"/>
+<text x="24" y="4750.333" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Mantıksal Özellikler ve inset</text>
+<path d="M 32 4773.133 H 332 A 8 8 0 0 1 340 4781.133 V 4879.333 A 8 8 0 0 1 332 4887.333 H 32 A 8 8 0 0 1 24 4879.333 V 4781.133 A 8 8 0 0 1 32 4773.133 Z" fill="#ffffff"/>
+<path d="M 32 4773.133 H 332 A 8 8 0 0 1 340 4781.133 V 4879.333 A 8 8 0 0 1 332 4887.333 H 32 A 8 8 0 0 1 24 4879.333 V 4781.133 A 8 8 0 0 1 32 4773.133 Z M 32 4774.133 H 332 A 7 7 0 0 1 339 4781.133 V 4879.333 A 7 7 0 0 1 332 4886.333 H 32 A 7 7 0 0 1 25 4879.333 V 4781.133 A 7 7 0 0 1 32 4774.133 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="37" y="4797.133" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">margin-inline / padding-block / inline-size</text>
+<path d="M 65 4809.5327 H 288 A 4 4 0 0 1 292 4813.5327 V 4870.3325 A 4 4 0 0 1 288 4874.3325 H 65 A 4 4 0 0 1 61 4870.3325 V 4813.5327 A 4 4 0 0 1 65 4809.5327 Z M 65 4811.5327 H 288 A 2 2 0 0 1 290 4813.5327 V 4870.3325 A 2 2 0 0 1 288 4872.3325 H 65 A 2 2 0 0 1 63 4870.3325 V 4813.5327 A 2 2 0 0 1 65 4811.5327 Z" fill="#2ea043" fill-rule="evenodd"/>
+<text x="75" y="4835.5327" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">mantıksal eksenlerle</text>
+<text x="75" y="4857.9326" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">boyutlanmış kutu</text>
+<path d="M 362 4773.133 H 662 A 8 8 0 0 1 670 4781.133 V 4870.5327 A 8 8 0 0 1 662 4878.5327 H 362 A 8 8 0 0 1 354 4870.5327 V 4781.133 A 8 8 0 0 1 362 4773.133 Z" fill="#ffffff"/>
+<path d="M 362 4773.133 H 662 A 8 8 0 0 1 670 4781.133 V 4870.5327 A 8 8 0 0 1 662 4878.5327 H 362 A 8 8 0 0 1 354 4870.5327 V 4781.133 A 8 8 0 0 1 362 4773.133 Z M 362 4774.133 H 662 A 7 7 0 0 1 669 4781.133 V 4870.5327 A 7 7 0 0 1 662 4877.5327 H 362 A 7 7 0 0 1 355 4870.5327 V 4781.133 A 7 7 0 0 1 362 4774.133 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="367" y="4797.133" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">inset: 6px 12px</text>
+<line x1="367" y1="4810.0327" x2="657" y2="4810.0327" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
+<line x1="656.5" y1="4809.5327" x2="656.5" y2="4865.5327" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
+<line x1="367" y1="4865.0327" x2="657" y2="4865.0327" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
+<line x1="367.5" y1="4809.5327" x2="367.5" y2="4865.5327" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
+<path d="M 383 4816.5327 H 529 A 3 3 0 0 1 532 4819.5327 V 4843.9326 A 3 3 0 0 1 529 4846.9326 H 383 A 3 3 0 0 1 380 4843.9326 V 4819.5327 A 3 3 0 0 1 383 4816.5327 Z" fill="#d6e4ff"/>
+<text x="384" y="4836.5327" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">inset ile yerleşti</text>
+<rect x="24" y="4943.133" width="976" height="2" fill="#d0d4d9"/>
+<text x="24" y="4932.333" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">object-fit</text>
+<path d="M 32 4955.133 H 332 A 8 8 0 0 1 340 4963.133 V 5117.133 A 8 8 0 0 1 332 5125.133 H 32 A 8 8 0 0 1 24 5117.133 V 4963.133 A 8 8 0 0 1 32 4955.133 Z" fill="#ffffff"/>
+<path d="M 32 4955.133 H 332 A 8 8 0 0 1 340 4963.133 V 5117.133 A 8 8 0 0 1 332 5125.133 H 32 A 8 8 0 0 1 24 5117.133 V 4963.133 A 8 8 0 0 1 32 4955.133 Z M 32 4956.133 H 332 A 7 7 0 0 1 339 4963.133 V 5117.133 A 7 7 0 0 1 332 5124.133 H 32 A 7 7 0 0 1 25 5117.133 V 4963.133 A 7 7 0 0 1 32 4956.133 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="37" y="4979.133" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">object-fit: cover</text>
+<rect x="37" y="4991.5327" width="122" height="1" fill="#999999"/>
+<rect x="158" y="4991.5327" width="1" height="62" fill="#999999"/>
+<rect x="37" y="5052.5327" width="122" height="1" fill="#999999"/>
+<rect x="37" y="4991.5327" width="1" height="62" fill="#999999"/>
+<rect x="37" y="4991.5327" width="122" height="1" fill="#808080"/>
+<rect x="158" y="4991.5327" width="1" height="62" fill="#808080"/>
+<rect x="37" y="5052.5327" width="122" height="1" fill="#808080"/>
+<rect x="37" y="4991.5327" width="1" height="62" fill="#808080"/>
+<text x="37" y="5076.9326" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">Kaynak data-URI (yükleyici data: şemasını indirmez);</text>
+<text x="37" y="5092.3325" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">kutu ve alt metin gösterilir. Masaüstünde gerçek</text>
+<text x="37" y="5107.7324" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">dosyalı img ile cover/contain davranışı görülür.</text>
+<rect x="24" y="5180.9326" width="976" height="2" fill="#d0d4d9"/>
+<text x="24" y="5170.133" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Media Query</text>
+<path d="M 32 5192.9326 H 332 A 8 8 0 0 1 340 5200.9326 V 5305.3325 A 8 8 0 0 1 332 5313.3325 H 32 A 8 8 0 0 1 24 5305.3325 V 5200.9326 A 8 8 0 0 1 32 5192.9326 Z" fill="#ffffff"/>
+<path d="M 32 5192.9326 H 332 A 8 8 0 0 1 340 5200.9326 V 5305.3325 A 8 8 0 0 1 332 5313.3325 H 32 A 8 8 0 0 1 24 5305.3325 V 5200.9326 A 8 8 0 0 1 32 5192.9326 Z M 32 5193.9326 H 332 A 7 7 0 0 1 339 5200.9326 V 5305.3325 A 7 7 0 0 1 332 5312.3325 H 32 A 7 7 0 0 1 25 5305.3325 V 5200.9326 A 7 7 0 0 1 32 5193.9326 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="37" y="5216.9326" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">@media (max-width: 600px)</text>
+<path d="M 41 5229.3325 H 323 A 4 4 0 0 1 327 5233.3325 V 5259.5327 A 4 4 0 0 1 323 5263.5327 H 41 A 4 4 0 0 1 37 5259.5327 V 5233.3325 A 4 4 0 0 1 41 5229.3325 Z" fill="#2ea043"/>
+<text x="45" y="5250.3325" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">viewport ≤ 600px&apos;te kırmızı</text>
+<text x="37" y="5280.5327" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">Şu anki render viewport&apos;u 1024px — kutu yeşil kalır;</text>
+<text x="37" y="5295.9326" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">pencereyi daraltınca kırmızıya döner.</text>
+<rect x="24" y="5369.1323" width="976" height="2" fill="#d0d4d9"/>
+<text x="24" y="5358.3325" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">::before / ::after</text>
+<path d="M 32 5381.1323 H 332 A 8 8 0 0 1 340 5389.1323 V 5444.932 A 8 8 0 0 1 332 5452.932 H 32 A 8 8 0 0 1 24 5444.932 V 5389.1323 A 8 8 0 0 1 32 5381.1323 Z" fill="#ffffff"/>
+<path d="M 32 5381.1323 H 332 A 8 8 0 0 1 340 5389.1323 V 5444.932 A 8 8 0 0 1 332 5452.932 H 32 A 8 8 0 0 1 24 5444.932 V 5389.1323 A 8 8 0 0 1 32 5381.1323 Z M 32 5382.1323 H 332 A 7 7 0 0 1 339 5389.1323 V 5444.932 A 7 7 0 0 1 332 5451.932 H 32 A 7 7 0 0 1 25 5444.932 V 5389.1323 A 7 7 0 0 1 32 5382.1323 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="37" y="5405.1323" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">content ile ikon</text>
+<text x="37" y="5433.532" fill="#ff8a00" font-family="serif" font-size="16" font-weight="400">★</text>
+<text x="53" y="5433.532" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">yıldızlı metin</text>
+<text x="173" y="5433.532" fill="#ff8a00" font-family="serif" font-size="16" font-weight="400">★</text>
+<path d="M 362 5381.1323 H 662 A 8 8 0 0 1 670 5389.1323 V 5444.932 A 8 8 0 0 1 662 5452.932 H 362 A 8 8 0 0 1 354 5444.932 V 5389.1323 A 8 8 0 0 1 362 5381.1323 Z" fill="#ffffff"/>
+<path d="M 362 5381.1323 H 662 A 8 8 0 0 1 670 5389.1323 V 5444.932 A 8 8 0 0 1 662 5452.932 H 362 A 8 8 0 0 1 354 5444.932 V 5389.1323 A 8 8 0 0 1 362 5381.1323 Z M 362 5382.1323 H 662 A 7 7 0 0 1 669 5389.1323 V 5444.932 A 7 7 0 0 1 662 5451.932 H 362 A 7 7 0 0 1 355 5444.932 V 5389.1323 A 7 7 0 0 1 362 5382.1323 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<text x="367" y="5405.1323" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">::after rozeti</text>
+<text x="367" y="5433.532" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">özellik</text>
+<rect x="423" y="5417.532" width="20" height="22.4" fill="#e52e71"/>
+<text x="423" y="5433.532" fill="#ffffff" font-family="serif" font-size="10" font-weight="400">yeni</text>
 <path d="M 919.5 10 H 1010 A 4 4 0 0 1 1014 14 V 29.400002 A 4 4 0 0 1 1010 33.4 H 919.5 A 4 4 0 0 1 915.5 29.400002 V 14 A 4 4 0 0 1 919.5 10 Z" fill="#1c1e21"/>
 <text x="923.5" y="25" fill="#ffffff" font-family="serif" font-size="11" font-weight="400">position: fixed</text>
 </svg>

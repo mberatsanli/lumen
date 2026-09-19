@@ -251,13 +251,28 @@ impl TextMeasurer for SystemFont {
         TextMetrics { width }
     }
 
-    /// Ascent, descent and line gap each round to whole pixels before
-    /// they add up, so lines always land on the pixel grid.
+    /// `normal` is the font's own content area: nothing is added, so
+    /// text sits in its line with no leading.
     fn normal_line_height(&self, style: &TextStyle) -> Option<f32> {
+        let (ascent, descent) = self.content_extent(style)?;
+        Some(ascent + descent)
+    }
+
+    fn x_height(&self, style: &TextStyle) -> Option<f32> {
+        let face = self.face_for('x', &style.face());
+        Some(f32::from(face.metrics('x', style.font_size).height as u16))
+    }
+
+    /// The line gap belongs below the text, and both edges round to
+    /// whole pixels, so every line lands on the pixel grid.
+    fn content_extent(&self, style: &TextStyle) -> Option<(f32, f32)> {
         let metrics = self
             .face(&style.face())
             .horizontal_line_metrics(style.font_size)?;
-        Some(metrics.ascent.round() + (-metrics.descent).round() + metrics.line_gap.round())
+        Some((
+            metrics.ascent.round(),
+            (-metrics.descent + metrics.line_gap).round(),
+        ))
     }
 }
 

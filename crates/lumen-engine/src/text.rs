@@ -103,6 +103,18 @@ pub trait TextMeasurer {
     fn normal_line_height(&self, _style: &TextStyle) -> Option<f32> {
         None
     }
+
+    /// The content area of an inline box in `style` — the font's ascent
+    /// and descent, both positive — when the measurer knows them.
+    fn content_extent(&self, _style: &TextStyle) -> Option<(f32, f32)> {
+        None
+    }
+
+    /// The height of a lowercase `x` in `style`, which is what
+    /// `vertical-align: middle` centers against.
+    fn x_height(&self, _style: &TextStyle) -> Option<f32> {
+        None
+    }
 }
 
 /// Deterministic approximation: every character advances half an em.

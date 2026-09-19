@@ -748,15 +748,46 @@ fn first_block_child_top_margin(
                 _ => return None,
             }
         }
-        return Some(
-            style
-                .margin
-                .top
-                .resolve(containing_width, viewport)
-                .unwrap_or(0.0),
-        );
+        return Some(effective_top_margin(
+            document,
+            styles,
+            *child,
+            containing_width,
+            viewport,
+        ));
     }
     None
+}
+
+/// An in-flow block's top margin as its parent sees it: its own, already
+/// collapsed with the first-child chain below it (each level only while
+/// nothing — a border, padding, a clipped overflow — separates them).
+fn effective_top_margin(
+    document: &Document,
+    styles: &StyleMap,
+    node_id: NodeId,
+    containing_width: f32,
+    viewport: Size,
+) -> f32 {
+    let Some(style) = styles.by_node.get(&node_id) else {
+        return 0.0;
+    };
+    let own = style
+        .margin
+        .top
+        .resolve(containing_width, viewport)
+        .unwrap_or(0.0);
+    let collapses_through = style.border_width.top == 0.0
+        && style.padding.top.resolve(containing_width, viewport) == Some(0.0)
+        && style.overflow_x == Overflow::Visible
+        && style.overflow_y == Overflow::Visible;
+    if !collapses_through {
+        return own;
+    }
+    match first_block_child_top_margin(document, styles, node_id, containing_width, viewport) {
+        Some(inherited) => collapsed_margin(own, inherited),
+        None => own,
+    }
 }
 
 fn has_block_descendant(document: &Document, styles: &StyleMap, node_id: NodeId) -> bool {
@@ -920,8 +951,27 @@ pub(crate) fn layout_atomic_box(
             probe_cache,
             depth,
         );
-        style.width = Dimension::Px(natural);
-        style.box_sizing = BoxSizing::ContentBox;
+        // `natural` is a content width; state it in whichever box the
+        // element's own `box-sizing` measures, so replacing the `auto`
+        // width leaves the height's interpretation alone.
+        style.width = Dimension::Px(match style.box_sizing {
+            BoxSizing::ContentBox => natural,
+            BoxSizing::BorderBox => {
+                natural
+                    + style.border_width.left
+                    + style.border_width.right
+                    + style
+                        .padding
+                        .left
+                        .resolve(available, viewport)
+                        .unwrap_or(0.0)
+                    + style
+                        .padding
+                        .right
+                        .resolve(available, viewport)
+                        .unwrap_or(0.0)
+            }
+        });
     }
     layout_element(
         document,
@@ -1541,11 +1591,9 @@ fn layout_element(
             // Sibling margin collapsing: undo the doubled gap so it equals
             // the collapsed value. The suppressed first top margin (already
             // collapsed into the parent) is removed entirely.
-            let child_top = styles
-                .by_node
-                .get(child)
-                .and_then(|style| style.margin.top.resolve(content_width, viewport))
-                .unwrap_or(0.0);
+            // What the child's top margin became once it collapsed with
+            // its own first child — that is what its layout applied.
+            let child_top = effective_top_margin(document, styles, *child, content_width, viewport);
             if let Some(previous) = previous_bottom_margin {
                 let gap = collapsed_margin(previous, child_top);
                 child_cursor_y -= previous + child_top - gap;
@@ -2910,8 +2958,17 @@ mod tests {
         let line_top = body_box(&layout).children[0].children[0].content_box().y + line.y;
         // top-aligned box sits at the line top.
         assert_eq!(boxes[0].margin_box().y, line_top);
-        // middle-aligned box is centered in the 60px line.
-        assert_eq!(boxes[1].margin_box().y, line_top + 20.0);
+        // The middle-aligned box straddles the baseline raised by half
+        // an x-height, so it sits above the line's vertical center.
+        let middle = boxes[1].margin_box();
+        assert!(
+            middle.y > line_top && middle.y + middle.height < line_top + line.height,
+            "middle box {middle:?} should sit inside the line"
+        );
+        assert!(
+            middle.y + middle.height / 2.0 < line_top + line.baseline,
+            "middle box should straddle the raised baseline"
+        );
         // The sup text fragment carries a negative baseline shift.
         let sup = line
             .fragments

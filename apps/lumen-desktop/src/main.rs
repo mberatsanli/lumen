@@ -342,6 +342,14 @@ impl TextMeasurer for SharedFont {
     fn normal_line_height(&self, style: &TextStyle) -> Option<f32> {
         self.0.normal_line_height(style)
     }
+
+    fn content_extent(&self, style: &TextStyle) -> Option<(f32, f32)> {
+        self.0.content_extent(style)
+    }
+
+    fn x_height(&self, style: &TextStyle) -> Option<f32> {
+        self.0.x_height(style)
+    }
 }
 
 /// What a page-input key resolved to: an edit op for the session, or a

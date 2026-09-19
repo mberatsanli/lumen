@@ -1282,7 +1282,12 @@ fn expand_declaration(name: &str, mut components: Vec<CssValue>, output: &mut Ve
 }
 
 const SIDES: [&str; 4] = ["top", "right", "bottom", "left"];
-const BORDER_STYLES: [&str; 5] = ["none", "hidden", "solid", "dashed", "dotted"];
+/// Every `border-style` keyword. The engine draws only the first five;
+/// the 3D styles parse so a `border: 2px inset` still yields a border
+/// (computed style folds them to solid).
+const BORDER_STYLES: [&str; 10] = [
+    "none", "hidden", "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset",
+];
 
 /// CSS 1-to-4 value expansion: top, right, bottom, left.
 fn edge_values(components: &[CssValue]) -> Option<[CssValue; 4]> {
