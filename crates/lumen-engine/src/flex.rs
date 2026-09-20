@@ -173,12 +173,82 @@ pub(crate) fn layout_flex_children(
     } else {
         explicit_height
     };
+    let main_size = |laid: &LayoutBox| {
+        let margin_box = laid.margin_box();
+        if row {
+            margin_box.width
+        } else {
+            margin_box.height
+        }
+    };
+
     struct FlexItem {
         laid: LayoutBox,
         grow: f32,
         shrink: f32,
         align_self: Option<AlignItems>,
+        /// Smallest main size the item may shrink to, margin box.
+        min_main: f32,
     }
+
+    // The floor an item may shrink to. An explicit `min-width`/
+    // `min-height` sets it outright; the initial `auto` means the
+    // content-based minimum, which stops a row item at the width of its
+    // longest unbreakable content and a column item at its own content
+    // height. Without it, shrinking would squeeze items to nothing and
+    // their text would spill out.
+    let minimum_main = |child: NodeId, laid: &LayoutBox| -> f32 {
+        let item_style = styles.by_node.get(&child).cloned().unwrap_or_default();
+        let dimensions = &laid.dimensions;
+        let (declared, edges_main) = if row {
+            (
+                item_style.min_width,
+                dimensions.margin.left
+                    + dimensions.margin.right
+                    + dimensions.border.left
+                    + dimensions.border.right
+                    + dimensions.padding.left
+                    + dimensions.padding.right,
+            )
+        } else {
+            (
+                item_style.min_height,
+                dimensions.margin.top
+                    + dimensions.margin.bottom
+                    + dimensions.border.top
+                    + dimensions.border.bottom
+                    + dimensions.padding.top
+                    + dimensions.padding.bottom,
+            )
+        };
+        if !matches!(declared, Dimension::Auto)
+            && let Some(resolved) = declared.resolve(content_width, viewport)
+        {
+            return resolved + edges_main;
+        }
+        if !row {
+            // A column item's content height is what it already laid out
+            // to: shrinking the main axis never reflows it narrower.
+            return main_size(laid);
+        }
+        let content_minimum = crate::layout::min_content_width(
+            document,
+            styles,
+            child,
+            viewport,
+            measurer,
+            images,
+            probe_cache,
+            depth,
+        );
+        // An item narrower than its content stays at its own width: the
+        // declared size is a suggestion the minimum never exceeds.
+        let suggestion = item_style
+            .width
+            .resolve(content_width, viewport)
+            .unwrap_or(f32::INFINITY);
+        content_minimum.min(suggestion) + edges_main
+    };
     let mut flex_items: Vec<FlexItem> = items
         .iter()
         .map(|item| {
@@ -210,23 +280,28 @@ pub(crate) fn layout_flex_children(
                 }
                 Item::Run(_) => (0.0, 1.0, None),
             };
+            let min_main = match item {
+                Item::Element(child) => minimum_main(*child, &laid),
+                // An anonymous run reflows freely across a row, but
+                // down a column its height is already its content's.
+                Item::Run(_) => {
+                    if row {
+                        0.0
+                    } else {
+                        main_size(&laid)
+                    }
+                }
+            };
             FlexItem {
                 laid,
                 grow,
                 shrink,
                 align_self,
+                min_main,
             }
         })
         .collect();
 
-    let main_size = |laid: &LayoutBox| {
-        let margin_box = laid.margin_box();
-        if row {
-            margin_box.width
-        } else {
-            margin_box.height
-        }
-    };
     let cross_of = |laid: &LayoutBox| {
         let margin_box = laid.margin_box();
         if row {
@@ -327,7 +402,8 @@ pub(crate) fn layout_flex_children(
                     + dimensions.padding.top
                     + dimensions.padding.bottom
             };
-            let target = (main_size(laid) + delta - edges_main).max(0.0);
+            let floor = (flex_items[index].min_main - edges_main).max(0.0);
+            let target = (main_size(laid) + delta - edges_main).max(floor);
             flex_items[index].laid = match &items[index] {
                 Item::Element(child) => lay_element(*child, Some(target)),
                 Item::Run(nodes) => lay_run(nodes, target),

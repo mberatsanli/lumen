@@ -712,6 +712,32 @@ fn is_inline_level(document: &Document, styles: &StyleMap, node_id: NodeId) -> b
     }
 }
 
+/// Whether a box collapses margins with its children, or keeps theirs
+/// inside. A box that starts its own block formatting context keeps
+/// them: floats, inline-blocks, out-of-flow boxes, anything that clips
+/// its overflow, and the flex and grid items a container lays out
+/// itself. Neither does the root element (CSS 2.1 §8.3.1).
+fn shares_margins_with_children(
+    document: &Document,
+    styles: &StyleMap,
+    node_id: NodeId,
+    style: &ComputedStyle,
+) -> bool {
+    let parent = document.parent(node_id);
+    if parent == Some(document.root())
+        || style.overflow_x != Overflow::Visible
+        || style.overflow_y != Overflow::Visible
+        || style.float != Float::None
+        || style.display == Display::InlineBlock
+        || matches!(style.position, Position::Absolute | Position::Fixed)
+    {
+        return false;
+    }
+    !parent
+        .and_then(|parent| styles.by_node.get(&parent))
+        .is_some_and(|parent| matches!(parent.display, Display::Flex | Display::Grid))
+}
+
 /// CSS collapsed-margin value: max of the positives plus min of the
 /// negatives.
 fn collapsed_margin(a: f32, b: f32) -> f32 {
@@ -897,6 +923,62 @@ pub(crate) fn natural_content_width(
         .min(available)
         .max(0.0);
     probe_cache.insert(node_id, available, depth, width);
+    width
+}
+
+/// The element's min-content width: what its contents need when every
+/// line breaks at the earliest opportunity. Probed by laying the element
+/// out with no room and no width of its own, so text wraps as hard as it
+/// can, then reading back the widest line. Excludes the element's own
+/// padding and border, like [`natural_content_width`].
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn min_content_width(
+    document: &Document,
+    styles: &StyleMap,
+    node_id: NodeId,
+    viewport: Size,
+    measurer: &dyn TextMeasurer,
+    images: &ImageMap,
+    probe_cache: &ProbeCache,
+    depth: usize,
+) -> f32 {
+    // Cached under an available width no real probe passes: min-content
+    // is the one measurement that does not depend on the room offered.
+    const CACHE_KEY: f32 = -1.0;
+    if let Some(cached) = probe_cache.get(node_id, CACHE_KEY, depth) {
+        return cached;
+    }
+    let NodeKind::Element(element) = &document.node(node_id).kind else {
+        return 0.0;
+    };
+    let mut style = styles.by_node.get(&node_id).cloned().unwrap_or_default();
+    style.width = Dimension::Auto;
+    let probe = layout_element(
+        document,
+        styles,
+        node_id,
+        element,
+        style,
+        0.0,
+        &mut 0.0,
+        0.0,
+        None,
+        None,
+        viewport,
+        measurer,
+        images,
+        probe_cache,
+        depth,
+    );
+    let content_x = probe.content_box().x;
+    let width = (probe
+        .children
+        .iter()
+        .map(natural_right)
+        .fold(content_x, f32::max)
+        - content_x)
+        .max(0.0);
+    probe_cache.insert(node_id, CACHE_KEY, depth, width);
     width
 }
 
@@ -1156,11 +1238,7 @@ fn layout_element(
     // Parent-child margin collapsing: with no top border/padding, the
     // parent's top margin collapses with its first block child's, and the
     // child's own top margin is suppressed inside.
-    // The root element's margins never collapse (CSS 2.1 §8.3.1), and
-    // neither do those of a box that clips its overflow.
-    let collapses_with_children = document.parent(node_id) != Some(document.root())
-        && style.overflow_x == Overflow::Visible
-        && style.overflow_y == Overflow::Visible;
+    let collapses_with_children = shares_margins_with_children(document, styles, node_id, &style);
     let child_top_collapse = if collapses_with_children && border.top == 0.0 && padding.top == 0.0 {
         first_block_child_top_margin(document, styles, node_id, content_width, viewport)
     } else {
@@ -2536,6 +2614,48 @@ mod tests {
         assert!((a - 466.7).abs() < 0.5, "a = {a}");
         assert!((b - 333.3).abs() < 0.5, "b = {b}");
         assert!((a + b - 800.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn flex_items_stop_shrinking_at_their_content() {
+        let layout = layout_of(
+            "<style>
+                .row { display: flex; width: 200px; }
+                .a { width: 400px; }
+                .firm { width: 160px; flex-shrink: 0; }
+             </style>\
+             <div class='row'><div class='a'>shrinks</div>\
+              <div class='firm'>firm</div></div>",
+        );
+        let row = &body_box(&layout).children[0];
+        let (a, firm) = (
+            row.children[0].border_box().width,
+            row.children[1].border_box().width,
+        );
+        // `flex-shrink: 0` keeps its width, so `.a` absorbs the whole
+        // 360px overflow — but stops at the width of its own text
+        // ("shrinks", 7 chars at 8px with the test measurer).
+        assert!((firm - 160.0).abs() < 0.5, "firm = {firm}");
+        assert!((a - 56.0).abs() < 0.5, "a = {a}");
+    }
+
+    #[test]
+    fn flex_items_keep_their_children_margins_inside() {
+        let layout = layout_of(
+            "<style>
+                .col { display: flex; flex-direction: column; height: 200px; }
+                .cell p { margin: 10px 0; }
+             </style>\
+             <div class='col'><div class='cell'><p>one</p></div>\
+              <div class='cell'><p>two</p></div></div>",
+        );
+        let col = &body_box(&layout).children[0];
+        // Each item is its own formatting context: the paragraph's
+        // margins stay inside it instead of escaping to the column.
+        let first = col.children[0].border_box();
+        assert_eq!(first.y, col.content_box().y);
+        assert!(first.height > 20.0, "collapsed away: {first:?}");
+        assert_eq!(col.children[1].border_box().y, first.y + first.height);
     }
 
     #[test]
