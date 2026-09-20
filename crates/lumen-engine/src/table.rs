@@ -13,9 +13,11 @@
 //! its top/left border except along the table's top/left edge); rowspan
 //! reserves grid slots but does not stretch the spanning cell.
 
-use crate::geometry::Size;
+use crate::geometry::{Dimensions, Rect, Size};
 use crate::image::ImageMap;
-use crate::layout::{LayoutBox, ProbeCache, layout_isolated_with_style, natural_content_width};
+use crate::layout::{
+    BoxType, LayoutBox, LayoutKind, ProbeCache, layout_isolated_with_style, natural_content_width,
+};
 use crate::style::{BoxSizing, ComputedStyle, Dimension, Display, StyleMap};
 use crate::text::TextMeasurer;
 use lumen_html::{Document, NodeId};
@@ -30,8 +32,12 @@ struct Cell {
 
 /// Collects the table's rows of cells, resolving colspan/rowspan into
 /// grid positions. Returns the rows and the column count.
-fn collect_grid(document: &Document, styles: &StyleMap, table: NodeId) -> (Vec<Vec<Cell>>, usize) {
-    let mut rows: Vec<Vec<Cell>> = Vec::new();
+fn collect_grid(
+    document: &Document,
+    styles: &StyleMap,
+    table: NodeId,
+) -> (Vec<(NodeId, Vec<Cell>)>, usize) {
+    let mut rows: Vec<(NodeId, Vec<Cell>)> = Vec::new();
     // Columns already occupied below earlier rowspan cells:
     // (column, remaining rows).
     let mut reserved: Vec<(usize, usize)> = Vec::new();
@@ -103,7 +109,7 @@ fn collect_grid(document: &Document, styles: &StyleMap, table: NodeId) -> (Vec<V
             column += colspan;
         }
         columns = columns.max(column.max(occupied.iter().map(|c| c + 1).max().unwrap_or(0)));
-        rows.push(row);
+        rows.push((row_node, row));
         // A reservation of N remaining rows must occupy the next N rows:
         // decrement after each row and keep entries until they hit zero.
         reserved = reserved
@@ -151,32 +157,71 @@ pub(crate) fn layout_table_children(
     // Column preferences: the widest cell preference per column
     // (explicit width, else a shrink-to-fit probe), split over colspans.
     let mut preferred = vec![0.0f32; column_count];
-    for row in &rows {
-        for cell in row {
-            let style = styles.by_node.get(&cell.node).cloned().unwrap_or_default();
-            let cell_preference = style
-                .width
+    // Columns are sized in border-box terms (that is how the cells are
+    // laid out below), so a cell's own edges count toward its column.
+    let preference_of = |cell: &Cell| {
+        let style = styles.by_node.get(&cell.node).cloned().unwrap_or_default();
+        let edges = style.border_width.left
+            + style.border_width.right
+            + style
+                .padding
+                .left
                 .resolve(available, viewport)
-                .unwrap_or_else(|| {
-                    natural_content_width(
-                        document,
-                        styles,
-                        cell.node,
-                        available,
-                        viewport,
-                        measurer,
-                        images,
-                        probe_cache,
-                        depth,
-                    )
-                })
-                .min(available);
-            let per_column =
-                (cell_preference - space_x * (cell.colspan as f32 - 1.0)) / cell.colspan as f32;
-            let end = (cell.column + cell.colspan).min(column_count);
-            for width in &mut preferred[cell.column..end] {
-                *width = width.max(per_column);
+                .unwrap_or(0.0)
+            + style
+                .padding
+                .right
+                .resolve(available, viewport)
+                .unwrap_or(0.0);
+        let content = style
+            .width
+            .resolve(available, viewport)
+            .map(|width| match style.box_sizing {
+                BoxSizing::BorderBox => (width - edges).max(0.0),
+                BoxSizing::ContentBox => width,
+            })
+            .unwrap_or_else(|| {
+                natural_content_width(
+                    document,
+                    styles,
+                    cell.node,
+                    available,
+                    viewport,
+                    measurer,
+                    images,
+                    probe_cache,
+                    depth,
+                )
+            });
+        (content + edges).min(available)
+    };
+    // Single-column cells set each column's preference outright.
+    let cells = || rows.iter().flat_map(|(_, cells)| cells);
+    for cell in cells().filter(|cell| cell.colspan == 1) {
+        preferred[cell.column] = preferred[cell.column].max(preference_of(cell));
+    }
+    // A spanning cell only widens its columns if they cannot already hold
+    // it, and the extra goes to them in proportion to what they ask for
+    // on their own — a wide column stays the wide one.
+    for cell in cells().filter(|cell| cell.colspan > 1) {
+        let end = (cell.column + cell.colspan).min(column_count);
+        let columns = &mut preferred[cell.column..end];
+        let spanned = columns.len() as f32;
+        let gaps = space_x * (spanned - 1.0);
+        let current: f32 = columns.iter().sum();
+        let deficit = preference_of(cell) - gaps - current;
+        if deficit <= 0.0 {
+            continue;
+        }
+        let share = |width: f32| {
+            if current > 0.0 {
+                width / current
+            } else {
+                1.0 / spanned
             }
+        };
+        for width in columns.iter_mut() {
+            *width += deficit * share(*width);
         }
     }
     for width in &mut preferred {
@@ -210,7 +255,7 @@ pub(crate) fn layout_table_children(
     // row height is the tallest cell.
     let mut children: Vec<LayoutBox> = Vec::new();
     let mut cursor_y = content_y + space_y;
-    for (row_index, row) in rows.iter().enumerate() {
+    for (row_index, (row_node, row)) in rows.iter().enumerate() {
         let mut row_height = 0.0f32;
         let mut laid_row: Vec<LayoutBox> = Vec::new();
         for cell in row {
@@ -259,7 +304,33 @@ pub(crate) fn layout_table_children(
                 .map(|laid| laid.margin_box().height)
                 .fold(0.0, f32::max);
         }
-        children.extend(laid_row);
+        // The row is a box of its own, so a `<tr>` can carry a
+        // background behind the cells sitting in it.
+        let row_right = offsets
+            .last()
+            .zip(preferred.last())
+            .map_or(space_x, |(offset, width)| offset + width);
+        let row_box = LayoutBox {
+            node_id: *row_node,
+            box_type: BoxType::Block,
+            kind: LayoutKind::Element(
+                document
+                    .element(*row_node)
+                    .map_or_else(|| "tr".to_string(), |element| element.tag_name.clone()),
+            ),
+            dimensions: Dimensions {
+                content: Rect {
+                    x: content_x + space_x,
+                    y: cursor_y,
+                    width: (row_right - space_x).max(0.0),
+                    height: row_height,
+                },
+                ..Dimensions::default()
+            },
+            style: styles.by_node.get(row_node).cloned().unwrap_or_default(),
+            children: laid_row,
+        };
+        children.push(row_box);
         cursor_y += row_height + space_y;
     }
 
@@ -292,11 +363,11 @@ mod tests {
         let styles = crate::style::compute_styles(&document, &lumen_css::Stylesheet::default());
         let (rows, columns) = collect_grid(&document, &styles, table);
         assert_eq!(columns, 3);
-        assert_eq!(rows[0].len(), 2);
-        assert_eq!(rows[0][1].colspan, 2);
+        assert_eq!(rows[0].1.len(), 2);
+        assert_eq!(rows[0].1[1].colspan, 2);
         // Row 3's first cell starts at column 1 (column 0 reserved by the
         // rowspan above).
-        assert_eq!(rows[2][0].column, 1);
+        assert_eq!(rows[2].1[0].column, 1);
     }
 
     /// Laid-out cell boxes (tag `td`/`th`) in paint order.

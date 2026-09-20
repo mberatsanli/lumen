@@ -807,12 +807,28 @@ fn has_block_descendant(document: &Document, styles: &StyleMap, node_id: NodeId)
 fn natural_right(layout: &LayoutBox) -> f32 {
     match &layout.kind {
         LayoutKind::Inline { lines } => {
+            // How wide the line's content runs, not where alignment put
+            // it: a centered or right-aligned line sits further along its
+            // box without needing any more room than its text.
             let content = layout.content_box();
-            lines
-                .iter()
-                .flat_map(|line| line.fragments.iter())
-                .map(|fragment| content.x + fragment.x + fragment.width)
-                .fold(content.x, f32::max)
+            let span = |line: &crate::inline::LineBox| {
+                let left = line
+                    .fragments
+                    .iter()
+                    .map(|fragment| fragment.x)
+                    .fold(f32::INFINITY, f32::min);
+                let right = line
+                    .fragments
+                    .iter()
+                    .map(|fragment| fragment.x + fragment.width)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                if line.fragments.is_empty() {
+                    0.0
+                } else {
+                    right - left
+                }
+            };
+            content.x + lines.iter().map(span).fold(0.0, f32::max)
         }
         _ if layout.box_type == BoxType::Replaced
             || !matches!(layout.style.width, Dimension::Auto) =>
@@ -3305,8 +3321,15 @@ mod tests {
              </table>",
         );
         let table = &body_box(&layout).children[0];
-        assert_eq!(table.children.len(), 4);
-        let cell = |index: usize| table.children[index].border_box();
+        // Cells sit inside a box per row.
+        assert_eq!(table.children.len(), 2);
+        let cells: Vec<&LayoutBox> = table
+            .children
+            .iter()
+            .flat_map(|row| row.children.iter())
+            .collect();
+        assert_eq!(cells.len(), 4);
+        let cell = |index: usize| cells[index].border_box();
         // Columns align across rows (spacing floor is 2px).
         assert_eq!(cell(0).x, cell(2).x);
         assert_eq!(cell(1).x, cell(3).x);
@@ -3327,9 +3350,9 @@ mod tests {
              </table>",
         );
         let table = &body_box(&layout).children[0];
-        let wide = table.children[0].border_box();
-        let a = table.children[1].border_box();
-        let b = table.children[2].border_box();
+        let wide = table.children[0].children[0].border_box();
+        let a = table.children[1].children[0].border_box();
+        let b = table.children[1].children[1].border_box();
         // The spanning cell covers both columns.
         assert!((wide.width - (a.width + b.width + 2.0)).abs() < 1.0);
         assert_eq!(wide.x, a.x);

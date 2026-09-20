@@ -72,9 +72,9 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             input[type=range] { width: 129px; height: 16px; padding: 0; min-height: 0;
                 margin: 2px; border: 1px solid #b9b2a2; border-radius: 8px;
                 background-color: #e8e4da; box-sizing: border-box; }
-            select { border: 1px solid #767676; border-radius: 3px; padding: 0 4px;
-                background-color: #ffffff; height: 19px; width: auto;
-                box-sizing: border-box; --lumen-mark: arrow; }
+            select { border: 1px solid #767676; border-radius: 3px;
+                padding: 0 18px 0 4px; background-color: #ffffff; height: 19px;
+                width: auto; box-sizing: border-box; --lumen-mark: arrow; }
             option { display: none; }
             textarea { font-family: monospace; white-space: pre; overflow: auto;
                 padding: 2px; border: 1px solid #767676; width: 177px; height: 30px; }
@@ -85,10 +85,10 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
                 border: 1px solid #b9b2a2; border-radius: 8px; background-color: #e8e4da;
                 box-sizing: border-box; }
             label { color: inherit; }
-            select[multiple] { display: inline-block; width: 200px; max-height: 108px;
+            select[multiple] { display: inline-block; width: auto; max-height: 108px;
                 overflow: auto; padding: 4px; height: auto; --lumen-mark: none; }
-            select[multiple] option { display: block; padding: 2px 8px; margin: 1px 0;
-                border-radius: 3px; min-height: 1.1em; }
+            select[multiple] option { display: block; padding: 0 2px; margin: 0;
+                border-radius: 3px; }
             select[multiple] option:checked { background-color: #2266aa; color: #ffffff; }
             optgroup { display: none; }
             select[multiple] optgroup { display: block; padding: 2px 4px;
