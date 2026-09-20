@@ -95,6 +95,10 @@ enum InlineItem<'a> {
         /// an owned copy — most words never allocate.
         text: Cow<'a, str>,
         space_before: bool,
+        /// The background of the nearest inline ancestor that has one.
+        /// Text carries no background of its own, so this is how a
+        /// `<mark>` or a styled `<span>` reaches the fragment it paints.
+        background: Option<lumen_css::Color>,
     },
     Atomic {
         node_id: NodeId,
@@ -128,6 +132,7 @@ fn collect_items<'a>(
     node_id: NodeId,
     pending_space: &mut bool,
     items: &mut Vec<InlineItem<'a>>,
+    background: Option<lumen_css::Color>,
 ) {
     match &document.node(node_id).kind {
         NodeKind::Text(text) => {
@@ -155,6 +160,7 @@ fn collect_items<'a>(
                             node_id,
                             text,
                             space_before: false,
+                            background,
                         });
                     }
                 }
@@ -174,6 +180,7 @@ fn collect_items<'a>(
                     } else {
                         true
                     },
+                    background,
                 });
                 first = false;
             }
@@ -205,8 +212,16 @@ fn collect_items<'a>(
                 *pending_space = false;
                 return;
             }
+            // An inline box paints its background behind the text
+            // inside it; a nested one covers the same run, so the
+            // innermost background is the one that shows.
+            let inside = styles
+                .by_node
+                .get(&node_id)
+                .and_then(|style| style.background_color)
+                .or(background);
             for child in document.children(node_id) {
-                collect_items(document, styles, *child, pending_space, items);
+                collect_items(document, styles, *child, pending_space, items, inside);
             }
         }
         NodeKind::Document => {}
@@ -236,7 +251,14 @@ pub(crate) fn layout_inline_run(
     let mut items = Vec::new();
     let mut pending_space = false;
     for node in run {
-        collect_items(document, styles, *node, &mut pending_space, &mut items);
+        collect_items(
+            document,
+            styles,
+            *node,
+            &mut pending_space,
+            &mut items,
+            None,
+        );
     }
 
     let mut builder = LineBuilder {
@@ -265,7 +287,8 @@ pub(crate) fn layout_inline_run(
                 node_id,
                 text,
                 space_before,
-            } => builder.place_word(node_id, &text, space_before),
+                background,
+            } => builder.place_word(node_id, &text, space_before, background),
             InlineItem::Atomic {
                 node_id,
                 space_before,
@@ -585,7 +608,13 @@ impl<'a> LineBuilder<'a> {
         }
     }
 
-    fn place_word(&mut self, node_id: NodeId, word: &str, space_before: bool) {
+    fn place_word(
+        &mut self,
+        node_id: NodeId,
+        word: &str,
+        space_before: bool,
+        background: Option<lumen_css::Color>,
+    ) {
         self.start_line_if_needed();
         // `&'a` borrows the style map, not the builder, so it can live
         // across `&mut self` calls; the style is cloned only when a new
@@ -638,7 +667,7 @@ impl<'a> LineBuilder<'a> {
                     break;
                 }
                 let chunk = &rest[..end];
-                self.append_text(node_id, chunk, kept_width, space, style);
+                self.append_text(node_id, chunk, kept_width, space, style, background);
                 space = 0.0;
                 rest = &rest[end..];
                 if !rest.is_empty() {
@@ -654,9 +683,9 @@ impl<'a> LineBuilder<'a> {
         {
             self.flush_line(false, true);
             self.start_line_if_needed();
-            self.append_text(node_id, word, word_width, 0.0, style);
+            self.append_text(node_id, word, word_width, 0.0, style, background);
         } else {
-            self.append_text(node_id, word, word_width, space_width, style);
+            self.append_text(node_id, word, word_width, space_width, style, background);
         }
     }
 
@@ -706,6 +735,7 @@ impl<'a> LineBuilder<'a> {
         word_width: f32,
         space_width: f32,
         style: &ComputedStyle,
+        background: Option<lumen_css::Color>,
     ) {
         // Justified text keeps per-word fragments so gaps can stretch.
         if self.container.text_align != TextAlign::Justify
@@ -721,15 +751,20 @@ impl<'a> LineBuilder<'a> {
             }
             last.width += space_width + word_width;
         } else {
+            // Text has no background of its own; the fragment carries
+            // whichever inline box around it does, so paint can fill
+            // behind the run without walking back up the tree.
+            let mut style = style.clone();
+            style.background_color = background;
             self.current.push(Fragment {
                 node_id,
                 x: self.pen_x + space_width,
                 width: word_width,
                 dy: 0.0,
-                extent: self.content_extent(style),
+                extent: self.content_extent(&style),
                 content: FragmentContent::Text {
                     text: word.to_string(),
-                    style: Box::new(style.clone()),
+                    style: Box::new(style),
                 },
             });
         }

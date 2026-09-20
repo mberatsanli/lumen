@@ -1098,6 +1098,42 @@ mod tests {
     }
 
     #[test]
+    fn an_inline_box_paints_its_background_behind_its_text() {
+        let list = commands(
+            "<style>mark { background-color: #ffff00; } \
+                    .plain { background-color: #00ff00; }</style>\
+             <p><span class='plain'>one</span> <mark>two</mark> three</p>",
+        );
+        let fills: Vec<String> = list
+            .iter()
+            .filter_map(|command| match command {
+                DisplayCommand::FillRect { color, .. } => Some(color.to_string()),
+                _ => None,
+            })
+            .collect();
+        // Both inline boxes fill behind their own run; the bare text
+        // after them fills nothing.
+        assert_eq!(fills, vec!["#00ff00", "#ffff00"]);
+    }
+
+    #[test]
+    fn a_nested_inline_background_covers_the_one_around_it() {
+        let list = commands(
+            "<style>.outer { background-color: #00ff00; } \
+                    .inner { background-color: #ff0000; }</style>\
+             <p><span class='outer'>out <span class='inner'>in</span></span></p>",
+        );
+        let fills: Vec<String> = list
+            .iter()
+            .filter_map(|command| match command {
+                DisplayCommand::FillRect { color, .. } => Some(color.to_string()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fills, vec!["#00ff00", "#ff0000"]);
+    }
+
+    #[test]
     fn a_fragment_background_covers_the_text_not_the_line() {
         // A tall line leaves room above and below the text; a highlight
         // belongs to the text, not to the room around it.
