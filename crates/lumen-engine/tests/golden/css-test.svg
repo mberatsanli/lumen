@@ -49,20 +49,20 @@
 <path d="M 41 526.6 H 323 A 4 4 0 0 1 327 530.6 V 558.8 A 4 4 0 0 1 323 562.8 H 41 A 4 4 0 0 1 37 558.8 V 530.6 A 4 4 0 0 1 41 526.6 Z" fill="#fff3cd"/>
 <path d="M 41 526.6 H 323 A 4 4 0 0 1 327 530.6 V 558.8 A 4 4 0 0 1 323 562.8 H 41 A 4 4 0 0 1 37 558.8 V 530.6 A 4 4 0 0 1 41 526.6 Z M 41 527.6 H 323 A 3 3 0 0 1 326 530.6 V 558.8 A 3 3 0 0 1 323 561.8 H 41 A 3 3 0 0 1 38 558.8 V 530.6 A 3 3 0 0 1 41 527.6 Z" fill="#e0c060" fill-rule="evenodd"/>
 <text x="46" y="548.6" fill="#1c1e21" font-family="serif" font-size="13" font-weight="400">düz renk</text>
-<path d="M 362 490.19995 H 662 A 8 8 0 0 1 670 498.19995 V 565.7999 A 8 8 0 0 1 662 573.7999 H 362 A 8 8 0 0 1 354 565.7999 V 498.19995 A 8 8 0 0 1 362 490.19995 Z" fill="#ffffff"/>
-<path d="M 362 490.19995 H 662 A 8 8 0 0 1 670 498.19995 V 565.7999 A 8 8 0 0 1 662 573.7999 H 362 A 8 8 0 0 1 354 565.7999 V 498.19995 A 8 8 0 0 1 362 490.19995 Z M 362 491.19995 H 662 A 7 7 0 0 1 669 498.19995 V 565.7999 A 7 7 0 0 1 662 572.7999 H 362 A 7 7 0 0 1 355 565.7999 V 498.19995 A 7 7 0 0 1 362 491.19995 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 362 490.19995 H 662 A 8 8 0 0 1 670 498.19995 V 567.7999 A 8 8 0 0 1 662 575.7999 H 362 A 8 8 0 0 1 354 567.7999 V 498.19995 A 8 8 0 0 1 362 490.19995 Z" fill="#ffffff"/>
+<path d="M 362 490.19995 H 662 A 8 8 0 0 1 670 498.19995 V 567.7999 A 8 8 0 0 1 662 575.7999 H 362 A 8 8 0 0 1 354 567.7999 V 498.19995 A 8 8 0 0 1 362 490.19995 Z M 362 491.19995 H 662 A 7 7 0 0 1 669 498.19995 V 567.7999 A 7 7 0 0 1 662 574.7999 H 362 A 7 7 0 0 1 355 567.7999 V 498.19995 A 7 7 0 0 1 362 491.19995 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="514.19995" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">linear-gradient(90deg, ...)</text>
 <linearGradient id="gradient0" x1="0.0000" y1="0.5000" x2="1.0000" y2="0.5000"><stop offset="0.0000" stop-color="#ff8a00"/><stop offset="1.0000" stop-color="#e52e71"/></linearGradient>
 <path d="M 371 526.6 H 653 A 4 4 0 0 1 657 530.6 V 556.8 A 4 4 0 0 1 653 560.8 H 371 A 4 4 0 0 1 367 556.8 V 530.6 A 4 4 0 0 1 371 526.6 Z" fill="url(#gradient0)"/>
 <text x="375" y="547.6" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">doğrusal geçiş</text>
-<path d="M 692 490.19995 H 992 A 8 8 0 0 1 1000 498.19995 V 565.7999 A 8 8 0 0 1 992 573.7999 H 692 A 8 8 0 0 1 684 565.7999 V 498.19995 A 8 8 0 0 1 692 490.19995 Z" fill="#ffffff"/>
-<path d="M 692 490.19995 H 992 A 8 8 0 0 1 1000 498.19995 V 565.7999 A 8 8 0 0 1 992 573.7999 H 692 A 8 8 0 0 1 684 565.7999 V 498.19995 A 8 8 0 0 1 692 490.19995 Z M 692 491.19995 H 992 A 7 7 0 0 1 999 498.19995 V 565.7999 A 7 7 0 0 1 992 572.7999 H 692 A 7 7 0 0 1 685 565.7999 V 498.19995 A 7 7 0 0 1 692 491.19995 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 490.19995 H 992 A 8 8 0 0 1 1000 498.19995 V 567.7999 A 8 8 0 0 1 992 575.7999 H 692 A 8 8 0 0 1 684 567.7999 V 498.19995 A 8 8 0 0 1 692 490.19995 Z" fill="#ffffff"/>
+<path d="M 692 490.19995 H 992 A 8 8 0 0 1 1000 498.19995 V 567.7999 A 8 8 0 0 1 992 575.7999 H 692 A 8 8 0 0 1 684 567.7999 V 498.19995 A 8 8 0 0 1 692 490.19995 Z M 692 491.19995 H 992 A 7 7 0 0 1 999 498.19995 V 567.7999 A 7 7 0 0 1 992 574.7999 H 692 A 7 7 0 0 1 685 567.7999 V 498.19995 A 7 7 0 0 1 692 491.19995 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="514.19995" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">radial-gradient(...)</text>
 <radialGradient id="gradient1" cx="0.5" cy="0.5" r="0.5"><stop offset="0.0000" stop-color="#ffe259"/><stop offset="1.0000" stop-color="#ffa751"/></radialGradient>
 <path d="M 701 526.6 H 983 A 4 4 0 0 1 987 530.6 V 556.8 A 4 4 0 0 1 983 560.8 H 701 A 4 4 0 0 1 697 556.8 V 530.6 A 4 4 0 0 1 701 526.6 Z" fill="url(#gradient1)"/>
 <text x="705" y="547.6" fill="#1c1e21" font-family="serif" font-size="13" font-weight="400">radyal geçiş</text>
-<path d="M 32 589.7999 H 332 A 8 8 0 0 1 340 597.7999 V 665.3999 A 8 8 0 0 1 332 673.3999 H 32 A 8 8 0 0 1 24 665.3999 V 597.7999 A 8 8 0 0 1 32 589.7999 Z" fill="#ffffff"/>
-<path d="M 32 589.7999 H 332 A 8 8 0 0 1 340 597.7999 V 665.3999 A 8 8 0 0 1 332 673.3999 H 32 A 8 8 0 0 1 24 665.3999 V 597.7999 A 8 8 0 0 1 32 589.7999 Z M 32 590.7999 H 332 A 7 7 0 0 1 339 597.7999 V 665.3999 A 7 7 0 0 1 332 672.3999 H 32 A 7 7 0 0 1 25 665.3999 V 597.7999 A 7 7 0 0 1 32 590.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 589.7999 H 332 A 8 8 0 0 1 340 597.7999 V 681.3999 A 8 8 0 0 1 332 689.3999 H 32 A 8 8 0 0 1 24 681.3999 V 597.7999 A 8 8 0 0 1 32 589.7999 Z" fill="#ffffff"/>
+<path d="M 32 589.7999 H 332 A 8 8 0 0 1 340 597.7999 V 681.3999 A 8 8 0 0 1 332 689.3999 H 32 A 8 8 0 0 1 24 681.3999 V 597.7999 A 8 8 0 0 1 32 589.7999 Z M 32 590.7999 H 332 A 7 7 0 0 1 339 597.7999 V 681.3999 A 7 7 0 0 1 332 688.3999 H 32 A 7 7 0 0 1 25 681.3999 V 597.7999 A 7 7 0 0 1 32 590.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="613.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">conic-gradient(...)</text>
 <radialGradient id="gradient2" cx="0.5" cy="0.5" r="0.5"><stop offset="0.0000" stop-color="#ff8a00"/><stop offset="0.3333" stop-color="#e52e71"/><stop offset="0.6667" stop-color="#2f6fdd"/><stop offset="1.0000" stop-color="#ff8a00"/></radialGradient>
 <path d="M 41 626.19995 H 323 A 4 4 0 0 1 327 630.19995 V 656.39996 A 4 4 0 0 1 323 660.39996 H 41 A 4 4 0 0 1 37 656.39996 V 630.19995 A 4 4 0 0 1 41 626.19995 Z" fill="url(#gradient2)"/>
@@ -96,16 +96,16 @@
 <rect x="49" y="925.39996" width="266" height="2" fill="#2f6fdd"/>
 <rect x="49" y="900.99994" width="2" height="26.400002" fill="#2f6fdd"/>
 <text x="51" y="918.99994" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">dış boşluklu kutu</text>
-<path d="M 362 860.5999 H 662 A 8 8 0 0 1 670 868.5999 V 936.3999 A 8 8 0 0 1 662 944.3999 H 362 A 8 8 0 0 1 354 936.3999 V 868.5999 A 8 8 0 0 1 362 860.5999 Z" fill="#ffffff"/>
-<path d="M 362 860.5999 H 662 A 8 8 0 0 1 670 868.5999 V 936.3999 A 8 8 0 0 1 662 944.3999 H 362 A 8 8 0 0 1 354 936.3999 V 868.5999 A 8 8 0 0 1 362 860.5999 Z M 362 861.5999 H 662 A 7 7 0 0 1 669 868.5999 V 936.3999 A 7 7 0 0 1 662 943.3999 H 362 A 7 7 0 0 1 355 936.3999 V 868.5999 A 7 7 0 0 1 362 861.5999 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 362 860.5999 H 662 A 8 8 0 0 1 670 868.5999 V 944.3999 A 8 8 0 0 1 662 952.3999 H 362 A 8 8 0 0 1 354 944.3999 V 868.5999 A 8 8 0 0 1 362 860.5999 Z" fill="#ffffff"/>
+<path d="M 362 860.5999 H 662 A 8 8 0 0 1 670 868.5999 V 944.3999 A 8 8 0 0 1 662 952.3999 H 362 A 8 8 0 0 1 354 944.3999 V 868.5999 A 8 8 0 0 1 362 860.5999 Z M 362 861.5999 H 662 A 7 7 0 0 1 669 868.5999 V 944.3999 A 7 7 0 0 1 662 951.3999 H 362 A 7 7 0 0 1 355 944.3999 V 868.5999 A 7 7 0 0 1 362 861.5999 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="884.5999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">padding: 4px 16px</text>
 <rect x="367" y="896.99994" width="290" height="2" fill="#2ea043"/>
 <rect x="655" y="896.99994" width="2" height="34.4" fill="#2ea043"/>
 <rect x="367" y="929.39996" width="290" height="2" fill="#2ea043"/>
 <rect x="367" y="896.99994" width="2" height="34.4" fill="#2ea043"/>
 <text x="385" y="918.99994" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">iç boşluklu kutu</text>
-<path d="M 692 860.5999 H 992 A 8 8 0 0 1 1000 868.5999 V 932.3999 A 8 8 0 0 1 992 940.3999 H 692 A 8 8 0 0 1 684 932.3999 V 868.5999 A 8 8 0 0 1 692 860.5999 Z" fill="#ffffff"/>
-<path d="M 692 860.5999 H 992 A 8 8 0 0 1 1000 868.5999 V 932.3999 A 8 8 0 0 1 992 940.3999 H 692 A 8 8 0 0 1 684 932.3999 V 868.5999 A 8 8 0 0 1 692 860.5999 Z M 692 861.5999 H 992 A 7 7 0 0 1 999 868.5999 V 932.3999 A 7 7 0 0 1 992 939.3999 H 692 A 7 7 0 0 1 685 932.3999 V 868.5999 A 7 7 0 0 1 692 861.5999 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 860.5999 H 992 A 8 8 0 0 1 1000 868.5999 V 944.3999 A 8 8 0 0 1 992 952.3999 H 692 A 8 8 0 0 1 684 944.3999 V 868.5999 A 8 8 0 0 1 692 860.5999 Z" fill="#ffffff"/>
+<path d="M 692 860.5999 H 992 A 8 8 0 0 1 1000 868.5999 V 944.3999 A 8 8 0 0 1 992 952.3999 H 692 A 8 8 0 0 1 684 944.3999 V 868.5999 A 8 8 0 0 1 692 860.5999 Z M 692 861.5999 H 992 A 7 7 0 0 1 999 868.5999 V 944.3999 A 7 7 0 0 1 992 951.3999 H 692 A 7 7 0 0 1 685 944.3999 V 868.5999 A 7 7 0 0 1 692 861.5999 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="884.5999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">border: 4px solid</text>
 <rect x="697" y="896.99994" width="290" height="4" fill="#e52e71"/>
 <rect x="983" y="896.99994" width="4" height="30.400002" fill="#e52e71"/>
@@ -117,8 +117,8 @@
 <text x="37" y="990.3999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">border-radius: 16px</text>
 <path d="M 51.2 1002.7999 H 312.8 A 14.200001 14.200001 0 0 1 327 1016.99994 V 1016.99994 A 14.200001 14.200001 0 0 1 312.8 1031.2 H 51.2 A 14.200001 14.200001 0 0 1 37 1016.99994 V 1016.99994 A 14.200001 14.200001 0 0 1 51.2 1002.7999 Z M 51.2 1005.7999 H 312.8 A 11.200001 11.200001 0 0 1 324 1016.99994 V 1016.99994 A 11.200001 11.200001 0 0 1 312.8 1028.2 H 51.2 A 11.200001 11.200001 0 0 1 40 1016.99994 V 1016.99994 A 11.200001 11.200001 0 0 1 51.2 1005.7999 Z" fill="#8e44ad" fill-rule="evenodd"/>
 <text x="40" y="1021.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">yuvarlak köşe</text>
-<path d="M 362 966.3999 H 662 A 8 8 0 0 1 670 974.3999 V 1032.2 A 8 8 0 0 1 662 1040.2 H 362 A 8 8 0 0 1 354 1032.2 V 974.3999 A 8 8 0 0 1 362 966.3999 Z" fill="#ffffff"/>
-<path d="M 362 966.3999 H 662 A 8 8 0 0 1 670 974.3999 V 1032.2 A 8 8 0 0 1 662 1040.2 H 362 A 8 8 0 0 1 354 1032.2 V 974.3999 A 8 8 0 0 1 362 966.3999 Z M 362 967.3999 H 662 A 7 7 0 0 1 669 974.3999 V 1032.2 A 7 7 0 0 1 662 1039.2 H 362 A 7 7 0 0 1 355 1032.2 V 974.3999 A 7 7 0 0 1 362 967.3999 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 362 966.3999 H 662 A 8 8 0 0 1 670 974.3999 V 1036.2 A 8 8 0 0 1 662 1044.2 H 362 A 8 8 0 0 1 354 1036.2 V 974.3999 A 8 8 0 0 1 362 966.3999 Z" fill="#ffffff"/>
+<path d="M 362 966.3999 H 662 A 8 8 0 0 1 670 974.3999 V 1036.2 A 8 8 0 0 1 662 1044.2 H 362 A 8 8 0 0 1 354 1036.2 V 974.3999 A 8 8 0 0 1 362 966.3999 Z M 362 967.3999 H 662 A 7 7 0 0 1 669 974.3999 V 1036.2 A 7 7 0 0 1 662 1043.2 H 362 A 7 7 0 0 1 355 1036.2 V 974.3999 A 7 7 0 0 1 362 967.3999 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="990.3999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">outline + outline-offset</text>
 <rect x="367" y="1002.7999" width="290" height="1" fill="#999999"/>
 <rect x="656" y="1002.7999" width="1" height="24.400002" fill="#999999"/>
@@ -129,16 +129,16 @@
 <rect x="360" y="1031.2" width="304" height="3" fill="#ff8a00"/>
 <rect x="360" y="995.7999" width="3" height="38.4" fill="#ff8a00"/>
 <text x="368" y="1019.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">dış çizgi (4px ofset)</text>
-<path d="M 692 966.3999 H 992 A 8 8 0 0 1 1000 974.3999 V 1032.2 A 8 8 0 0 1 992 1040.2 H 692 A 8 8 0 0 1 684 1032.2 V 974.3999 A 8 8 0 0 1 692 966.3999 Z" fill="#ffffff"/>
-<path d="M 692 966.3999 H 992 A 8 8 0 0 1 1000 974.3999 V 1032.2 A 8 8 0 0 1 992 1040.2 H 692 A 8 8 0 0 1 684 1032.2 V 974.3999 A 8 8 0 0 1 692 966.3999 Z M 692 967.3999 H 992 A 7 7 0 0 1 999 974.3999 V 1032.2 A 7 7 0 0 1 992 1039.2 H 692 A 7 7 0 0 1 685 1032.2 V 974.3999 A 7 7 0 0 1 692 967.3999 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 966.3999 H 992 A 8 8 0 0 1 1000 974.3999 V 1036.2 A 8 8 0 0 1 992 1044.2 H 692 A 8 8 0 0 1 684 1036.2 V 974.3999 A 8 8 0 0 1 692 966.3999 Z" fill="#ffffff"/>
+<path d="M 692 966.3999 H 992 A 8 8 0 0 1 1000 974.3999 V 1036.2 A 8 8 0 0 1 992 1044.2 H 692 A 8 8 0 0 1 684 1036.2 V 974.3999 A 8 8 0 0 1 692 966.3999 Z M 692 967.3999 H 992 A 7 7 0 0 1 999 974.3999 V 1036.2 A 7 7 0 0 1 992 1043.2 H 692 A 7 7 0 0 1 685 1036.2 V 974.3999 A 7 7 0 0 1 692 967.3999 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="990.3999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">box-shadow (dış)</text>
 <rect x="697" y="1002.7999" width="290" height="1" fill="#cccccc"/>
 <rect x="986" y="1002.7999" width="1" height="24.400002" fill="#cccccc"/>
 <rect x="697" y="1026.2" width="290" height="1" fill="#cccccc"/>
 <rect x="697" y="1002.7999" width="1" height="24.400002" fill="#cccccc"/>
 <text x="698" y="1019.7999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">düşen gölge</text>
-<path d="M 32 1058.2 H 332 A 8 8 0 0 1 340 1066.2 V 1124 A 8 8 0 0 1 332 1132 H 32 A 8 8 0 0 1 24 1124 V 1066.2 A 8 8 0 0 1 32 1058.2 Z" fill="#ffffff"/>
-<path d="M 32 1058.2 H 332 A 8 8 0 0 1 340 1066.2 V 1124 A 8 8 0 0 1 332 1132 H 32 A 8 8 0 0 1 24 1124 V 1066.2 A 8 8 0 0 1 32 1058.2 Z M 32 1059.2 H 332 A 7 7 0 0 1 339 1066.2 V 1124 A 7 7 0 0 1 332 1131 H 32 A 7 7 0 0 1 25 1124 V 1066.2 A 7 7 0 0 1 32 1059.2 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 1058.2 H 332 A 8 8 0 0 1 340 1066.2 V 1124.7999 A 8 8 0 0 1 332 1132.7999 H 32 A 8 8 0 0 1 24 1124.7999 V 1066.2 A 8 8 0 0 1 32 1058.2 Z" fill="#ffffff"/>
+<path d="M 32 1058.2 H 332 A 8 8 0 0 1 340 1066.2 V 1124.7999 A 8 8 0 0 1 332 1132.7999 H 32 A 8 8 0 0 1 24 1124.7999 V 1066.2 A 8 8 0 0 1 32 1058.2 Z M 32 1059.2 H 332 A 7 7 0 0 1 339 1066.2 V 1124.7999 A 7 7 0 0 1 332 1131.7999 H 32 A 7 7 0 0 1 25 1124.7999 V 1066.2 A 7 7 0 0 1 32 1059.2 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="1082.2" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">box-shadow: inset</text>
 <rect x="37" y="1094.6" width="290" height="1" fill="#cccccc"/>
 <rect x="326" y="1094.6" width="1" height="24.400002" fill="#cccccc"/>
@@ -151,8 +151,8 @@
 <text x="367" y="1112.6" fill="#2f6fdd" font-family="serif" font-size="18" font-weight="400">Gölgeli metin</text>
 <rect x="24" y="1188.6" width="976" height="2" fill="#d0d4d9"/>
 <text x="24" y="1177.7999" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Metin</text>
-<path d="M 32 1200.6 H 332 A 8 8 0 0 1 340 1208.6 V 1270 A 8 8 0 0 1 332 1278 H 32 A 8 8 0 0 1 24 1270 V 1208.6 A 8 8 0 0 1 32 1200.6 Z" fill="#ffffff"/>
-<path d="M 32 1200.6 H 332 A 8 8 0 0 1 340 1208.6 V 1270 A 8 8 0 0 1 332 1278 H 32 A 8 8 0 0 1 24 1270 V 1208.6 A 8 8 0 0 1 32 1200.6 Z M 32 1201.6 H 332 A 7 7 0 0 1 339 1208.6 V 1270 A 7 7 0 0 1 332 1277 H 32 A 7 7 0 0 1 25 1270 V 1208.6 A 7 7 0 0 1 32 1201.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 1200.6 H 332 A 8 8 0 0 1 340 1208.6 V 1306 A 8 8 0 0 1 332 1314 H 32 A 8 8 0 0 1 24 1306 V 1208.6 A 8 8 0 0 1 32 1200.6 Z" fill="#ffffff"/>
+<path d="M 32 1200.6 H 332 A 8 8 0 0 1 340 1208.6 V 1306 A 8 8 0 0 1 332 1314 H 32 A 8 8 0 0 1 24 1306 V 1208.6 A 8 8 0 0 1 32 1200.6 Z M 32 1201.6 H 332 A 7 7 0 0 1 339 1208.6 V 1306 A 7 7 0 0 1 332 1313 H 32 A 7 7 0 0 1 25 1306 V 1208.6 A 7 7 0 0 1 32 1201.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="1224.6" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">font-weight / font-style / font-size</text>
 <text x="37" y="1257" fill="#1c1e21" font-family="serif" font-size="16" font-weight="700">kalın</text>
 <text x="85" y="1257" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">·</text>
@@ -164,8 +164,8 @@
 <text x="367" y="1224.6" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">line-height: 2.0</text>
 <text x="367" y="1257.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">Satır aralığı geniş</text>
 <text x="367" y="1289.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">iki satırlı metin örneği</text>
-<path d="M 692 1200.6 H 992 A 8 8 0 0 1 1000 1208.6 V 1286.7999 A 8 8 0 0 1 992 1294.7999 H 692 A 8 8 0 0 1 684 1286.7999 V 1208.6 A 8 8 0 0 1 692 1200.6 Z" fill="#ffffff"/>
-<path d="M 692 1200.6 H 992 A 8 8 0 0 1 1000 1208.6 V 1286.7999 A 8 8 0 0 1 992 1294.7999 H 692 A 8 8 0 0 1 684 1286.7999 V 1208.6 A 8 8 0 0 1 692 1200.6 Z M 692 1201.6 H 992 A 7 7 0 0 1 999 1208.6 V 1286.7999 A 7 7 0 0 1 992 1293.7999 H 692 A 7 7 0 0 1 685 1286.7999 V 1208.6 A 7 7 0 0 1 692 1201.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 1200.6 H 992 A 8 8 0 0 1 1000 1208.6 V 1306 A 8 8 0 0 1 992 1314 H 692 A 8 8 0 0 1 684 1306 V 1208.6 A 8 8 0 0 1 692 1200.6 Z" fill="#ffffff"/>
+<path d="M 692 1200.6 H 992 A 8 8 0 0 1 1000 1208.6 V 1306 A 8 8 0 0 1 992 1314 H 692 A 8 8 0 0 1 684 1306 V 1208.6 A 8 8 0 0 1 692 1200.6 Z M 692 1201.6 H 992 A 7 7 0 0 1 999 1208.6 V 1306 A 7 7 0 0 1 992 1313 H 692 A 7 7 0 0 1 685 1306 V 1208.6 A 7 7 0 0 1 692 1201.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="1224.6" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">letter-spacing / word-spacing</text>
 <text x="697" y="1253" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400" letter-spacing="3">HARF</text>
 <text x="697" y="1275.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">kelime aralığı geniş</text>
@@ -183,17 +183,17 @@
 <text x="575" y="1380.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">·</text>
 <text x="591" y="1380.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">renkli</text>
 <text x="367" y="1402.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">çizgi</text>
-<path d="M 692 1328 H 992 A 8 8 0 0 1 1000 1336 V 1391.8 A 8 8 0 0 1 992 1399.8 H 692 A 8 8 0 0 1 684 1391.8 V 1336 A 8 8 0 0 1 692 1328 Z" fill="#ffffff"/>
-<path d="M 692 1328 H 992 A 8 8 0 0 1 1000 1336 V 1391.8 A 8 8 0 0 1 992 1399.8 H 692 A 8 8 0 0 1 684 1391.8 V 1336 A 8 8 0 0 1 692 1328 Z M 692 1329 H 992 A 7 7 0 0 1 999 1336 V 1391.8 A 7 7 0 0 1 992 1398.8 H 692 A 7 7 0 0 1 685 1391.8 V 1336 A 7 7 0 0 1 692 1329 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 1328 H 992 A 8 8 0 0 1 1000 1336 V 1414.2 A 8 8 0 0 1 992 1422.2 H 692 A 8 8 0 0 1 684 1414.2 V 1336 A 8 8 0 0 1 692 1328 Z" fill="#ffffff"/>
+<path d="M 692 1328 H 992 A 8 8 0 0 1 1000 1336 V 1414.2 A 8 8 0 0 1 992 1422.2 H 692 A 8 8 0 0 1 684 1414.2 V 1336 A 8 8 0 0 1 692 1328 Z M 692 1329 H 992 A 7 7 0 0 1 999 1336 V 1414.2 A 7 7 0 0 1 992 1421.2 H 692 A 7 7 0 0 1 685 1414.2 V 1336 A 7 7 0 0 1 692 1329 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="1352" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">text-transform: uppercase</text>
 <text x="697" y="1380.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">BÜYÜK HARFE ÇEVRILDI</text>
-<path d="M 32 1436.2 H 332 A 8 8 0 0 1 340 1444.2 V 1522.3999 A 8 8 0 0 1 332 1530.3999 H 32 A 8 8 0 0 1 24 1522.3999 V 1444.2 A 8 8 0 0 1 32 1436.2 Z" fill="#ffffff"/>
-<path d="M 32 1436.2 H 332 A 8 8 0 0 1 340 1444.2 V 1522.3999 A 8 8 0 0 1 332 1530.3999 H 32 A 8 8 0 0 1 24 1522.3999 V 1444.2 A 8 8 0 0 1 32 1436.2 Z M 32 1437.2 H 332 A 7 7 0 0 1 339 1444.2 V 1522.3999 A 7 7 0 0 1 332 1529.3999 H 32 A 7 7 0 0 1 25 1522.3999 V 1444.2 A 7 7 0 0 1 32 1437.2 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 1436.2 H 332 A 8 8 0 0 1 340 1444.2 V 1544.7999 A 8 8 0 0 1 332 1552.7999 H 32 A 8 8 0 0 1 24 1544.7999 V 1444.2 A 8 8 0 0 1 32 1436.2 Z" fill="#ffffff"/>
+<path d="M 32 1436.2 H 332 A 8 8 0 0 1 340 1444.2 V 1544.7999 A 8 8 0 0 1 332 1552.7999 H 32 A 8 8 0 0 1 24 1544.7999 V 1444.2 A 8 8 0 0 1 32 1436.2 Z M 32 1437.2 H 332 A 7 7 0 0 1 339 1444.2 V 1544.7999 A 7 7 0 0 1 332 1551.7999 H 32 A 7 7 0 0 1 25 1544.7999 V 1444.2 A 7 7 0 0 1 32 1437.2 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="1460.2" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">text-indent: 32px</text>
 <text x="69" y="1488.6" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">İlk satırı girintili uzun bir</text>
 <text x="37" y="1511" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">paragraf metni buraya geliyor.</text>
-<path d="M 362 1436.2 H 662 A 8 8 0 0 1 670 1444.2 V 1500 A 8 8 0 0 1 662 1508 H 362 A 8 8 0 0 1 354 1500 V 1444.2 A 8 8 0 0 1 362 1436.2 Z" fill="#ffffff"/>
-<path d="M 362 1436.2 H 662 A 8 8 0 0 1 670 1444.2 V 1500 A 8 8 0 0 1 662 1508 H 362 A 8 8 0 0 1 354 1500 V 1444.2 A 8 8 0 0 1 362 1436.2 Z M 362 1437.2 H 662 A 7 7 0 0 1 669 1444.2 V 1500 A 7 7 0 0 1 662 1507 H 362 A 7 7 0 0 1 355 1500 V 1444.2 A 7 7 0 0 1 362 1437.2 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 362 1436.2 H 662 A 8 8 0 0 1 670 1444.2 V 1544.7999 A 8 8 0 0 1 662 1552.7999 H 362 A 8 8 0 0 1 354 1544.7999 V 1444.2 A 8 8 0 0 1 362 1436.2 Z" fill="#ffffff"/>
+<path d="M 362 1436.2 H 662 A 8 8 0 0 1 670 1444.2 V 1544.7999 A 8 8 0 0 1 662 1552.7999 H 362 A 8 8 0 0 1 354 1544.7999 V 1444.2 A 8 8 0 0 1 362 1436.2 Z M 362 1437.2 H 662 A 7 7 0 0 1 669 1444.2 V 1544.7999 A 7 7 0 0 1 662 1551.7999 H 362 A 7 7 0 0 1 355 1544.7999 V 1444.2 A 7 7 0 0 1 362 1437.2 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="1460.2" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">::first-letter</text>
 <text x="367" y="1488.6" fill="#e52e71" font-family="serif" font-size="32" font-weight="700">L</text>
 <text x="383" y="1488.6" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">umen motoru ilk harfi büyütür.</text>
@@ -203,8 +203,8 @@
 <text x="697" y="1488.6" fill="#2f6fdd" font-family="serif" font-size="16" font-weight="700">İlk satır mavi ve kalın görünür,</text>
 <text x="697" y="1511" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">ikinci satır ise normal stiline</text>
 <text x="697" y="1533.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">döner.</text>
-<path d="M 32 1566.7999 H 332 A 8 8 0 0 1 340 1574.7999 V 1640.6 A 8 8 0 0 1 332 1648.6 H 32 A 8 8 0 0 1 24 1640.6 V 1574.7999 A 8 8 0 0 1 32 1566.7999 Z" fill="#ffffff"/>
-<path d="M 32 1566.7999 H 332 A 8 8 0 0 1 340 1574.7999 V 1640.6 A 8 8 0 0 1 332 1648.6 H 32 A 8 8 0 0 1 24 1640.6 V 1574.7999 A 8 8 0 0 1 32 1566.7999 Z M 32 1567.7999 H 332 A 7 7 0 0 1 339 1574.7999 V 1640.6 A 7 7 0 0 1 332 1647.6 H 32 A 7 7 0 0 1 25 1640.6 V 1574.7999 A 7 7 0 0 1 32 1567.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 1566.7999 H 332 A 8 8 0 0 1 340 1574.7999 V 1656.6 A 8 8 0 0 1 332 1664.6 H 32 A 8 8 0 0 1 24 1656.6 V 1574.7999 A 8 8 0 0 1 32 1566.7999 Z" fill="#ffffff"/>
+<path d="M 32 1566.7999 H 332 A 8 8 0 0 1 340 1574.7999 V 1656.6 A 8 8 0 0 1 332 1664.6 H 32 A 8 8 0 0 1 24 1656.6 V 1574.7999 A 8 8 0 0 1 32 1566.7999 Z M 32 1567.7999 H 332 A 7 7 0 0 1 339 1574.7999 V 1656.6 A 7 7 0 0 1 332 1663.6 H 32 A 7 7 0 0 1 25 1656.6 V 1574.7999 A 7 7 0 0 1 32 1567.7999 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="1590.7999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">text-overflow: ellipsis</text>
 <rect x="37" y="1603.2" width="190" height="1" fill="#cccccc"/>
 <rect x="226" y="1603.2" width="1" height="32.4" fill="#cccccc"/>
@@ -227,8 +227,8 @@
 <text x="703" y="1640.3999" fill="#1c1e21" font-family="monospace" font-size="13" font-weight="400">  b</text>
 <rect x="24" y="1720.4" width="976" height="2" fill="#d0d4d9"/>
 <text x="24" y="1709.6" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Layout</text>
-<path d="M 32 1732.4 H 332 A 8 8 0 0 1 340 1740.4 V 1808.2001 A 8 8 0 0 1 332 1816.2001 H 32 A 8 8 0 0 1 24 1808.2001 V 1740.4 A 8 8 0 0 1 32 1732.4 Z" fill="#ffffff"/>
-<path d="M 32 1732.4 H 332 A 8 8 0 0 1 340 1740.4 V 1808.2001 A 8 8 0 0 1 332 1816.2001 H 32 A 8 8 0 0 1 24 1808.2001 V 1740.4 A 8 8 0 0 1 32 1732.4 Z M 32 1733.4 H 332 A 7 7 0 0 1 339 1740.4 V 1808.2001 A 7 7 0 0 1 332 1815.2001 H 32 A 7 7 0 0 1 25 1808.2001 V 1740.4 A 7 7 0 0 1 32 1733.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 1732.4 H 332 A 8 8 0 0 1 340 1740.4 V 1844.6 A 8 8 0 0 1 332 1852.6 H 32 A 8 8 0 0 1 24 1844.6 V 1740.4 A 8 8 0 0 1 32 1732.4 Z" fill="#ffffff"/>
+<path d="M 32 1732.4 H 332 A 8 8 0 0 1 340 1740.4 V 1844.6 A 8 8 0 0 1 332 1852.6 H 32 A 8 8 0 0 1 24 1844.6 V 1740.4 A 8 8 0 0 1 32 1732.4 Z M 32 1733.4 H 332 A 7 7 0 0 1 339 1740.4 V 1844.6 A 7 7 0 0 1 332 1851.6 H 32 A 7 7 0 0 1 25 1844.6 V 1740.4 A 7 7 0 0 1 32 1733.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="1756.4" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">display: inline-block</text>
 <path d="M 42 1770.8 H 104 A 3 3 0 0 1 107 1773.8 V 1798.2001 A 3 3 0 0 1 104 1801.2001 H 42 A 3 3 0 0 1 39 1798.2001 V 1773.8 A 3 3 0 0 1 42 1770.8 Z" fill="#d6e4ff"/>
 <text x="69" y="1790.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">A</text>
@@ -246,8 +246,8 @@
 <path d="M 377 1775.8 H 427 A 3 3 0 0 1 430 1778.8 V 1812.8 A 3 3 0 0 1 427 1815.8 H 377 A 3 3 0 0 1 374 1812.8 V 1778.8 A 3 3 0 0 1 377 1775.8 Z" fill="#ffd8a8"/>
 <text x="438" y="1791.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">yüzen kutu metni iter</text>
 <text x="374" y="1827.8" fill="#2ea043" font-family="serif" font-size="12" font-weight="400">clear: both ile alta inildi</text>
-<path d="M 692 1732.4 H 992 A 8 8 0 0 1 1000 1740.4 V 1839.8 A 8 8 0 0 1 992 1847.8 H 692 A 8 8 0 0 1 684 1839.8 V 1740.4 A 8 8 0 0 1 692 1732.4 Z" fill="#ffffff"/>
-<path d="M 692 1732.4 H 992 A 8 8 0 0 1 1000 1740.4 V 1839.8 A 8 8 0 0 1 992 1847.8 H 692 A 8 8 0 0 1 684 1839.8 V 1740.4 A 8 8 0 0 1 692 1732.4 Z M 692 1733.4 H 992 A 7 7 0 0 1 999 1740.4 V 1839.8 A 7 7 0 0 1 992 1846.8 H 692 A 7 7 0 0 1 685 1839.8 V 1740.4 A 7 7 0 0 1 692 1733.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 1732.4 H 992 A 8 8 0 0 1 1000 1740.4 V 1844.6 A 8 8 0 0 1 992 1852.6 H 692 A 8 8 0 0 1 684 1844.6 V 1740.4 A 8 8 0 0 1 692 1732.4 Z" fill="#ffffff"/>
+<path d="M 692 1732.4 H 992 A 8 8 0 0 1 1000 1740.4 V 1844.6 A 8 8 0 0 1 992 1852.6 H 692 A 8 8 0 0 1 684 1844.6 V 1740.4 A 8 8 0 0 1 692 1732.4 Z M 692 1733.4 H 992 A 7 7 0 0 1 999 1740.4 V 1844.6 A 7 7 0 0 1 992 1851.6 H 692 A 7 7 0 0 1 685 1844.6 V 1740.4 A 7 7 0 0 1 692 1733.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="1756.4" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">position: relative / absolute</text>
 <line x1="697" y1="1769.3" x2="987" y2="1769.3" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="986.5" y1="1768.8" x2="986.5" y2="1834.8" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
@@ -257,8 +257,8 @@
 <text x="711" y="1794.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">relative</text>
 <path d="M 925 1773.8 H 975 A 3 3 0 0 1 978 1776.8 V 1792.2001 A 3 3 0 0 1 975 1795.2001 H 925 A 3 3 0 0 1 922 1792.2001 V 1776.8 A 3 3 0 0 1 925 1773.8 Z" fill="#e52e71"/>
 <text x="928" y="1787.8" fill="#ffffff" font-family="serif" font-size="11" font-weight="400">absolute</text>
-<path d="M 32 1866.6 H 332 A 8 8 0 0 1 340 1874.6 V 1952.7999 A 8 8 0 0 1 332 1960.7999 H 32 A 8 8 0 0 1 24 1952.7999 V 1874.6 A 8 8 0 0 1 32 1866.6 Z" fill="#ffffff"/>
-<path d="M 32 1866.6 H 332 A 8 8 0 0 1 340 1874.6 V 1952.7999 A 8 8 0 0 1 332 1960.7999 H 32 A 8 8 0 0 1 24 1952.7999 V 1874.6 A 8 8 0 0 1 32 1866.6 Z M 32 1867.6 H 332 A 7 7 0 0 1 339 1874.6 V 1952.7999 A 7 7 0 0 1 332 1959.7999 H 32 A 7 7 0 0 1 25 1952.7999 V 1874.6 A 7 7 0 0 1 32 1867.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 1866.6 H 332 A 8 8 0 0 1 340 1874.6 V 1982 A 8 8 0 0 1 332 1990 H 32 A 8 8 0 0 1 24 1982 V 1874.6 A 8 8 0 0 1 32 1866.6 Z" fill="#ffffff"/>
+<path d="M 32 1866.6 H 332 A 8 8 0 0 1 340 1874.6 V 1982 A 8 8 0 0 1 332 1990 H 32 A 8 8 0 0 1 24 1982 V 1874.6 A 8 8 0 0 1 32 1866.6 Z M 32 1867.6 H 332 A 7 7 0 0 1 339 1874.6 V 1982 A 7 7 0 0 1 332 1989 H 32 A 7 7 0 0 1 25 1982 V 1874.6 A 7 7 0 0 1 32 1867.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="1890.6" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">position: fixed</text>
 <text x="37" y="1919" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">Sağ üst köşedeki koyu rozet</text>
 <text x="37" y="1941.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">viewport&apos;a sabitlendi.</text>
@@ -281,15 +281,15 @@
 <text x="372" y="1999.2001" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır 3</text>
 <text x="372" y="2021.6" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır 4</text>
 </g>
-<path d="M 692 1866.6 H 992 A 8 8 0 0 1 1000 1874.6 V 1964 A 8 8 0 0 1 992 1972 H 692 A 8 8 0 0 1 684 1964 V 1874.6 A 8 8 0 0 1 692 1866.6 Z" fill="#ffffff"/>
-<path d="M 692 1866.6 H 992 A 8 8 0 0 1 1000 1874.6 V 1964 A 8 8 0 0 1 992 1972 H 692 A 8 8 0 0 1 684 1964 V 1874.6 A 8 8 0 0 1 692 1866.6 Z M 692 1867.6 H 992 A 7 7 0 0 1 999 1874.6 V 1964 A 7 7 0 0 1 992 1971 H 692 A 7 7 0 0 1 685 1964 V 1874.6 A 7 7 0 0 1 692 1867.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 1866.6 H 992 A 8 8 0 0 1 1000 1874.6 V 1982 A 8 8 0 0 1 992 1990 H 692 A 8 8 0 0 1 684 1982 V 1874.6 A 8 8 0 0 1 692 1866.6 Z" fill="#ffffff"/>
+<path d="M 692 1866.6 H 992 A 8 8 0 0 1 1000 1874.6 V 1982 A 8 8 0 0 1 992 1990 H 692 A 8 8 0 0 1 684 1982 V 1874.6 A 8 8 0 0 1 692 1866.6 Z M 692 1867.6 H 992 A 7 7 0 0 1 999 1874.6 V 1982 A 7 7 0 0 1 992 1989 H 692 A 7 7 0 0 1 685 1982 V 1874.6 A 7 7 0 0 1 692 1867.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="1890.6" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">z-index</text>
 <rect x="697" y="1903" width="96" height="46" fill="#ffd8a8"/>
 <text x="700" y="1922" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">z: 1</text>
 <rect x="737" y="1915" width="96" height="46" fill="#d6e4ff"/>
 <text x="740" y="1934" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">z: 2 üstte</text>
-<path d="M 32 2004 H 332 A 8 8 0 0 1 340 2012 V 2087.4 A 8 8 0 0 1 332 2095.4 H 32 A 8 8 0 0 1 24 2087.4 V 2012 A 8 8 0 0 1 32 2004 Z" fill="#ffffff"/>
-<path d="M 32 2004 H 332 A 8 8 0 0 1 340 2012 V 2087.4 A 8 8 0 0 1 332 2095.4 H 32 A 8 8 0 0 1 24 2087.4 V 2012 A 8 8 0 0 1 32 2004 Z M 32 2005 H 332 A 7 7 0 0 1 339 2012 V 2087.4 A 7 7 0 0 1 332 2094.4 H 32 A 7 7 0 0 1 25 2087.4 V 2012 A 7 7 0 0 1 32 2005 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 2004 H 332 A 8 8 0 0 1 340 2012 V 2090.2 A 8 8 0 0 1 332 2098.2 H 32 A 8 8 0 0 1 24 2090.2 V 2012 A 8 8 0 0 1 32 2004 Z" fill="#ffffff"/>
+<path d="M 32 2004 H 332 A 8 8 0 0 1 340 2012 V 2090.2 A 8 8 0 0 1 332 2098.2 H 32 A 8 8 0 0 1 24 2090.2 V 2012 A 8 8 0 0 1 32 2004 Z M 32 2005 H 332 A 7 7 0 0 1 339 2012 V 2090.2 A 7 7 0 0 1 332 2097.2 H 32 A 7 7 0 0 1 25 2090.2 V 2012 A 7 7 0 0 1 32 2005 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="2028" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">overflow: hidden</text>
 <rect x="37" y="2040.4" width="290" height="1" fill="#cccccc"/>
 <rect x="326" y="2040.4" width="1" height="42" fill="#cccccc"/>
@@ -305,8 +305,8 @@
 <text x="367" y="2028" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">visibility: hidden</text>
 <text x="367" y="2056.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">görünür</text>
 <text x="367" y="2078.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">görünür</text>
-<path d="M 692 2004 H 992 A 8 8 0 0 1 1000 2012 V 2079.6 A 8 8 0 0 1 992 2087.6 H 692 A 8 8 0 0 1 684 2079.6 V 2012 A 8 8 0 0 1 692 2004 Z" fill="#ffffff"/>
-<path d="M 692 2004 H 992 A 8 8 0 0 1 1000 2012 V 2079.6 A 8 8 0 0 1 992 2087.6 H 692 A 8 8 0 0 1 684 2079.6 V 2012 A 8 8 0 0 1 692 2004 Z M 692 2005 H 992 A 7 7 0 0 1 999 2012 V 2079.6 A 7 7 0 0 1 992 2086.6 H 692 A 7 7 0 0 1 685 2079.6 V 2012 A 7 7 0 0 1 692 2005 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 2004 H 992 A 8 8 0 0 1 1000 2012 V 2090.2 A 8 8 0 0 1 992 2098.2 H 692 A 8 8 0 0 1 684 2090.2 V 2012 A 8 8 0 0 1 692 2004 Z" fill="#ffffff"/>
+<path d="M 692 2004 H 992 A 8 8 0 0 1 1000 2012 V 2090.2 A 8 8 0 0 1 992 2098.2 H 692 A 8 8 0 0 1 684 2090.2 V 2012 A 8 8 0 0 1 692 2004 Z M 692 2005 H 992 A 7 7 0 0 1 999 2012 V 2090.2 A 7 7 0 0 1 992 2097.2 H 692 A 7 7 0 0 1 685 2090.2 V 2012 A 7 7 0 0 1 692 2005 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="2028" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">opacity: 0.5</text>
 <path d="M 701 2040.3999 H 983 A 4 4 0 0 1 987 2044.3999 V 2070.5999 A 4 4 0 0 1 983 2074.5999 H 701 A 4 4 0 0 1 697 2070.5999 V 2044.3999 A 4 4 0 0 1 701 2040.3999 Z" fill="rgba(47,111,221,0.498)"/>
 <text x="705" y="2061.4" fill="rgba(255,255,255,0.498)" font-family="serif" font-size="13" font-weight="400">yarı saydam kutu</text>
@@ -319,8 +319,8 @@
 <path d="M 82 2202.4 H 112 A 3 3 0 0 1 115 2205.4 V 2223.4 A 3 3 0 0 1 112 2226.4 H 82 A 3 3 0 0 1 79 2223.4 V 2205.4 A 3 3 0 0 1 82 2202.4 Z" fill="#e52e71"/>
 <path d="M 40 2230.4 H 70 A 3 3 0 0 1 73 2233.4 V 2251.4 A 3 3 0 0 1 70 2254.4 H 40 A 3 3 0 0 1 37 2251.4 V 2233.4 A 3 3 0 0 1 40 2230.4 Z" fill="#2ea043"/>
 <path d="M 40 2258.4 H 70 A 3 3 0 0 1 73 2261.4 V 2279.4 A 3 3 0 0 1 70 2282.4 H 40 A 3 3 0 0 1 37 2279.4 V 2261.4 A 3 3 0 0 1 40 2258.4 Z" fill="#ff8a00"/>
-<path d="M 362 2166 H 662 A 8 8 0 0 1 670 2174 V 2276.8 A 8 8 0 0 1 662 2284.8 H 362 A 8 8 0 0 1 354 2276.8 V 2174 A 8 8 0 0 1 362 2166 Z" fill="#ffffff"/>
-<path d="M 362 2166 H 662 A 8 8 0 0 1 670 2174 V 2276.8 A 8 8 0 0 1 662 2284.8 H 362 A 8 8 0 0 1 354 2276.8 V 2174 A 8 8 0 0 1 362 2166 Z M 362 2167 H 662 A 7 7 0 0 1 669 2174 V 2276.8 A 7 7 0 0 1 662 2283.8 H 362 A 7 7 0 0 1 355 2276.8 V 2174 A 7 7 0 0 1 362 2167 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 362 2166 H 662 A 8 8 0 0 1 670 2174 V 2287.4 A 8 8 0 0 1 662 2295.4 H 362 A 8 8 0 0 1 354 2287.4 V 2174 A 8 8 0 0 1 362 2166 Z" fill="#ffffff"/>
+<path d="M 362 2166 H 662 A 8 8 0 0 1 670 2174 V 2287.4 A 8 8 0 0 1 662 2295.4 H 362 A 8 8 0 0 1 354 2287.4 V 2174 A 8 8 0 0 1 362 2166 Z M 362 2167 H 662 A 7 7 0 0 1 669 2174 V 2287.4 A 7 7 0 0 1 662 2294.4 H 362 A 7 7 0 0 1 355 2287.4 V 2174 A 7 7 0 0 1 362 2167 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="2190" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">justify-content: center + align-items:</text>
 <text x="367" y="2205.4" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">center</text>
 <line x1="367" y1="2218.3" x2="657" y2="2218.3" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
@@ -328,8 +328,8 @@
 <line x1="367" y1="2271.3" x2="657" y2="2271.3" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="367.5" y1="2217.8" x2="367.5" y2="2271.8" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <path d="M 497 2232.8 H 527 A 3 3 0 0 1 530 2235.8 V 2253.8 A 3 3 0 0 1 527 2256.8 H 497 A 3 3 0 0 1 494 2253.8 V 2235.8 A 3 3 0 0 1 497 2232.8 Z" fill="#8e44ad"/>
-<path d="M 692 2166 H 992 A 8 8 0 0 1 1000 2174 V 2239.4 A 8 8 0 0 1 992 2247.4 H 692 A 8 8 0 0 1 684 2239.4 V 2174 A 8 8 0 0 1 692 2166 Z" fill="#ffffff"/>
-<path d="M 692 2166 H 992 A 8 8 0 0 1 1000 2174 V 2239.4 A 8 8 0 0 1 992 2247.4 H 692 A 8 8 0 0 1 684 2239.4 V 2174 A 8 8 0 0 1 692 2166 Z M 692 2167 H 992 A 7 7 0 0 1 999 2174 V 2239.4 A 7 7 0 0 1 992 2246.4 H 692 A 7 7 0 0 1 685 2239.4 V 2174 A 7 7 0 0 1 692 2167 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 2166 H 992 A 8 8 0 0 1 1000 2174 V 2287.4 A 8 8 0 0 1 992 2295.4 H 692 A 8 8 0 0 1 684 2287.4 V 2174 A 8 8 0 0 1 692 2166 Z" fill="#ffffff"/>
+<path d="M 692 2166 H 992 A 8 8 0 0 1 1000 2174 V 2287.4 A 8 8 0 0 1 992 2295.4 H 692 A 8 8 0 0 1 684 2287.4 V 2174 A 8 8 0 0 1 692 2166 Z M 692 2167 H 992 A 7 7 0 0 1 999 2174 V 2287.4 A 7 7 0 0 1 992 2294.4 H 692 A 7 7 0 0 1 685 2287.4 V 2174 A 7 7 0 0 1 692 2167 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="2190" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">justify-content: space-between</text>
 <line x1="697" y1="2202.9" x2="987" y2="2202.9" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="986.5" y1="2202.4" x2="986.5" y2="2234.4" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
@@ -346,8 +346,8 @@
 <text x="110" y="2364.7998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">iki</text>
 <path d="M 40 2378.2 H 100 A 3 3 0 0 1 103 2381.2 V 2403.5999 A 3 3 0 0 1 100 2406.5999 H 40 A 3 3 0 0 1 37 2403.5999 V 2381.2 A 3 3 0 0 1 40 2378.2 Z" fill="#d6e4ff"/>
 <text x="40" y="2397.2" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">üç</text>
-<path d="M 362 2309.4 H 662 A 8 8 0 0 1 670 2317.4 V 2379.2 A 8 8 0 0 1 662 2387.2 H 362 A 8 8 0 0 1 354 2379.2 V 2317.4 A 8 8 0 0 1 362 2309.4 Z" fill="#ffffff"/>
-<path d="M 362 2309.4 H 662 A 8 8 0 0 1 670 2317.4 V 2379.2 A 8 8 0 0 1 662 2387.2 H 362 A 8 8 0 0 1 354 2379.2 V 2317.4 A 8 8 0 0 1 362 2309.4 Z M 362 2310.4 H 662 A 7 7 0 0 1 669 2317.4 V 2379.2 A 7 7 0 0 1 662 2386.2 H 362 A 7 7 0 0 1 355 2379.2 V 2317.4 A 7 7 0 0 1 362 2310.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 362 2309.4 H 662 A 8 8 0 0 1 670 2317.4 V 2411.5999 A 8 8 0 0 1 662 2419.5999 H 362 A 8 8 0 0 1 354 2411.5999 V 2317.4 A 8 8 0 0 1 362 2309.4 Z" fill="#ffffff"/>
+<path d="M 362 2309.4 H 662 A 8 8 0 0 1 670 2317.4 V 2411.5999 A 8 8 0 0 1 662 2419.5999 H 362 A 8 8 0 0 1 354 2411.5999 V 2317.4 A 8 8 0 0 1 362 2309.4 Z M 362 2310.4 H 662 A 7 7 0 0 1 669 2317.4 V 2411.5999 A 7 7 0 0 1 662 2418.5999 H 362 A 7 7 0 0 1 355 2411.5999 V 2317.4 A 7 7 0 0 1 362 2310.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="2333.4" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">order</text>
 <rect x="367" y="2345.7998" width="68" height="28.4" fill="#d6e4ff"/>
 <text x="373" y="2364.7998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">order 1</text>
@@ -355,8 +355,8 @@
 <text x="445" y="2364.7998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">order 2</text>
 <rect x="511" y="2345.7998" width="68" height="28.4" fill="#ffd8a8"/>
 <text x="517" y="2364.7998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">order 3</text>
-<path d="M 692 2309.4 H 992 A 8 8 0 0 1 1000 2317.4 V 2379.2 A 8 8 0 0 1 992 2387.2 H 692 A 8 8 0 0 1 684 2379.2 V 2317.4 A 8 8 0 0 1 692 2309.4 Z" fill="#ffffff"/>
-<path d="M 692 2309.4 H 992 A 8 8 0 0 1 1000 2317.4 V 2379.2 A 8 8 0 0 1 992 2387.2 H 692 A 8 8 0 0 1 684 2379.2 V 2317.4 A 8 8 0 0 1 692 2309.4 Z M 692 2310.4 H 992 A 7 7 0 0 1 999 2317.4 V 2379.2 A 7 7 0 0 1 992 2386.2 H 692 A 7 7 0 0 1 685 2379.2 V 2317.4 A 7 7 0 0 1 692 2310.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 2309.4 H 992 A 8 8 0 0 1 1000 2317.4 V 2411.5999 A 8 8 0 0 1 992 2419.5999 H 692 A 8 8 0 0 1 684 2411.5999 V 2317.4 A 8 8 0 0 1 692 2309.4 Z" fill="#ffffff"/>
+<path d="M 692 2309.4 H 992 A 8 8 0 0 1 1000 2317.4 V 2411.5999 A 8 8 0 0 1 992 2419.5999 H 692 A 8 8 0 0 1 684 2411.5999 V 2317.4 A 8 8 0 0 1 692 2309.4 Z M 692 2310.4 H 992 A 7 7 0 0 1 999 2317.4 V 2411.5999 A 7 7 0 0 1 992 2418.5999 H 692 A 7 7 0 0 1 685 2411.5999 V 2317.4 A 7 7 0 0 1 692 2310.4 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="2333.4" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">flex-basis</text>
 <rect x="697" y="2345.7998" width="46" height="28.4" fill="#ffd8a8"/>
 <text x="700" y="2364.7998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">40</text>
@@ -403,8 +403,8 @@
 <text x="508" y="2723.5999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">3</text>
 <path d="M 567.3333 2703.5999 H 654 A 3 3 0 0 1 657 2706.5999 V 2730.9998 A 3 3 0 0 1 654 2733.9998 H 567.3333 A 3 3 0 0 1 564.3333 2730.9998 V 2706.5999 A 3 3 0 0 1 567.3333 2703.5999 Z" fill="#c3f0ca"/>
 <text x="606.6666" y="2723.5999" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">4</text>
-<path d="M 692 2630.7998 H 992 A 8 8 0 0 1 1000 2638.7998 V 2736.1997 A 8 8 0 0 1 992 2744.1997 H 692 A 8 8 0 0 1 684 2736.1997 V 2638.7998 A 8 8 0 0 1 692 2630.7998 Z" fill="#ffffff"/>
-<path d="M 692 2630.7998 H 992 A 8 8 0 0 1 1000 2638.7998 V 2736.1997 A 8 8 0 0 1 992 2744.1997 H 692 A 8 8 0 0 1 684 2736.1997 V 2638.7998 A 8 8 0 0 1 692 2630.7998 Z M 692 2631.7998 H 992 A 7 7 0 0 1 999 2638.7998 V 2736.1997 A 7 7 0 0 1 992 2743.1997 H 692 A 7 7 0 0 1 685 2736.1997 V 2638.7998 A 7 7 0 0 1 692 2631.7998 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 2630.7998 H 992 A 8 8 0 0 1 1000 2638.7998 V 2738.9998 A 8 8 0 0 1 992 2746.9998 H 692 A 8 8 0 0 1 684 2738.9998 V 2638.7998 A 8 8 0 0 1 692 2630.7998 Z" fill="#ffffff"/>
+<path d="M 692 2630.7998 H 992 A 8 8 0 0 1 1000 2638.7998 V 2738.9998 A 8 8 0 0 1 992 2746.9998 H 692 A 8 8 0 0 1 684 2738.9998 V 2638.7998 A 8 8 0 0 1 692 2630.7998 Z M 692 2631.7998 H 992 A 7 7 0 0 1 999 2638.7998 V 2738.9998 A 7 7 0 0 1 992 2745.9998 H 692 A 7 7 0 0 1 685 2738.9998 V 2638.7998 A 7 7 0 0 1 692 2631.7998 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="2654.7998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">grid-template-rows: 20px 40px</text>
 <path d="M 700 2667.1997 H 837 A 3 3 0 0 1 840 2670.1997 V 2684.1997 A 3 3 0 0 1 837 2687.1997 H 700 A 3 3 0 0 1 697 2684.1997 V 2670.1997 A 3 3 0 0 1 700 2667.1997 Z" fill="#e7d6ff"/>
 <text x="701" y="2680.1997" fill="#1c1e21" font-family="serif" font-size="11" font-weight="400">20px</text>
@@ -443,8 +443,8 @@
 <rect x="186" y="2912.7998" width="136" height="1" fill="#999999"/>
 <rect x="186" y="2888.9998" width="1" height="24.8" fill="#999999"/>
 <text x="193" y="2904.9998" fill="#1c1e21" font-family="serif" font-size="12" font-weight="400">2</text>
-<path d="M 362 2814.7998 H 662 A 8 8 0 0 1 670 2822.7998 V 2906.7998 A 8 8 0 0 1 662 2914.7998 H 362 A 8 8 0 0 1 354 2906.7998 V 2822.7998 A 8 8 0 0 1 362 2814.7998 Z" fill="#ffffff"/>
-<path d="M 362 2814.7998 H 662 A 8 8 0 0 1 670 2822.7998 V 2906.7998 A 8 8 0 0 1 662 2914.7998 H 362 A 8 8 0 0 1 354 2906.7998 V 2822.7998 A 8 8 0 0 1 362 2814.7998 Z M 362 2815.7998 H 662 A 7 7 0 0 1 669 2822.7998 V 2906.7998 A 7 7 0 0 1 662 2913.7998 H 362 A 7 7 0 0 1 355 2906.7998 V 2822.7998 A 7 7 0 0 1 362 2815.7998 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 362 2814.7998 H 662 A 8 8 0 0 1 670 2822.7998 V 2925.7998 A 8 8 0 0 1 662 2933.7998 H 362 A 8 8 0 0 1 354 2925.7998 V 2822.7998 A 8 8 0 0 1 362 2814.7998 Z" fill="#ffffff"/>
+<path d="M 362 2814.7998 H 662 A 8 8 0 0 1 670 2822.7998 V 2925.7998 A 8 8 0 0 1 662 2933.7998 H 362 A 8 8 0 0 1 354 2925.7998 V 2822.7998 A 8 8 0 0 1 362 2814.7998 Z M 362 2815.7998 H 662 A 7 7 0 0 1 669 2822.7998 V 2925.7998 A 7 7 0 0 1 662 2932.7998 H 362 A 7 7 0 0 1 355 2925.7998 V 2822.7998 A 7 7 0 0 1 362 2815.7998 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="2838.7998" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">border-collapse: collapse</text>
 <rect x="367" y="2851.1997" width="292" height="1" fill="#999999"/>
 <rect x="658" y="2851.1997" width="1" height="50.6" fill="#999999"/>
@@ -468,8 +468,8 @@
 <text x="519" y="2891.9998" fill="#1c1e21" font-family="serif" font-size="12" font-weight="400">2</text>
 <rect x="24" y="2989.5999" width="976" height="2" fill="#d0d4d9"/>
 <text x="24" y="2978.7998" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Transform</text>
-<path d="M 32 3001.5999 H 332 A 8 8 0 0 1 340 3009.5999 V 3085.4 A 8 8 0 0 1 332 3093.4 H 32 A 8 8 0 0 1 24 3085.4 V 3009.5999 A 8 8 0 0 1 32 3001.5999 Z" fill="#ffffff"/>
-<path d="M 32 3001.5999 H 332 A 8 8 0 0 1 340 3009.5999 V 3085.4 A 8 8 0 0 1 332 3093.4 H 32 A 8 8 0 0 1 24 3085.4 V 3009.5999 A 8 8 0 0 1 32 3001.5999 Z M 32 3002.5999 H 332 A 7 7 0 0 1 339 3009.5999 V 3085.4 A 7 7 0 0 1 332 3092.4 H 32 A 7 7 0 0 1 25 3085.4 V 3009.5999 A 7 7 0 0 1 32 3002.5999 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 3001.5999 H 332 A 8 8 0 0 1 340 3009.5999 V 3089.4 A 8 8 0 0 1 332 3097.4 H 32 A 8 8 0 0 1 24 3089.4 V 3009.5999 A 8 8 0 0 1 32 3001.5999 Z" fill="#ffffff"/>
+<path d="M 32 3001.5999 H 332 A 8 8 0 0 1 340 3009.5999 V 3089.4 A 8 8 0 0 1 332 3097.4 H 32 A 8 8 0 0 1 24 3089.4 V 3009.5999 A 8 8 0 0 1 32 3001.5999 Z M 32 3002.5999 H 332 A 7 7 0 0 1 339 3009.5999 V 3089.4 A 7 7 0 0 1 332 3096.4 H 32 A 7 7 0 0 1 25 3089.4 V 3009.5999 A 7 7 0 0 1 32 3002.5999 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="3025.5999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">transform: rotate(8deg)</text>
 <g transform="matrix(0.99026805 0.1391731 -0.1391731 0.99026805 426.18457 15.676758)">
 <rect x="47" y="3039.9998" width="108" height="30.400002" fill="#ffd8a8"/>
@@ -482,8 +482,8 @@
 <rect x="379" y="3041.9998" width="98" height="30.400002" fill="#d6e4ff"/>
 <text x="383" y="3061.9998" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">ölçekli</text>
 </g>
-<path d="M 692 3001.5999 H 992 A 8 8 0 0 1 1000 3009.5999 V 3073.4 A 8 8 0 0 1 992 3081.4 H 692 A 8 8 0 0 1 684 3073.4 V 3009.5999 A 8 8 0 0 1 692 3001.5999 Z" fill="#ffffff"/>
-<path d="M 692 3001.5999 H 992 A 8 8 0 0 1 1000 3009.5999 V 3073.4 A 8 8 0 0 1 992 3081.4 H 692 A 8 8 0 0 1 684 3073.4 V 3009.5999 A 8 8 0 0 1 692 3001.5999 Z M 692 3002.5999 H 992 A 7 7 0 0 1 999 3009.5999 V 3073.4 A 7 7 0 0 1 992 3080.4 H 692 A 7 7 0 0 1 685 3073.4 V 3009.5999 A 7 7 0 0 1 692 3002.5999 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 3001.5999 H 992 A 8 8 0 0 1 1000 3009.5999 V 3089.4 A 8 8 0 0 1 992 3097.4 H 692 A 8 8 0 0 1 684 3089.4 V 3009.5999 A 8 8 0 0 1 692 3001.5999 Z" fill="#ffffff"/>
+<path d="M 692 3001.5999 H 992 A 8 8 0 0 1 1000 3009.5999 V 3089.4 A 8 8 0 0 1 992 3097.4 H 692 A 8 8 0 0 1 684 3089.4 V 3009.5999 A 8 8 0 0 1 692 3001.5999 Z M 692 3002.5999 H 992 A 7 7 0 0 1 999 3009.5999 V 3089.4 A 7 7 0 0 1 992 3096.4 H 692 A 7 7 0 0 1 685 3089.4 V 3009.5999 A 7 7 0 0 1 692 3002.5999 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="3025.5999" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">translate: 20px 6px</text>
 <g transform="matrix(1 0 0 1 20 6)">
 <rect x="697" y="3037.9998" width="118" height="30.400002" fill="#c3f0ca"/>
@@ -547,8 +547,8 @@
 <text x="45" y="3675.0002" fill="#ffffff" font-family="serif" font-size="13" font-weight="400">soluk</text>
 <rect x="24" y="3757.0005" width="976" height="2" fill="#d0d4d9"/>
 <text x="24" y="3746.2004" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Form Kontrolleri</text>
-<path d="M 32 3769.0005 H 332 A 8 8 0 0 1 340 3777.0005 V 3835.8005 A 8 8 0 0 1 332 3843.8005 H 32 A 8 8 0 0 1 24 3835.8005 V 3777.0005 A 8 8 0 0 1 32 3769.0005 Z" fill="#ffffff"/>
-<path d="M 32 3769.0005 H 332 A 8 8 0 0 1 340 3777.0005 V 3835.8005 A 8 8 0 0 1 332 3843.8005 H 32 A 8 8 0 0 1 24 3835.8005 V 3777.0005 A 8 8 0 0 1 32 3769.0005 Z M 32 3770.0005 H 332 A 7 7 0 0 1 339 3777.0005 V 3835.8005 A 7 7 0 0 1 332 3842.8005 H 32 A 7 7 0 0 1 25 3835.8005 V 3777.0005 A 7 7 0 0 1 32 3770.0005 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 3769.0005 H 332 A 8 8 0 0 1 340 3777.0005 V 3847.467 A 8 8 0 0 1 332 3855.467 H 32 A 8 8 0 0 1 24 3847.467 V 3777.0005 A 8 8 0 0 1 32 3769.0005 Z" fill="#ffffff"/>
+<path d="M 32 3769.0005 H 332 A 8 8 0 0 1 340 3777.0005 V 3847.467 A 8 8 0 0 1 332 3855.467 H 32 A 8 8 0 0 1 24 3847.467 V 3777.0005 A 8 8 0 0 1 32 3769.0005 Z M 32 3770.0005 H 332 A 7 7 0 0 1 339 3777.0005 V 3847.467 A 7 7 0 0 1 332 3854.467 H 32 A 7 7 0 0 1 25 3847.467 V 3777.0005 A 7 7 0 0 1 32 3770.0005 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="3793.0005" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">accent-color</text>
 <path d="M 44 3808.4004 H 51 A 3 3 0 0 1 54 3811.4004 V 3818.4004 A 3 3 0 0 1 51 3821.4004 H 44 A 3 3 0 0 1 41 3818.4004 V 3811.4004 A 3 3 0 0 1 44 3808.4004 Z" fill="#e52e71"/>
 <path d="M 44 3808.4004 H 51 A 3 3 0 0 1 54 3811.4004 V 3818.4004 A 3 3 0 0 1 51 3821.4004 H 44 A 3 3 0 0 1 41 3818.4004 V 3811.4004 A 3 3 0 0 1 44 3808.4004 Z M 44 3809.4004 H 51 A 2 2 0 0 1 53 3811.4004 V 3818.4004 A 2 2 0 0 1 51 3820.4004 H 44 A 2 2 0 0 1 42 3818.4004 V 3811.4004 A 2 2 0 0 1 44 3809.4004 Z" fill="#e52e71" fill-rule="evenodd"/>
@@ -646,8 +646,8 @@
 <text x="37" y="4374.266" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">linke düşer.</text>
 <rect x="24" y="4447.4663" width="976" height="2" fill="#d0d4d9"/>
 <text x="24" y="4436.6665" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Seçiciler</text>
-<path d="M 32 4459.4663 H 332 A 8 8 0 0 1 340 4467.4663 V 4539.266 A 8 8 0 0 1 332 4547.266 H 32 A 8 8 0 0 1 24 4539.266 V 4467.4663 A 8 8 0 0 1 32 4459.4663 Z" fill="#ffffff"/>
-<path d="M 32 4459.4663 H 332 A 8 8 0 0 1 340 4467.4663 V 4539.266 A 8 8 0 0 1 332 4547.266 H 32 A 8 8 0 0 1 24 4539.266 V 4467.4663 A 8 8 0 0 1 32 4459.4663 Z M 32 4460.4663 H 332 A 7 7 0 0 1 339 4467.4663 V 4539.266 A 7 7 0 0 1 332 4546.266 H 32 A 7 7 0 0 1 25 4539.266 V 4467.4663 A 7 7 0 0 1 32 4460.4663 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 32 4459.4663 H 332 A 8 8 0 0 1 340 4467.4663 V 4590.4663 A 8 8 0 0 1 332 4598.4663 H 32 A 8 8 0 0 1 24 4590.4663 V 4467.4663 A 8 8 0 0 1 32 4459.4663 Z" fill="#ffffff"/>
+<path d="M 32 4459.4663 H 332 A 8 8 0 0 1 340 4467.4663 V 4590.4663 A 8 8 0 0 1 332 4598.4663 H 32 A 8 8 0 0 1 24 4590.4663 V 4467.4663 A 8 8 0 0 1 32 4459.4663 Z M 32 4460.4663 H 332 A 7 7 0 0 1 339 4467.4663 V 4590.4663 A 7 7 0 0 1 332 4597.4663 H 32 A 7 7 0 0 1 25 4590.4663 V 4467.4663 A 7 7 0 0 1 32 4460.4663 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="4483.4663" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:hover</text>
 <path d="M 41 4495.866 H 323 A 4 4 0 0 1 327 4499.866 V 4530.266 A 4 4 0 0 1 323 4534.266 H 41 A 4 4 0 0 1 37 4530.266 V 4499.866 A 4 4 0 0 1 41 4495.866 Z" fill="#d6e4ff"/>
 <text x="45" y="4519.866" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">üzerime gel — renk değişir</text>
@@ -666,8 +666,8 @@
 <text x="403" y="4556.6665" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">üçüncü</text>
 <text x="387" y="4579.0664" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
 <text x="403" y="4579.0664" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">dördüncü</text>
-<path d="M 692 4459.4663 H 992 A 8 8 0 0 1 1000 4467.4663 V 4526.266 A 8 8 0 0 1 992 4534.266 H 692 A 8 8 0 0 1 684 4526.266 V 4467.4663 A 8 8 0 0 1 692 4459.4663 Z" fill="#ffffff"/>
-<path d="M 692 4459.4663 H 992 A 8 8 0 0 1 1000 4467.4663 V 4526.266 A 8 8 0 0 1 992 4534.266 H 692 A 8 8 0 0 1 684 4526.266 V 4467.4663 A 8 8 0 0 1 692 4459.4663 Z M 692 4460.4663 H 992 A 7 7 0 0 1 999 4467.4663 V 4526.266 A 7 7 0 0 1 992 4533.266 H 692 A 7 7 0 0 1 685 4526.266 V 4467.4663 A 7 7 0 0 1 692 4460.4663 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 692 4459.4663 H 992 A 8 8 0 0 1 1000 4467.4663 V 4590.4663 A 8 8 0 0 1 992 4598.4663 H 692 A 8 8 0 0 1 684 4590.4663 V 4467.4663 A 8 8 0 0 1 692 4459.4663 Z" fill="#ffffff"/>
+<path d="M 692 4459.4663 H 992 A 8 8 0 0 1 1000 4467.4663 V 4590.4663 A 8 8 0 0 1 992 4598.4663 H 692 A 8 8 0 0 1 684 4590.4663 V 4467.4663 A 8 8 0 0 1 692 4459.4663 Z M 692 4460.4663 H 992 A 7 7 0 0 1 999 4467.4663 V 4590.4663 A 7 7 0 0 1 992 4597.4663 H 692 A 7 7 0 0 1 685 4590.4663 V 4467.4663 A 7 7 0 0 1 692 4460.4663 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="697" y="4483.4663" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:has(input:checked)</text>
 <path d="M 704 4498.866 H 711 A 3 3 0 0 1 714 4501.866 V 4508.866 A 3 3 0 0 1 711 4511.866 H 704 A 3 3 0 0 1 701 4508.866 V 4501.866 A 3 3 0 0 1 704 4498.866 Z" fill="#2266aa"/>
 <path d="M 704 4498.866 H 711 A 3 3 0 0 1 714 4501.866 V 4508.866 A 3 3 0 0 1 711 4511.866 H 704 A 3 3 0 0 1 701 4508.866 V 4501.866 A 3 3 0 0 1 704 4498.866 Z M 704 4499.866 H 711 A 2 2 0 0 1 713 4501.866 V 4508.866 A 2 2 0 0 1 711 4510.866 H 704 A 2 2 0 0 1 702 4508.866 V 4501.866 A 2 2 0 0 1 704 4499.866 Z" fill="#2266aa" fill-rule="evenodd"/>
@@ -678,16 +678,16 @@
 <path d="M 32 4612.4663 H 332 A 8 8 0 0 1 340 4620.4663 V 4688.933 A 8 8 0 0 1 332 4696.933 H 32 A 8 8 0 0 1 24 4688.933 V 4620.4663 A 8 8 0 0 1 32 4612.4663 Z" fill="#ffffff"/>
 <path d="M 32 4612.4663 H 332 A 8 8 0 0 1 340 4620.4663 V 4688.933 A 8 8 0 0 1 332 4696.933 H 32 A 8 8 0 0 1 24 4688.933 V 4620.4663 A 8 8 0 0 1 32 4612.4663 Z M 32 4613.4663 H 332 A 7 7 0 0 1 339 4620.4663 V 4688.933 A 7 7 0 0 1 332 4695.933 H 32 A 7 7 0 0 1 25 4688.933 V 4620.4663 A 7 7 0 0 1 32 4613.4663 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="4636.4663" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:disabled</text>
-<rect x="37" y="4648.866" width="163" height="28.666618" fill="#e8eaed"/>
-<rect x="37" y="4648.866" width="163" height="1" fill="#bbbbbb"/>
-<rect x="199" y="4648.866" width="1" height="28.666618" fill="#bbbbbb"/>
-<rect x="37" y="4676.5327" width="163" height="1" fill="#bbbbbb"/>
+<rect x="37" y="4648.866" width="156.99962" height="28.666618" fill="#e8eaed"/>
+<rect x="37" y="4648.866" width="156.99962" height="1" fill="#bbbbbb"/>
+<rect x="192.99962" y="4648.866" width="1" height="28.666618" fill="#bbbbbb"/>
+<rect x="37" y="4676.5327" width="156.99962" height="1" fill="#bbbbbb"/>
 <rect x="37" y="4648.866" width="1" height="28.666618" fill="#bbbbbb"/>
-<clipPath id="clip7"><rect x="38" y="4649.866" width="161" height="26.666618"/></clipPath><g clip-path="url(#clip7)">
+<clipPath id="clip7"><rect x="38" y="4649.866" width="154.99962" height="26.666618"/></clipPath><g clip-path="url(#clip7)">
 <text x="42" y="4667.1997" fill="#1c1e21" font-family="sans-serif" font-size="13.3333" font-weight="400">devre dışı</text>
 </g>
-<path d="M 362 4612.4663 H 662 A 8 8 0 0 1 670 4620.4663 V 4676.266 A 8 8 0 0 1 662 4684.266 H 362 A 8 8 0 0 1 354 4676.266 V 4620.4663 A 8 8 0 0 1 362 4612.4663 Z" fill="#ffffff"/>
-<path d="M 362 4612.4663 H 662 A 8 8 0 0 1 670 4620.4663 V 4676.266 A 8 8 0 0 1 662 4684.266 H 362 A 8 8 0 0 1 354 4676.266 V 4620.4663 A 8 8 0 0 1 362 4612.4663 Z M 362 4613.4663 H 662 A 7 7 0 0 1 669 4620.4663 V 4676.266 A 7 7 0 0 1 662 4683.266 H 362 A 7 7 0 0 1 355 4676.266 V 4620.4663 A 7 7 0 0 1 362 4613.4663 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 362 4612.4663 H 662 A 8 8 0 0 1 670 4620.4663 V 4688.933 A 8 8 0 0 1 662 4696.933 H 362 A 8 8 0 0 1 354 4688.933 V 4620.4663 A 8 8 0 0 1 362 4612.4663 Z" fill="#ffffff"/>
+<path d="M 362 4612.4663 H 662 A 8 8 0 0 1 670 4620.4663 V 4688.933 A 8 8 0 0 1 662 4696.933 H 362 A 8 8 0 0 1 354 4688.933 V 4620.4663 A 8 8 0 0 1 362 4612.4663 Z M 362 4613.4663 H 662 A 7 7 0 0 1 669 4620.4663 V 4688.933 A 7 7 0 0 1 662 4695.933 H 362 A 7 7 0 0 1 355 4688.933 V 4620.4663 A 7 7 0 0 1 362 4613.4663 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="4636.4663" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">öznitelik seçici a[target]</text>
 <text x="367" y="4664.866" fill="#e52e71" font-family="serif" font-size="16" font-weight="700" text-decoration="underline">target&apos;lı link</text>
 <text x="487" y="4664.866" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">·</text>
@@ -700,8 +700,8 @@
 <path d="M 65 4801.133 H 288 A 4 4 0 0 1 292 4805.133 V 4861.9326 A 4 4 0 0 1 288 4865.9326 H 65 A 4 4 0 0 1 61 4861.9326 V 4805.133 A 4 4 0 0 1 65 4801.133 Z M 65 4803.133 H 288 A 2 2 0 0 1 290 4805.133 V 4861.9326 A 2 2 0 0 1 288 4863.9326 H 65 A 2 2 0 0 1 63 4861.9326 V 4805.133 A 2 2 0 0 1 65 4803.133 Z" fill="#2ea043" fill-rule="evenodd"/>
 <text x="75" y="4827.133" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">mantıksal eksenlerle</text>
 <text x="75" y="4849.5327" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">boyutlanmış kutu</text>
-<path d="M 362 4764.733 H 662 A 8 8 0 0 1 670 4772.733 V 4862.133 A 8 8 0 0 1 662 4870.133 H 362 A 8 8 0 0 1 354 4862.133 V 4772.733 A 8 8 0 0 1 362 4764.733 Z" fill="#ffffff"/>
-<path d="M 362 4764.733 H 662 A 8 8 0 0 1 670 4772.733 V 4862.133 A 8 8 0 0 1 662 4870.133 H 362 A 8 8 0 0 1 354 4862.133 V 4772.733 A 8 8 0 0 1 362 4764.733 Z M 362 4765.733 H 662 A 7 7 0 0 1 669 4772.733 V 4862.133 A 7 7 0 0 1 662 4869.133 H 362 A 7 7 0 0 1 355 4862.133 V 4772.733 A 7 7 0 0 1 362 4765.733 Z" fill="#d8dce1" fill-rule="evenodd"/>
+<path d="M 362 4764.733 H 662 A 8 8 0 0 1 670 4772.733 V 4870.933 A 8 8 0 0 1 662 4878.933 H 362 A 8 8 0 0 1 354 4870.933 V 4772.733 A 8 8 0 0 1 362 4764.733 Z" fill="#ffffff"/>
+<path d="M 362 4764.733 H 662 A 8 8 0 0 1 670 4772.733 V 4870.933 A 8 8 0 0 1 662 4878.933 H 362 A 8 8 0 0 1 354 4870.933 V 4772.733 A 8 8 0 0 1 362 4764.733 Z M 362 4765.733 H 662 A 7 7 0 0 1 669 4772.733 V 4870.933 A 7 7 0 0 1 662 4877.933 H 362 A 7 7 0 0 1 355 4870.933 V 4772.733 A 7 7 0 0 1 362 4765.733 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="4788.733" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">inset: 6px 12px</text>
 <line x1="367" y1="4801.633" x2="657" y2="4801.633" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="656.5" y1="4801.133" x2="656.5" y2="4857.133" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>

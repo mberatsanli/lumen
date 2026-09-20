@@ -3322,6 +3322,24 @@ mod tests {
     }
 
     #[test]
+    fn grid_items_stretch_to_a_content_sized_row() {
+        let layout = layout_of(
+            "<style>.g { display: grid; grid-template-columns: 100px 100px; }\
+                    .tall { height: 40px; }\
+                    .start { align-self: start; }</style>\
+             <div class='g'><div class='tall'></div><div class='short'></div>\
+              <div class='tall'></div><div class='short start'></div></div>",
+        );
+        let grid = &body_box(&layout).children[0];
+        let cell = |index: usize| grid.children[index].border_box();
+        // The row takes its height from the tall item, and the short one
+        // beside it grows to match.
+        assert_eq!(cell(1).height, 40.0);
+        // `align-self` other than stretch leaves the item alone.
+        assert_eq!(cell(3).height, 0.0);
+    }
+
+    #[test]
     fn grid_row_span_covers_multiple_rows() {
         let layout = layout_of(
             "<style>.g { display: grid; grid-template-columns: 100px 100px; \

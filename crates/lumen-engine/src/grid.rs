@@ -12,7 +12,7 @@
 use crate::geometry::Size;
 use crate::image::ImageMap;
 use crate::layout::{LayoutBox, ProbeCache, layout_isolated_with_style};
-use crate::style::{BoxSizing, ComputedStyle, Dimension, Display, GridTrack, StyleMap};
+use crate::style::{AlignItems, BoxSizing, ComputedStyle, Dimension, Display, GridTrack, StyleMap};
 use crate::text::TextMeasurer;
 use lumen_html::{Document, NodeId, NodeKind};
 
@@ -232,23 +232,31 @@ pub(crate) fn layout_grid_children(
     // Stretch items whose spanned rows are all track-resolved to fill
     // them (like the width stretch), then position every item at its
     // cell.
+    // Row heights, settled before the items move: an item's stretch
+    // reads them, and reading them borrows the items it came from.
+    let resolved_rows: Vec<f32> = (0..row_count).map(row_height).collect();
     let mut children: Vec<LayoutBox> = Vec::with_capacity(items.len());
     let mut row_tops: Vec<f32> = Vec::with_capacity(row_count);
     let mut y = content_y;
-    for row in 0..row_count {
+    for height in &resolved_rows {
         row_tops.push(y);
-        y += row_height(row) + gap;
+        y += height + gap;
     }
     for ((item, &(row, column)), mut laid) in
         items.iter().zip(&placements).zip(laid_items.into_iter())
     {
-        let spanned: Option<f32> = (row..row + item.rowspan).try_fold(0.0, |total, r| {
-            Some(total + row_heights.get(r).copied().flatten()?)
-        });
-        if let Some(spanned) = spanned
-            && matches!(item.style.height, Dimension::Auto)
-        {
-            let target = spanned + gap * (item.rowspan as f32 - 1.0);
+        // Items fill the rows they span, whether a track sized those
+        // rows or their own contents did: a short card in a row with a
+        // tall one grows to match it.
+        let stretches = matches!(
+            item.style.align_self.unwrap_or(style.align_items),
+            AlignItems::Stretch
+        );
+        if stretches && matches!(item.style.height, Dimension::Auto) {
+            let target = resolved_rows[row..(row + item.rowspan).min(row_count)]
+                .iter()
+                .sum::<f32>()
+                + gap * (item.rowspan as f32 - 1.0);
             if (laid.margin_box().height - target).abs() > 0.5 {
                 let mut item_style = item.style.clone();
                 if matches!(item_style.width, Dimension::Auto) {
