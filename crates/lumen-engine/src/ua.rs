@@ -2,7 +2,8 @@
 //! origin) and the per-tag `display` defaults that live in code.
 
 use crate::style::Display;
-use lumen_css::Stylesheet;
+use lumen_css::{CssValue, Stylesheet, Unit};
+use lumen_html::ElementData;
 use std::sync::OnceLock;
 
 /// The built-in user-agent stylesheet (weakest cascade origin).
@@ -66,9 +67,9 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             input[type=checkbox]:checked { --lumen-mark: check; }
             input[type=radio]:checked { --lumen-mark: dot; }
             input[type=hidden] { display: none !important; }
+            input[type=search] { box-sizing: border-box; }
             input[type=color] { width: 50px; height: 27px; padding: 1px 2px;
                 border: 1px solid #767676; min-height: 0; box-sizing: border-box; }
-            input[type=number] { width: 80px; }
             input[type=range] { width: 129px; height: 16px; padding: 0; min-height: 0;
                 margin: 2px; border: 1px solid #b9b2a2; border-radius: 8px;
                 background-color: #e8e4da; box-sizing: border-box; }
@@ -84,20 +85,65 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             progress, meter { width: 160px; height: 16px; padding: 0; min-height: 0;
                 border: 1px solid #b9b2a2; border-radius: 8px; background-color: #e8e4da;
                 box-sizing: border-box; }
+            meter { width: 80px; }
             label { color: inherit; }
-            select[multiple] { display: inline-block; width: auto; max-height: 108px;
-                overflow: auto; padding: 4px; height: auto; --lumen-mark: none; }
-            select[multiple] option { display: block; padding: 0 2px; margin: 0;
+            select[multiple] { display: inline-block; width: auto; max-height: 70px;
+                overflow: auto; padding: 0; height: auto; --lumen-mark: none; }
+            select[multiple] option { display: block; padding: 1px 2px; margin: 0;
                 border-radius: 3px; }
             select[multiple] option:checked { background-color: #2266aa; color: #ffffff; }
             optgroup { display: none; }
-            select[multiple] optgroup { display: block; padding: 2px 4px;
+            select[multiple] optgroup { display: block; padding: 1px 0; line-height: 15px;
                 font-weight: 700; font-size: 0.85em; color: #6b675e; }
             select[multiple] optgroup option { font-weight: 400; font-size: 13.3333px;
                 color: #232019; }
         ";
         lumen_css::parse_stylesheet(source)
     })
+}
+
+/// The width an element's attributes ask for, as a presentational hint:
+/// a declaration that beats the UA stylesheet but loses to any author
+/// rule. A text field is as wide as the text it is asked to hold, which
+/// is what `size` states and what a number field's bound implies.
+pub(crate) fn width_hint(element: &ElementData) -> Option<CssValue> {
+    if element.tag_name != "input" {
+        return None;
+    }
+    // One average character advance of the control font, and the room a
+    // number field leaves beside its value for the stepper.
+    const CHARACTER: f32 = 0.525;
+    const STEPPER: f32 = 0.975;
+    // The default 20 columns is what an unsized field shows.
+    const COLUMNS: f32 = 20.0;
+
+    let columns = |attribute: &str| -> Option<f32> {
+        element
+            .attributes
+            .get(attribute)
+            .and_then(|value| value.trim().parse::<f32>().ok())
+            .filter(|columns| *columns >= 1.0)
+    };
+    match element.attributes.get("type").unwrap_or("text") {
+        "text" | "search" | "url" | "tel" | "password" | "email" => Some(CssValue::Length(
+            (columns("size").unwrap_or(COLUMNS) + 1.0) * CHARACTER,
+            Unit::Em,
+        )),
+        // A number field is sized by the largest value it accepts, not
+        // by `size`; unbounded, it falls back to the text default.
+        "number" => {
+            let digits = element
+                .attributes
+                .get("max")
+                .map(|max| max.trim().chars().count() as f32)
+                .filter(|digits| *digits >= 1.0);
+            Some(match digits {
+                Some(digits) => CssValue::Length((digits + 1.0) * CHARACTER + STEPPER, Unit::Em),
+                None => CssValue::Length((COLUMNS + 1.0) * CHARACTER, Unit::Em),
+            })
+        }
+        _ => None,
+    }
 }
 
 /// Default `display` per tag, used when no declaration says otherwise.
@@ -107,7 +153,7 @@ pub(crate) fn default_display(tag: &str) -> Display {
         "html" | "body" | "div" | "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "ul" | "ol"
         | "li" | "section" | "article" | "header" | "footer" | "main" | "nav" | "aside"
         | "blockquote" | "pre" | "form" | "table" | "hr" | "center" => Display::Block,
-        "input" | "button" | "select" | "textarea" => Display::InlineBlock,
+        "input" | "button" | "select" | "textarea" | "progress" | "meter" => Display::InlineBlock,
         "head" | "style" | "script" | "title" | "meta" | "link" | "base" => Display::None,
         _ => Display::Inline,
     }

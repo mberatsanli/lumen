@@ -999,6 +999,15 @@ fn compute_node(
     }
 
     if let Some(element) = element {
+        // A presentational hint sits between the two sheets: it outranks
+        // every UA rule, and any author rule outranks it.
+        if let Some(width) = crate::ua::width_hint(element) {
+            raw.insert_ranked(
+                Rc::from("width"),
+                Rc::new(width),
+                (cascade_level(0, false), u32::MAX, 0),
+            );
+        }
         let candidates = candidates.as_ref().expect("element nodes have candidates");
         // Split for style sharing: the cache stores only the share-safe
         // part of the layer (whose match results the key determines);
