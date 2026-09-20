@@ -655,13 +655,13 @@
 <path d="M 362 4459.4663 H 662 A 8 8 0 0 1 670 4467.4663 V 4590.4663 A 8 8 0 0 1 662 4598.4663 H 362 A 8 8 0 0 1 354 4590.4663 V 4467.4663 A 8 8 0 0 1 362 4459.4663 Z M 362 4460.4663 H 662 A 7 7 0 0 1 669 4467.4663 V 4590.4663 A 7 7 0 0 1 662 4597.4663 H 362 A 7 7 0 0 1 355 4590.4663 V 4467.4663 A 7 7 0 0 1 362 4460.4663 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="4483.4663" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:nth-child(odd) + :first-child</text>
 <rect x="387" y="4495.866" width="270" height="22.400002" fill="#eef1f4"/>
-<rect x="387" y="4495.866" width="8" height="22.4" fill="#eef1f4"/>
+<rect x="387" y="4499.0664" width="8" height="16" fill="#eef1f4"/>
 <text x="387" y="4511.866" fill="#1c1e21" font-family="serif" font-size="16" font-weight="700">•</text>
 <text x="403" y="4511.866" fill="#1c1e21" font-family="serif" font-size="16" font-weight="700">birinci (kalın)</text>
 <text x="387" y="4534.266" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
 <text x="403" y="4534.266" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">ikinci</text>
 <rect x="387" y="4540.6665" width="270" height="22.400002" fill="#eef1f4"/>
-<rect x="387" y="4540.6665" width="8" height="22.4" fill="#eef1f4"/>
+<rect x="387" y="4543.8667" width="8" height="16" fill="#eef1f4"/>
 <text x="387" y="4556.6665" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
 <text x="403" y="4556.6665" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">üçüncü</text>
 <text x="387" y="4579.0664" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">•</text>
@@ -746,7 +746,7 @@
 <path d="M 362 5372.7324 H 662 A 8 8 0 0 1 670 5380.7324 V 5436.532 A 8 8 0 0 1 662 5444.532 H 362 A 8 8 0 0 1 354 5436.532 V 5380.7324 A 8 8 0 0 1 362 5372.7324 Z M 362 5373.7324 H 662 A 7 7 0 0 1 669 5380.7324 V 5436.532 A 7 7 0 0 1 662 5443.532 H 362 A 7 7 0 0 1 355 5436.532 V 5380.7324 A 7 7 0 0 1 362 5373.7324 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="367" y="5396.7324" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">::after rozeti</text>
 <text x="367" y="5425.1323" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">özellik</text>
-<rect x="423" y="5409.1323" width="20" height="22.4" fill="#e52e71"/>
+<rect x="423" y="5417.1323" width="20" height="10" fill="#e52e71"/>
 <text x="423" y="5425.1323" fill="#ffffff" font-family="serif" font-size="10" font-weight="400">yeni</text>
 <path d="M 919.5 10 H 1010 A 4 4 0 0 1 1014 14 V 29.400002 A 4 4 0 0 1 1010 33.4 H 919.5 A 4 4 0 0 1 915.5 29.400002 V 14 A 4 4 0 0 1 919.5 10 Z" fill="#1c1e21"/>
 <text x="923.5" y="25" fill="#ffffff" font-family="serif" font-size="11" font-weight="400">position: fixed</text>

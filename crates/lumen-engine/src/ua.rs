@@ -91,7 +91,7 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
             select[multiple] { display: inline-block; width: auto;
                 overflow: auto; padding: 0; height: auto; --lumen-mark: none; }
             select[multiple] option { display: block; padding: 1px 2px; margin: 0;
-                border-radius: 3px; }
+                border-radius: 3px; line-height: 15px; }
             select[multiple] option:checked { background-color: #2266aa; color: #ffffff; }
             optgroup { display: none; }
             select[multiple] optgroup { display: block; padding: 0; line-height: 17px;

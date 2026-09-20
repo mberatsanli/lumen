@@ -40,6 +40,12 @@ pub struct Fragment {
     /// Vertical offset from the default (baseline) position, from
     /// `vertical-align`.
     pub dy: f32,
+    /// How far the fragment's own content area reaches above and below
+    /// the line's baseline: the font's ascent and descent for text, the
+    /// margin box for an atomic inline. A line is often taller than
+    /// this, so anything painted behind the fragment — a background, a
+    /// highlight — covers the content area, not the whole line.
+    pub extent: (f32, f32),
 }
 
 impl Fragment {
@@ -335,11 +341,15 @@ fn apply_pseudo_line_styles(
             .measure(&letter_text, &text_style(&letter_style))
             .width;
         let fragment = &line.fragments[index];
+        let letter_extent = measurer
+            .content_extent(&text_style(&letter_style))
+            .unwrap_or(fragment.extent);
         let letter = Fragment {
             node_id: fragment.node_id,
             x: fragment.x,
             width: letter_width,
             dy: fragment.dy,
+            extent: letter_extent,
             content: FragmentContent::Text {
                 text: letter_text,
                 style: Box::new(letter_style),
@@ -355,6 +365,7 @@ fn apply_pseudo_line_styles(
                 x: fragment.x + letter_width,
                 width: rest_width,
                 dy: fragment.dy,
+                extent: fragment.extent,
                 content: FragmentContent::Text {
                     text: rest_text,
                     style: style.clone(),
@@ -400,6 +411,13 @@ fn sub_super_shift(style: &ComputedStyle, parent_font_size: f32) -> f32 {
 
 /// Form controls keep aligning on the text inside them even though they
 /// clip what overflows; a scroll container does not.
+///
+/// A list box arguably belongs on the scroll-container side — its rows
+/// scroll and there is no single line to align on — but making that
+/// exception costs more than it gains: measured against real pages it
+/// moved a handful of list boxes into place and knocked every form row
+/// around them out of it. The right fix needs the alignment of the
+/// rows themselves, not just the container's baseline.
 fn keeps_baseline_while_clipping(layout: &LayoutBox) -> bool {
     match &layout.kind {
         crate::LayoutKind::Element(tag) => {
@@ -453,15 +471,19 @@ impl<'a> LineBuilder<'a> {
         self.styles.by_node.get(&node_id).unwrap_or(self.container)
     }
 
+    /// The content area of an inline box in `style`: how far its font
+    /// reaches above and below the baseline, leading excluded.
+    fn content_extent(&self, style: &ComputedStyle) -> (f32, f32) {
+        self.measurer
+            .content_extent(&self.text_style_of(style))
+            // Without real metrics, split the em 0.8 above the baseline.
+            .unwrap_or((style.font_size * 0.8, style.font_size * 0.2))
+    }
+
     /// How far an inline box in `style` reaches above and below the
     /// baseline: its content area plus half of its leading on each side.
     fn leaded_extent(&self, style: &ComputedStyle) -> (f32, f32) {
-        let text_style = self.text_style_of(style);
-        let (ascent, descent) = self
-            .measurer
-            .content_extent(&text_style)
-            // Without real metrics, split the em 0.8 above the baseline.
-            .unwrap_or((style.font_size * 0.8, style.font_size * 0.2));
+        let (ascent, descent) = self.content_extent(style);
         let half_leading = (self.line_height_of(style) - (ascent + descent)) / 2.0;
         (ascent + half_leading, descent + half_leading)
     }
@@ -665,11 +687,13 @@ impl<'a> LineBuilder<'a> {
             self.start_line_if_needed();
             space_width = 0.0;
         }
+        let extent = self.atomic_extent(&laid);
         self.current.push(Fragment {
             node_id,
             x: self.pen_x + space_width,
             width,
             dy: 0.0,
+            extent,
             content: FragmentContent::Box(Box::new(laid)),
         });
         self.pen_x += space_width + width;
@@ -702,6 +726,7 @@ impl<'a> LineBuilder<'a> {
                 x: self.pen_x + space_width,
                 width: word_width,
                 dy: 0.0,
+                extent: self.content_extent(style),
                 content: FragmentContent::Text {
                     text: word.to_string(),
                     style: Box::new(style.clone()),
@@ -781,6 +806,7 @@ impl<'a> LineBuilder<'a> {
                         x: fragment.x,
                         width,
                         dy: 0.0,
+                        extent: fragment.extent,
                         content: FragmentContent::Text {
                             text: cut,
                             style: style.clone(),

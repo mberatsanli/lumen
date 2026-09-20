@@ -676,15 +676,19 @@ fn paint_box(
             for fragment in &line.fragments {
                 match &fragment.content {
                     crate::inline::FragmentContent::Text { text, style } if style.visible => {
-                        // A fragment background (e.g. from `::first-line`)
-                        // paints behind the text over the line height.
+                        // A fragment background paints behind the text
+                        // over its content area — the font's own ascent
+                        // and descent — not over the whole line, which
+                        // is usually taller.
                         if let Some(background) = style.background_color {
+                            let (above, below) = fragment.extent;
+                            let baseline = content.y + line.y + line.baseline + fragment.dy;
                             commands.push(DisplayCommand::FillRect {
                                 rect: Rect {
                                     x: content.x + fragment.x,
-                                    y: content.y + line.y,
+                                    y: baseline - above,
                                     width: fragment.width,
-                                    height: line.height,
+                                    height: above + below,
                                 },
                                 color: fade(background),
                                 radius: Corners::uniform(0.0),
@@ -1091,6 +1095,30 @@ mod tests {
             layout.children.iter().find_map(|child| find(child, tag))
         }
         find(layout, tag).unwrap_or_else(|| panic!("no laid-out box for <{tag}>"))
+    }
+
+    #[test]
+    fn a_fragment_background_covers_the_text_not_the_line() {
+        // A tall line leaves room above and below the text; a highlight
+        // belongs to the text, not to the room around it.
+        let list = commands(
+            "<style>p { line-height: 60px; font-size: 20px; } \
+                    p::first-line { background-color: #ffff00; }</style>\
+             <p>lit</p>",
+        );
+        let fill = list
+            .iter()
+            .find_map(|command| match command {
+                DisplayCommand::FillRect { rect, color, .. } if color.to_string() == "#ffff00" => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("::first-line paints a background");
+        // The test measurer splits the em 0.8 above the baseline and 0.2
+        // below, so the content area is exactly the font size — far
+        // short of the 60px line it sits on.
+        assert_eq!(fill.height, 20.0);
     }
 
     #[test]
