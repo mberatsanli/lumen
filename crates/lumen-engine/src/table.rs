@@ -22,6 +22,14 @@ use crate::style::{BoxSizing, ComputedStyle, Dimension, Display, StyleMap};
 use crate::text::TextMeasurer;
 use lumen_html::{Document, NodeId};
 
+/// One row of the grid: the `<tr>`, the `<thead>`/`<tbody>`/`<tfoot>`
+/// it sits in (when any), and its cells.
+struct Row {
+    node: NodeId,
+    group: Option<NodeId>,
+    cells: Vec<Cell>,
+}
+
 /// One placed cell before final positioning.
 struct Cell {
     node: NodeId,
@@ -32,30 +40,28 @@ struct Cell {
 
 /// Collects the table's rows of cells, resolving colspan/rowspan into
 /// grid positions. Returns the rows and the column count.
-fn collect_grid(
-    document: &Document,
-    styles: &StyleMap,
-    table: NodeId,
-) -> (Vec<(NodeId, Vec<Cell>)>, usize) {
-    let mut rows: Vec<(NodeId, Vec<Cell>)> = Vec::new();
+fn collect_grid(document: &Document, styles: &StyleMap, table: NodeId) -> (Vec<Row>, usize) {
+    let mut rows: Vec<Row> = Vec::new();
     // Columns already occupied below earlier rowspan cells:
     // (column, remaining rows).
     let mut reserved: Vec<(usize, usize)> = Vec::new();
 
-    let mut row_nodes: Vec<NodeId> = Vec::new();
+    // Rows carry the group they came from: the parser wraps bare rows
+    // in a `<tbody>` of its own, so most tables have one.
+    let mut row_nodes: Vec<(NodeId, Option<NodeId>)> = Vec::new();
     for child in document.children(table) {
         let Some(element) = document.element(*child) else {
             continue;
         };
         match element.tag_name.as_str() {
-            "tr" => row_nodes.push(*child),
+            "tr" => row_nodes.push((*child, None)),
             "thead" | "tbody" | "tfoot" => {
                 for grandchild in document.children(*child) {
                     if document
                         .element(*grandchild)
                         .is_some_and(|element| element.tag_name == "tr")
                     {
-                        row_nodes.push(*grandchild);
+                        row_nodes.push((*grandchild, Some(*child)));
                     }
                 }
             }
@@ -64,7 +70,7 @@ fn collect_grid(
     }
 
     let mut columns = 0;
-    for row_node in row_nodes {
+    for (row_node, group) in row_nodes {
         let mut row: Vec<Cell> = Vec::new();
         let mut column = 0;
         let occupied: Vec<usize> = reserved.iter().map(|(column, _)| *column).collect();
@@ -109,7 +115,11 @@ fn collect_grid(
             column += colspan;
         }
         columns = columns.max(column.max(occupied.iter().map(|c| c + 1).max().unwrap_or(0)));
-        rows.push((row_node, row));
+        rows.push(Row {
+            node: row_node,
+            group,
+            cells: row,
+        });
         // A reservation of N remaining rows must occupy the next N rows:
         // decrement after each row and keep entries until they hit zero.
         reserved = reserved
@@ -196,7 +206,7 @@ pub(crate) fn layout_table_children(
         (content + edges).min(available)
     };
     // Single-column cells set each column's preference outright.
-    let cells = || rows.iter().flat_map(|(_, cells)| cells);
+    let cells = || rows.iter().flat_map(|row| row.cells.iter());
     for cell in cells().filter(|cell| cell.colspan == 1) {
         preferred[cell.column] = preferred[cell.column].max(preference_of(cell));
     }
@@ -255,10 +265,10 @@ pub(crate) fn layout_table_children(
     // row height is the tallest cell.
     let mut children: Vec<LayoutBox> = Vec::new();
     let mut cursor_y = content_y + space_y;
-    for (row_index, (row_node, row)) in rows.iter().enumerate() {
+    for (row_index, row) in rows.iter().enumerate() {
         let mut row_height = 0.0f32;
         let mut laid_row: Vec<LayoutBox> = Vec::new();
-        for cell in row {
+        for cell in &row.cells {
             let mut style = styles.by_node.get(&cell.node).cloned().unwrap_or_default();
             let end = (cell.column + cell.colspan).min(column_count);
             let span_width: f32 = preferred[cell.column..end].iter().sum::<f32>()
@@ -311,11 +321,11 @@ pub(crate) fn layout_table_children(
             .zip(preferred.last())
             .map_or(space_x, |(offset, width)| offset + width);
         let row_box = LayoutBox {
-            node_id: *row_node,
+            node_id: row.node,
             box_type: BoxType::Block,
             kind: LayoutKind::Element(
                 document
-                    .element(*row_node)
+                    .element(row.node)
                     .map_or_else(|| "tr".to_string(), |element| element.tag_name.clone()),
             ),
             dimensions: Dimensions {
@@ -327,10 +337,10 @@ pub(crate) fn layout_table_children(
                 },
                 ..Dimensions::default()
             },
-            style: styles.by_node.get(row_node).cloned().unwrap_or_default(),
+            style: styles.by_node.get(&row.node).cloned().unwrap_or_default(),
             children: laid_row,
         };
-        children.push(row_box);
+        push_row(document, styles, &mut children, row.group, row_box);
         cursor_y += row_height + space_y;
     }
 
@@ -338,6 +348,46 @@ pub(crate) fn layout_table_children(
     // (documented simplification).
     let used_height = cursor_y - content_y;
     (children, used_height)
+}
+
+/// Adds a laid-out row to the table, inside a box for its
+/// `<thead>`/`<tbody>`/`<tfoot>` when it has one. The group box grows to
+/// span the rows it holds, so it can carry a background behind them; the
+/// border spacing around the group stays outside it.
+fn push_row(
+    document: &Document,
+    styles: &StyleMap,
+    children: &mut Vec<LayoutBox>,
+    group: Option<NodeId>,
+    row: LayoutBox,
+) {
+    let Some(group) = group else {
+        children.push(row);
+        return;
+    };
+    if let Some(open) = children.last_mut()
+        && open.node_id == group
+    {
+        let row_box = row.content_box();
+        open.dimensions.content.height = row_box.y + row_box.height - open.content_box().y;
+        open.children.push(row);
+        return;
+    }
+    children.push(LayoutBox {
+        node_id: group,
+        box_type: BoxType::Block,
+        kind: LayoutKind::Element(
+            document
+                .element(group)
+                .map_or_else(|| "tbody".to_string(), |element| element.tag_name.clone()),
+        ),
+        dimensions: Dimensions {
+            content: row.content_box(),
+            ..Dimensions::default()
+        },
+        style: styles.by_node.get(&group).cloned().unwrap_or_default(),
+        children: vec![row],
+    });
 }
 
 #[cfg(test)]
@@ -363,11 +413,53 @@ mod tests {
         let styles = crate::style::compute_styles(&document, &lumen_css::Stylesheet::default());
         let (rows, columns) = collect_grid(&document, &styles, table);
         assert_eq!(columns, 3);
-        assert_eq!(rows[0].1.len(), 2);
-        assert_eq!(rows[0].1[1].colspan, 2);
+        assert_eq!(rows[0].cells.len(), 2);
+        assert_eq!(rows[0].cells[1].colspan, 2);
         // Row 3's first cell starts at column 1 (column 0 reserved by the
         // rowspan above).
-        assert_eq!(rows[2].1[0].column, 1);
+        assert_eq!(rows[2].cells[0].column, 1);
+    }
+
+    #[test]
+    fn row_groups_get_a_box_spanning_their_rows() {
+        let page = crate::build_page(
+            &crate::test_support::with_body_reset(
+                "<style>td { padding: 0; height: 10px; } table { border-spacing: 0; }</style>\
+                 <table><thead><tr><td>h</td></tr></thead>\
+                 <tbody><tr><td>a</td></tr><tr><td>b</td></tr></tbody></table>",
+            ),
+            crate::geometry::Size {
+                width: 400.0,
+                height: 200.0,
+            },
+        );
+        fn groups(layout: &crate::LayoutBox, found: &mut Vec<crate::LayoutBox>) {
+            if matches!(&layout.kind, crate::LayoutKind::Element(tag)
+                if tag == "thead" || tag == "tbody" || tag == "tfoot")
+            {
+                found.push(layout.clone());
+            }
+            for child in &layout.children {
+                groups(child, found);
+            }
+        }
+        let mut found = Vec::new();
+        groups(&page.layout, &mut found);
+        let tags: Vec<String> = found
+            .iter()
+            .map(|group| match &group.kind {
+                crate::LayoutKind::Element(tag) => tag.clone(),
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(tags, vec!["thead", "tbody"]);
+        assert_eq!(found[0].children.len(), 1);
+        assert_eq!(found[1].children.len(), 2);
+        // The group spans exactly the rows it holds.
+        let body_group = found[1].content_box();
+        let last = found[1].children[1].content_box();
+        assert_eq!(body_group.y, found[1].children[0].content_box().y);
+        assert_eq!(body_group.height, last.y + last.height - body_group.y);
     }
 
     /// Laid-out cell boxes (tag `td`/`th`) in paint order.

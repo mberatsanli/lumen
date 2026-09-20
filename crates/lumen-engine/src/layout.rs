@@ -3441,9 +3441,12 @@ mod tests {
              </table>",
         );
         let table = &body_box(&layout).children[0];
-        // Cells sit inside a box per row.
-        assert_eq!(table.children.len(), 2);
-        let cells: Vec<&LayoutBox> = table
+        // The parser wraps the bare rows in a <tbody>, which gets a box
+        // of its own; the cells sit inside a box per row within it.
+        assert_eq!(table.children.len(), 1);
+        let rows = &table.children[0];
+        assert_eq!(rows.children.len(), 2);
+        let cells: Vec<&LayoutBox> = rows
             .children
             .iter()
             .flat_map(|row| row.children.iter())
@@ -3469,10 +3472,10 @@ mod tests {
                  <td style='width: 40px; height: 5px;'>b</td></tr>\
              </table>",
         );
-        let table = &body_box(&layout).children[0];
-        let wide = table.children[0].children[0].border_box();
-        let a = table.children[1].children[0].border_box();
-        let b = table.children[1].children[1].border_box();
+        let rows = &body_box(&layout).children[0].children[0];
+        let wide = rows.children[0].children[0].border_box();
+        let a = rows.children[1].children[0].border_box();
+        let b = rows.children[1].children[1].border_box();
         // The spanning cell covers both columns.
         assert!((wide.width - (a.width + b.width + 2.0)).abs() < 1.0);
         assert_eq!(wide.x, a.x);
