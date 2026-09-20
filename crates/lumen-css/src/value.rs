@@ -603,6 +603,19 @@ impl CssValue {
         }
     }
 
+    /// The plain number this value carries. A bare `0` parses as a
+    /// length (so `margin: 0` works), so the number-typed properties —
+    /// `opacity`, `z-index`, `flex-grow`, `order` — have to accept a zero
+    /// length back as the number it was written as.
+    #[must_use]
+    pub fn as_number(&self) -> Option<f32> {
+        match self {
+            Self::Number(value) => Some(*value),
+            Self::Length(value, _) if *value == 0.0 => Some(0.0),
+            _ => None,
+        }
+    }
+
     #[must_use]
     pub fn as_color(&self) -> Option<Color> {
         match self {

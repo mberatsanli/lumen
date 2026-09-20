@@ -2349,9 +2349,11 @@ fn to_computed(
         .unwrap_or(0.0);
 
     style.opacity = match raw.get("opacity") {
-        Some(CssValue::Number(value)) => value.clamp(0.0, 1.0),
         Some(CssValue::Length(value, lumen_css::Unit::Percent)) => (value / 100.0).clamp(0.0, 1.0),
-        _ => 1.0,
+        Some(value) => value
+            .as_number()
+            .map_or(1.0, |number| number.clamp(0.0, 1.0)),
+        None => 1.0,
     };
 
     style.selectable = !matches!(
@@ -2399,10 +2401,10 @@ fn to_computed(
         bottom: offset("bottom"),
         left: offset("left"),
     };
-    style.z_index = match raw.get("z-index") {
-        Some(CssValue::Number(value)) => Some(*value as i32),
-        _ => None,
-    };
+    style.z_index = raw
+        .get("z-index")
+        .and_then(CssValue::as_number)
+        .map(|value| value as i32);
 
     style.flex_direction = match raw.get("flex-direction").and_then(CssValue::as_keyword) {
         Some("column") => FlexDirection::Column,
@@ -2425,15 +2427,17 @@ fn to_computed(
 
     style.gap = edge_px(raw, "gap", style.font_size);
 
-    style.flex_grow = match raw.get("flex-grow") {
-        Some(CssValue::Number(value)) => value.max(0.0),
-        _ => 0.0,
-    };
+    style.flex_grow = raw
+        .get("flex-grow")
+        .and_then(CssValue::as_number)
+        .unwrap_or(0.0)
+        .max(0.0);
 
-    style.flex_shrink = match raw.get("flex-shrink") {
-        Some(CssValue::Number(value)) => value.max(0.0),
-        _ => 1.0,
-    };
+    style.flex_shrink = raw
+        .get("flex-shrink")
+        .and_then(CssValue::as_number)
+        .unwrap_or(1.0)
+        .max(0.0);
 
     style.flex_wrap = matches!(
         raw.get("flex-wrap").and_then(CssValue::as_keyword),
@@ -2462,10 +2466,10 @@ fn to_computed(
         None => Dimension::Auto,
     };
 
-    style.order = match raw.get("order") {
-        Some(CssValue::Number(value)) => *value as i32,
-        _ => 0,
-    };
+    style.order = raw
+        .get("order")
+        .and_then(CssValue::as_number)
+        .unwrap_or(0.0) as i32;
 
     style.object_fit = match raw.get("object-fit").and_then(CssValue::as_keyword) {
         Some("contain") => ObjectFit::Contain,
@@ -2568,8 +2572,8 @@ fn to_computed(
 
     // tab-size: a number of spaces (lengths are unsupported). The
     // default stays the engine's historical 4, not CSS's 8.
-    if let Some(CssValue::Number(value)) = raw.get("tab-size") {
-        style.tab_size = (*value as u32).min(64);
+    if let Some(value) = raw.get("tab-size").and_then(CssValue::as_number) {
+        style.tab_size = (value as u32).min(64);
     }
 
     // caret-color: `auto`/`currentcolor` both resolve to None = the
@@ -3063,6 +3067,26 @@ mod tests {
             img.object_position,
             (Dimension::Percent(0.0), Dimension::Percent(0.0))
         );
+    }
+
+    #[test]
+    fn flex_longhands_accept_a_bare_zero() {
+        let (document, styles) = styles_for(
+            "<style>.c { display: flex; } \
+                    .i { flex-grow: 0; flex-shrink: 0; }</style>\
+             <body><div class='c'><div class='i'></div></div></body>",
+        );
+        let ids: Vec<_> = document
+            .descendants(document.root())
+            .filter(|id| {
+                document
+                    .element(*id)
+                    .is_some_and(|element| element.tag_name == "div")
+            })
+            .collect();
+        let item = &styles.by_node[&ids[1]];
+        assert_eq!(item.flex_grow, 0.0);
+        assert_eq!(item.flex_shrink, 0.0);
     }
 
     #[test]
