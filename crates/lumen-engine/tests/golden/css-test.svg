@@ -678,12 +678,12 @@
 <path d="M 32 4612.4663 H 332 A 8 8 0 0 1 340 4620.4663 V 4688.933 A 8 8 0 0 1 332 4696.933 H 32 A 8 8 0 0 1 24 4688.933 V 4620.4663 A 8 8 0 0 1 32 4612.4663 Z" fill="#ffffff"/>
 <path d="M 32 4612.4663 H 332 A 8 8 0 0 1 340 4620.4663 V 4688.933 A 8 8 0 0 1 332 4696.933 H 32 A 8 8 0 0 1 24 4688.933 V 4620.4663 A 8 8 0 0 1 32 4612.4663 Z M 32 4613.4663 H 332 A 7 7 0 0 1 339 4620.4663 V 4688.933 A 7 7 0 0 1 332 4695.933 H 32 A 7 7 0 0 1 25 4688.933 V 4620.4663 A 7 7 0 0 1 32 4613.4663 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="4636.4663" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">:disabled</text>
-<rect x="37" y="4648.866" width="156.99962" height="28.666618" fill="#e8eaed"/>
-<rect x="37" y="4648.866" width="156.99962" height="1" fill="#bbbbbb"/>
-<rect x="192.99962" y="4648.866" width="1" height="28.666618" fill="#bbbbbb"/>
-<rect x="37" y="4676.5327" width="156.99962" height="1" fill="#bbbbbb"/>
+<rect x="37" y="4648.866" width="154.99963" height="28.666618" fill="#e8eaed"/>
+<rect x="37" y="4648.866" width="154.99963" height="1" fill="#bbbbbb"/>
+<rect x="190.99963" y="4648.866" width="1" height="28.666618" fill="#bbbbbb"/>
+<rect x="37" y="4676.5327" width="154.99963" height="1" fill="#bbbbbb"/>
 <rect x="37" y="4648.866" width="1" height="28.666618" fill="#bbbbbb"/>
-<clipPath id="clip7"><rect x="38" y="4649.866" width="154.99962" height="26.666618"/></clipPath><g clip-path="url(#clip7)">
+<clipPath id="clip7"><rect x="38" y="4649.866" width="152.99963" height="26.666618"/></clipPath><g clip-path="url(#clip7)">
 <text x="42" y="4667.1997" fill="#1c1e21" font-family="sans-serif" font-size="13.3333" font-weight="400">devre dışı</text>
 </g>
 <path d="M 362 4612.4663 H 662 A 8 8 0 0 1 670 4620.4663 V 4688.933 A 8 8 0 0 1 662 4696.933 H 362 A 8 8 0 0 1 354 4688.933 V 4620.4663 A 8 8 0 0 1 362 4612.4663 Z" fill="#ffffff"/>

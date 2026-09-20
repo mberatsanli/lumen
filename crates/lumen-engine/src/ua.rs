@@ -54,7 +54,8 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
                 font-family: sans-serif; box-sizing: border-box; margin: 0; }
             input, textarea { border: 2px inset #767676; background-color: #ffffff;
                 padding: 1px 2px; box-sizing: content-box; }
-            input { width: 153px; min-height: 1.1em; white-space: pre; overflow: hidden; }
+            input { width: 153px; min-height: 1.1em; white-space: pre; overflow: hidden;
+                line-height: normal; }
             input[type=submit], input[type=button], input[type=reset], button {
                 border: 2px outset #767676; background-color: #ebebeb;
                 padding: 1px 6px; width: auto; box-sizing: border-box; }
@@ -110,10 +111,12 @@ pub(crate) fn width_hint(element: &ElementData) -> Option<CssValue> {
     if element.tag_name != "input" {
         return None;
     }
-    // One average character advance of the control font, and the room a
-    // number field leaves beside its value for the stepper.
+    // One average character advance of the control font, the slack a
+    // field keeps past its last column, and the room a number field
+    // leaves beside its value for the stepper.
     const CHARACTER: f32 = 0.525;
-    const STEPPER: f32 = 0.975;
+    const SLACK: f32 = 0.375;
+    const STEPPER: f32 = 1.5;
     // The default 20 columns is what an unsized field shows.
     const COLUMNS: f32 = 20.0;
 
@@ -126,7 +129,7 @@ pub(crate) fn width_hint(element: &ElementData) -> Option<CssValue> {
     };
     match element.attributes.get("type").unwrap_or("text") {
         "text" | "search" | "url" | "tel" | "password" | "email" => Some(CssValue::Length(
-            (columns("size").unwrap_or(COLUMNS) + 1.0) * CHARACTER,
+            columns("size").unwrap_or(COLUMNS) * CHARACTER + SLACK,
             Unit::Em,
         )),
         // A number field is sized by the largest value it accepts, not
@@ -138,8 +141,8 @@ pub(crate) fn width_hint(element: &ElementData) -> Option<CssValue> {
                 .map(|max| max.trim().chars().count() as f32)
                 .filter(|digits| *digits >= 1.0);
             Some(match digits {
-                Some(digits) => CssValue::Length((digits + 1.0) * CHARACTER + STEPPER, Unit::Em),
-                None => CssValue::Length((COLUMNS + 1.0) * CHARACTER, Unit::Em),
+                Some(digits) => CssValue::Length(digits * CHARACTER + STEPPER, Unit::Em),
+                None => CssValue::Length(COLUMNS * CHARACTER + SLACK, Unit::Em),
             })
         }
         _ => None,
