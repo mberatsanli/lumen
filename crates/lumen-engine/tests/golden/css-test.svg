@@ -270,16 +270,16 @@
 <line x1="367" y1="1976.5" x2="657" y2="1976.5" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="367.5" y1="1903" x2="367.5" y2="1977" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <clipPath id="clip1"><rect x="368" y="1904" width="288" height="72"/></clipPath><g clip-path="url(#clip1)">
+<text x="372" y="1954.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">kaydırılabilir içerik satırı 1</text>
+<text x="372" y="1976.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır 2</text>
+<text x="372" y="1999.2001" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır 3</text>
+<text x="372" y="2021.6" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır 4</text>
 <rect x="372" y="1908" width="280" height="30.400002" fill="#fff3cd"/>
 <rect x="372" y="1908" width="280" height="1" fill="#e0c060"/>
 <rect x="651" y="1908" width="1" height="30.400002" fill="#e0c060"/>
 <rect x="372" y="1937.4" width="280" height="1" fill="#e0c060"/>
 <rect x="372" y="1908" width="1" height="30.400002" fill="#e0c060"/>
 <text x="376" y="1928" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">sticky başlık</text>
-<text x="372" y="1954.4" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">kaydırılabilir içerik satırı 1</text>
-<text x="372" y="1976.8" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır 2</text>
-<text x="372" y="1999.2001" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır 3</text>
-<text x="372" y="2021.6" fill="#1c1e21" font-family="serif" font-size="16" font-weight="400">satır 4</text>
 </g>
 <path d="M 692 1866.6 H 992 A 8 8 0 0 1 1000 1874.6 V 1982 A 8 8 0 0 1 992 1990 H 692 A 8 8 0 0 1 684 1982 V 1874.6 A 8 8 0 0 1 692 1866.6 Z" fill="#ffffff"/>
 <path d="M 692 1866.6 H 992 A 8 8 0 0 1 1000 1874.6 V 1982 A 8 8 0 0 1 992 1990 H 692 A 8 8 0 0 1 684 1982 V 1874.6 A 8 8 0 0 1 692 1866.6 Z M 692 1867.6 H 992 A 7 7 0 0 1 999 1874.6 V 1982 A 7 7 0 0 1 992 1989 H 692 A 7 7 0 0 1 685 1982 V 1874.6 A 7 7 0 0 1 692 1867.6 Z" fill="#d8dce1" fill-rule="evenodd"/>
@@ -634,6 +634,8 @@
 <path d="M 32 4231.4663 H 332 A 8 8 0 0 1 340 4239.4663 V 4383.6665 A 8 8 0 0 1 332 4391.6665 H 32 A 8 8 0 0 1 24 4383.6665 V 4239.4663 A 8 8 0 0 1 32 4231.4663 Z" fill="#ffffff"/>
 <path d="M 32 4231.4663 H 332 A 8 8 0 0 1 340 4239.4663 V 4383.6665 A 8 8 0 0 1 332 4391.6665 H 32 A 8 8 0 0 1 24 4383.6665 V 4239.4663 A 8 8 0 0 1 32 4231.4663 Z M 32 4232.4663 H 332 A 7 7 0 0 1 339 4239.4663 V 4383.6665 A 7 7 0 0 1 332 4390.6665 H 32 A 7 7 0 0 1 25 4383.6665 V 4239.4663 A 7 7 0 0 1 32 4232.4663 Z" fill="#d8dce1" fill-rule="evenodd"/>
 <text x="37" y="4255.4663" fill="#6a7078" font-family="monospace" font-size="11" font-weight="400">pointer-events: none</text>
+<text x="37" y="4358.866" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">Mavi perde pointer-events: none — tıklama altındaki</text>
+<text x="37" y="4374.266" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">linke düşer.</text>
 <line x1="37" y1="4268.366" x2="327" y2="4268.366" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="326.5" y1="4267.866" x2="326.5" y2="4341.866" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="37" y1="4341.366" x2="327" y2="4341.366" stroke="#999999" stroke-width="1" stroke-dasharray="3 2"/>
@@ -642,8 +644,6 @@
 <text x="208.5" y="4289.866" fill="#2f6fdd" font-family="serif" font-size="11" font-weight="400">tıklama geçiren perde</text>
 <text x="44" y="4290.866" fill="#0000ee" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">Bu link perdenin altında ama</text>
 <text x="44" y="4313.266" fill="#0000ee" font-family="serif" font-size="16" font-weight="400" text-decoration="underline">tıklanabilir</text>
-<text x="37" y="4358.866" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">Mavi perde pointer-events: none — tıklama altındaki</text>
-<text x="37" y="4374.266" fill="#8a9098" font-family="serif" font-size="11" font-weight="400">linke düşer.</text>
 <rect x="24" y="4447.4663" width="976" height="2" fill="#d0d4d9"/>
 <text x="24" y="4436.6665" fill="#1c1e21" font-family="serif" font-size="17" font-weight="700">Seçiciler</text>
 <path d="M 32 4459.4663 H 332 A 8 8 0 0 1 340 4467.4663 V 4590.4663 A 8 8 0 0 1 332 4598.4663 H 32 A 8 8 0 0 1 24 4590.4663 V 4467.4663 A 8 8 0 0 1 32 4459.4663 Z" fill="#ffffff"/>

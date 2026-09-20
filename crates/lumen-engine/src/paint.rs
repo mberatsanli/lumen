@@ -754,14 +754,10 @@ fn paint_box(
         }
     }
 
-    // Fast path: with no z-index anywhere among the children, the stable
-    // paint-order sort is the identity — iterate in tree order without
-    // building (and sorting) a temporary Vec per box.
-    if layout
-        .children
-        .iter()
-        .all(|child| child.style.z_index.is_none())
-    {
+    // Fast path: when document order is already painting order, iterate
+    // the children directly instead of building (and sorting) a
+    // temporary Vec per box.
+    if layout.children_paint_in_document_order() {
         for child in &layout.children {
             let sticky = layout.sticky_child_shift(child, scroll_offset) + page_sticky(child);
             paint_child(
@@ -1131,6 +1127,60 @@ mod tests {
             })
             .collect();
         assert_eq!(fills, vec!["#00ff00", "#ff0000"]);
+    }
+
+    /// Fill colors in paint order.
+    fn fill_order(html: &str) -> Vec<String> {
+        commands(html)
+            .iter()
+            .filter_map(|command| match command {
+                DisplayCommand::FillRect { color, .. } => Some(color.to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn positioned_boxes_paint_above_the_flow_around_them() {
+        // The absolute box is declared first; it still paints last,
+        // because the flow paints before anything positioned.
+        let order = fill_order(
+            "<style>.stage { position: relative; } \
+                    .over { position: absolute; background-color: #ff0000; } \
+                    .flow { background-color: #00ff00; }</style>\
+             <div class='stage'><div class='over'>a</div><div class='flow'>b</div></div>",
+        );
+        assert_eq!(order, vec!["#00ff00", "#ff0000"]);
+    }
+
+    #[test]
+    fn a_negative_depth_sinks_below_the_flow() {
+        let order = fill_order(
+            "<style>.stage { position: relative; } \
+                    .under { position: absolute; background-color: #ff0000; z-index: -1; } \
+                    .flow { background-color: #00ff00; }</style>\
+             <div class='stage'><div class='flow'>b</div><div class='under'>a</div></div>",
+        );
+        assert_eq!(order, vec!["#ff0000", "#00ff00"]);
+    }
+
+    #[test]
+    fn depth_is_ignored_where_it_does_not_apply() {
+        // `z-index` on a static box says nothing; document order stands.
+        let order = fill_order(
+            "<style>.first { background-color: #00ff00; z-index: 99; } \
+                    .second { background-color: #ff0000; }</style>\
+             <div class='first'>a</div><div class='second'>b</div>",
+        );
+        assert_eq!(order, vec!["#00ff00", "#ff0000"]);
+        // On a flex item it does apply.
+        let order = fill_order(
+            "<style>.row { display: flex; } \
+                    .first { background-color: #00ff00; z-index: 99; } \
+                    .second { background-color: #ff0000; }</style>\
+             <div class='row'><div class='first'>a</div><div class='second'>b</div></div>",
+        );
+        assert_eq!(order, vec!["#ff0000", "#00ff00"]);
     }
 
     #[test]

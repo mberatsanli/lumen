@@ -89,14 +89,54 @@ impl LayoutBox {
         }
     }
 
-    /// Children sorted for painting: ascending `z-index` (default 0),
-    /// stable so DOM order breaks ties. A simplification of CSS stacking
-    /// contexts.
+    /// Children in painting order: boxes below the flow (negative
+    /// `z-index`), then the in-flow content, then positioned boxes that
+    /// stated no depth, then those above it (positive `z-index`). Stable
+    /// within each band, so document order breaks ties.
+    ///
+    /// `z-index` only orders the boxes it applies to — positioned ones,
+    /// and the items of a flex or grid container. Elsewhere it is
+    /// ignored, which is why a `z-index` on an ordinary block does not
+    /// lift it out of the flow.
+    ///
+    /// This orders siblings. A positioned box still paints inside its
+    /// parent rather than escaping to the nearest stacking context, so
+    /// depth does not yet compare across levels.
     #[must_use]
     pub fn children_in_paint_order(&self) -> Vec<&LayoutBox> {
         let mut ordered: Vec<&LayoutBox> = self.children.iter().collect();
-        ordered.sort_by_key(|child| child.style.z_index.unwrap_or(0));
+        ordered.sort_by_key(|child| self.paint_band(child));
         ordered
+    }
+
+    /// Where a child sits in the painting order: `(band, depth)`.
+    fn paint_band(&self, child: &LayoutBox) -> (i8, i32) {
+        if !self.orders_by_depth(child) {
+            return (0, 0);
+        }
+        match child.style.z_index {
+            Some(depth) if depth < 0 => (-1, depth),
+            Some(depth) if depth > 0 => (2, depth),
+            // Stated zero and `auto` both paint above the flow, in
+            // document order.
+            _ => (1, 0),
+        }
+    }
+
+    /// Whether `z-index` applies to this child at all.
+    fn orders_by_depth(&self, child: &LayoutBox) -> bool {
+        child.style.position != Position::Static
+            || matches!(self.style.display, Display::Flex | Display::Grid)
+    }
+
+    /// Whether painting these children in document order would give the
+    /// same result as [`children_in_paint_order`] — the common case,
+    /// where nothing is positioned and nothing states a depth.
+    #[must_use]
+    pub fn children_paint_in_document_order(&self) -> bool {
+        self.children
+            .iter()
+            .all(|child| self.paint_band(child) == (0, 0))
     }
 
     /// The innermost `overflow: scroll/auto` box under a point (page
