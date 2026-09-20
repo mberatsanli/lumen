@@ -1001,10 +1001,10 @@ fn compute_node(
     if let Some(element) = element {
         // A presentational hint sits between the two sheets: it outranks
         // every UA rule, and any author rule outranks it.
-        if let Some(width) = crate::ua::width_hint(element) {
+        for (property, value) in crate::ua::presentational_hints(element) {
             raw.insert_ranked(
-                Rc::from("width"),
-                Rc::new(width),
+                Rc::from(property),
+                Rc::new(value),
                 (cascade_level(0, false), u32::MAX, 0),
             );
         }

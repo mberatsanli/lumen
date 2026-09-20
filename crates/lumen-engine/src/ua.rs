@@ -88,13 +88,13 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
                 box-sizing: border-box; }
             meter { width: 80px; }
             label { color: inherit; }
-            select[multiple] { display: inline-block; width: auto; max-height: 70px;
+            select[multiple] { display: inline-block; width: auto;
                 overflow: auto; padding: 0; height: auto; --lumen-mark: none; }
             select[multiple] option { display: block; padding: 1px 2px; margin: 0;
                 border-radius: 3px; }
             select[multiple] option:checked { background-color: #2266aa; color: #ffffff; }
             optgroup { display: none; }
-            select[multiple] optgroup { display: block; padding: 1px 0; line-height: 15px;
+            select[multiple] optgroup { display: block; padding: 0; line-height: 17px;
                 font-weight: 700; font-size: 0.85em; color: #6b675e; }
             select[multiple] optgroup option { font-weight: 400; font-size: 13.3333px;
                 color: #232019; }
@@ -103,49 +103,73 @@ pub fn user_agent_stylesheet() -> &'static Stylesheet {
     })
 }
 
-/// The width an element's attributes ask for, as a presentational hint:
-/// a declaration that beats the UA stylesheet but loses to any author
-/// rule. A text field is as wide as the text it is asked to hold, which
-/// is what `size` states and what a number field's bound implies.
-pub(crate) fn width_hint(element: &ElementData) -> Option<CssValue> {
-    if element.tag_name != "input" {
-        return None;
-    }
+/// The size an element's attributes ask for, as presentational hints:
+/// declarations that beat the UA stylesheet and lose to any author rule.
+/// A field is as wide as the text it is asked to hold — which is what
+/// `size` states and what a number field's bound implies — and a list
+/// box as tall as the rows it is asked to show.
+///
+/// The measurements are in `em`, so they follow the control's font
+/// rather than assuming the default one.
+pub(crate) fn presentational_hints(element: &ElementData) -> Vec<(&'static str, CssValue)> {
     // One average character advance of the control font, the slack a
-    // field keeps past its last column, and the room a number field
-    // leaves beside its value for the stepper.
+    // field keeps past its last column, the room a number field leaves
+    // beside its value for the stepper, one list-box row, and the
+    // border a list box draws around its rows.
     const CHARACTER: f32 = 0.525;
     const SLACK: f32 = 0.375;
     const STEPPER: f32 = 1.5;
-    // The default 20 columns is what an unsized field shows.
+    const ROW: f32 = 1.275;
+    const FRAME: f32 = 0.15;
+    // What an unsized field shows: 20 columns, or four rows down a list.
     const COLUMNS: f32 = 20.0;
+    const ROWS: f32 = 4.0;
 
-    let columns = |attribute: &str| -> Option<f32> {
+    let attribute = |name: &str| -> Option<f32> {
         element
             .attributes
-            .get(attribute)
+            .get(name)
             .and_then(|value| value.trim().parse::<f32>().ok())
-            .filter(|columns| *columns >= 1.0)
+            .filter(|count| *count >= 1.0)
     };
-    match element.attributes.get("type").unwrap_or("text") {
-        "text" | "search" | "url" | "tel" | "password" | "email" => Some(CssValue::Length(
-            columns("size").unwrap_or(COLUMNS) * CHARACTER + SLACK,
-            Unit::Em,
-        )),
-        // A number field is sized by the largest value it accepts, not
-        // by `size`; unbounded, it falls back to the text default.
-        "number" => {
-            let digits = element
-                .attributes
-                .get("max")
-                .map(|max| max.trim().chars().count() as f32)
-                .filter(|digits| *digits >= 1.0);
-            Some(match digits {
-                Some(digits) => CssValue::Length(digits * CHARACTER + STEPPER, Unit::Em),
-                None => CssValue::Length(COLUMNS * CHARACTER + SLACK, Unit::Em),
-            })
+    let em = |value: f32| CssValue::Length(value, Unit::Em);
+
+    match element.tag_name.as_str() {
+        "input" => match element.attributes.get("type").unwrap_or("text") {
+            "text" | "search" | "url" | "tel" | "password" | "email" => {
+                vec![(
+                    "width",
+                    em(attribute("size").unwrap_or(COLUMNS) * CHARACTER + SLACK),
+                )]
+            }
+            // A number field is sized by the largest value it accepts,
+            // not by `size`; unbounded, it falls back to the text width.
+            "number" => {
+                let digits = element
+                    .attributes
+                    .get("max")
+                    .map(|max| max.trim().chars().count() as f32)
+                    .filter(|digits| *digits >= 1.0);
+                vec![(
+                    "width",
+                    match digits {
+                        Some(digits) => em(digits * CHARACTER + STEPPER),
+                        None => em(COLUMNS * CHARACTER + SLACK),
+                    },
+                )]
+            }
+            _ => Vec::new(),
+        },
+        // A select is a list box when it takes several values or asks
+        // for several rows; otherwise it collapses to one closed row.
+        "select" => {
+            let rows = attribute("size").filter(|rows| *rows > 1.0);
+            if rows.is_none() && !element.attributes.contains("multiple") {
+                return Vec::new();
+            }
+            vec![("height", em(rows.unwrap_or(ROWS) * ROW + FRAME))]
         }
-        _ => None,
+        _ => Vec::new(),
     }
 }
 
