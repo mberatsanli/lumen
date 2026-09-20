@@ -317,6 +317,128 @@ enum AtRulePrelude {
     Media(Option<MediaQuery>),
     FontFace,
     Keyframes(String),
+    /// `@supports`, already answered (`false`: skip the block).
+    Supports(bool),
+}
+
+/// Answers an `@supports` condition.
+///
+/// Unrecognised syntax answers `false`: a page that asks whether we
+/// support something is better served by its fallback than by a branch
+/// we would render wrong.
+fn supports_condition(source: &str) -> bool {
+    let source = source.trim();
+    if source.is_empty() {
+        return false;
+    }
+    // `or` binds loosest, then `and`. CSS forbids mixing the two without
+    // parentheses, so splitting on either is unambiguous.
+    if let Some(parts) = split_on_keyword(source, "or") {
+        return parts.iter().any(|part| supports_condition(part));
+    }
+    if let Some(parts) = split_on_keyword(source, "and") {
+        return parts.iter().all(|part| supports_condition(part));
+    }
+    if let Some(rest) = strip_keyword(source, "not") {
+        return !supports_condition(rest);
+    }
+    // `selector(...)`: supported when the selector itself parses.
+    if let Some(selector) = source
+        .strip_prefix("selector(")
+        .or_else(|| source.strip_prefix("SELECTOR("))
+        .and_then(|rest| rest.strip_suffix(')'))
+    {
+        return parse_selector_list(selector.trim()).is_some_and(|list| !list.is_empty());
+    }
+    let Some(inner) = source
+        .strip_prefix('(')
+        .and_then(|rest| rest.strip_suffix(')'))
+    else {
+        return false;
+    };
+    let inner = inner.trim();
+    // A nested condition rather than a declaration.
+    if inner.starts_with('(') || strip_keyword(inner, "not").is_some() {
+        return supports_condition(inner);
+    }
+    match inner.split_once(':') {
+        Some((property, value)) => supports_declaration(property.trim(), value.trim()),
+        None => supports_condition(inner),
+    }
+}
+
+/// Whether the engine would act on `property: value`.
+fn supports_declaration(property: &str, value: &str) -> bool {
+    if value.is_empty() {
+        return false;
+    }
+    let property = property.to_ascii_lowercase();
+    if !crate::properties::is_supported(&property) {
+        return false;
+    }
+    // A handful of properties are asked about by value, not by name —
+    // `display` above all — so the keywords the engine acts on are
+    // checked rather than assumed. Elsewhere a value that parses counts.
+    let value_lowercase = value.to_ascii_lowercase();
+    match property.as_str() {
+        "display" => matches!(
+            value_lowercase.as_str(),
+            "block" | "inline" | "inline-block" | "flex" | "grid" | "none"
+        ),
+        "position" => matches!(
+            value_lowercase.as_str(),
+            "static" | "relative" | "absolute" | "fixed" | "sticky"
+        ),
+        _ => split_components(value)
+            .iter()
+            .all(|component| CssValue::parse_component(component).is_some()),
+    }
+}
+
+/// Splits on a keyword that sits outside any parentheses. `None` when
+/// the keyword does not appear at that level, so the caller can try the
+/// next form.
+fn split_on_keyword<'a>(source: &'a str, keyword: &str) -> Option<Vec<&'a str>> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    while index < source.len() {
+        match bytes[index] {
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => {
+                if let Some(rest) = source[index..].strip_prefix(keyword)
+                    && index > 0
+                    && bytes[index - 1].is_ascii_whitespace()
+                    && rest.starts_with(char::is_whitespace)
+                {
+                    parts.push(source[start..index].trim());
+                    start = index + keyword.len();
+                    index = start;
+                    continue;
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    parts.push(source[start..].trim());
+    Some(parts)
+}
+
+/// Strips a leading keyword and the whitespace after it.
+fn strip_keyword<'a>(source: &'a str, keyword: &str) -> Option<&'a str> {
+    let rest = source.get(..keyword.len())?;
+    if !rest.eq_ignore_ascii_case(keyword) {
+        return None;
+    }
+    let rest = &source[keyword.len()..];
+    rest.starts_with(char::is_whitespace).then(|| rest.trim())
 }
 
 impl<'i> AtRuleParser<'i> for SheetParser<'_> {
@@ -331,6 +453,12 @@ impl<'i> AtRuleParser<'i> for SheetParser<'_> {
     ) -> Result<AtRulePrelude, ParseError<'i, ()>> {
         if name.eq_ignore_ascii_case("media") {
             return Ok(AtRulePrelude::Media(parse_media_query(input)));
+        }
+        if name.eq_ignore_ascii_case("supports") {
+            let start = input.position();
+            while input.next().is_ok() {}
+            let condition = input.slice_from(start);
+            return Ok(AtRulePrelude::Supports(supports_condition(condition)));
         }
         if name.eq_ignore_ascii_case("font-face") {
             return Ok(AtRulePrelude::FontFace);
@@ -380,6 +508,18 @@ impl<'i> AtRuleParser<'i> for SheetParser<'_> {
             }
             // Unsupported condition or too-deep nesting: block skipped.
             AtRulePrelude::Media(_) => {}
+            // A met condition contributes its rules as if they had been
+            // written in its place, under whatever media wraps it.
+            AtRulePrelude::Supports(true) if self.depth < MAX_MEDIA_NESTING => {
+                let mut nested = SheetParser {
+                    sheet: self.sheet,
+                    media: self.media,
+                    source_order: self.source_order,
+                    depth: self.depth + 1,
+                };
+                for _ in RuleBodyParser::new(input, &mut nested) {}
+            }
+            AtRulePrelude::Supports(_) => {}
             AtRulePrelude::FontFace => {
                 if let Some(face) = parse_font_face(input) {
                     std::sync::Arc::make_mut(&mut self.sheet.font_faces).push(face);
@@ -1303,6 +1443,81 @@ fn edge_values(components: &[CssValue]) -> Option<[CssValue; 4]> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Rule count for a selector in a parsed sheet.
+    fn rules_matching(css: &str, needle: &str) -> usize {
+        parse_stylesheet(css)
+            .rules
+            .iter()
+            .filter(|rule| {
+                rule.declarations
+                    .iter()
+                    .any(|declaration| declaration.value.to_string().contains(needle))
+            })
+            .count()
+    }
+
+    #[test]
+    fn supports_keeps_the_rules_it_can_honor() {
+        // A property the engine reads, and a value it acts on.
+        assert_eq!(
+            rules_matching(
+                "@supports (display: grid) { p { color: #00ff00; } }",
+                "#00ff00"
+            ),
+            1
+        );
+        // A property nothing reads: the block drops, fallback wins.
+        assert_eq!(
+            rules_matching(
+                "@supports (backdrop-filter: blur(2px)) { p { color: #00ff00; } }",
+                "#00ff00"
+            ),
+            0
+        );
+        // A display value we do not lay out.
+        assert_eq!(
+            rules_matching(
+                "@supports (display: ruby) { p { color: #00ff00; } }",
+                "#00ff00"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn supports_combines_conditions() {
+        let green = "p { color: #00ff00; }";
+        let kept = |condition: &str| {
+            rules_matching(&format!("@supports {condition} {{ {green} }}"), "#00ff00")
+        };
+        assert_eq!(kept("(display: grid) and (gap: 4px)"), 1);
+        assert_eq!(kept("(display: grid) and (backdrop-filter: blur(2px))"), 0);
+        assert_eq!(kept("(display: grid) or (backdrop-filter: blur(2px))"), 1);
+        assert_eq!(kept("not (backdrop-filter: blur(2px))"), 1);
+        assert_eq!(kept("not (display: grid)"), 0);
+        assert_eq!(kept("((display: grid))"), 1);
+        assert_eq!(kept("selector(p > a)"), 1);
+        // Nonsense answers no rather than guessing.
+        assert_eq!(kept("wat"), 0);
+    }
+
+    #[test]
+    fn supports_rules_still_answer_to_the_media_around_them() {
+        let sheet = parse_stylesheet(
+            "@media (max-width: 500px) { @supports (display: grid) { p { color: #00ff00; } } }",
+        );
+        let rule = sheet
+            .rules
+            .iter()
+            .find(|rule| {
+                rule.declarations
+                    .iter()
+                    .any(|declaration| declaration.value.to_string().contains("#00ff00"))
+            })
+            .expect("the supported rule survives");
+        assert_eq!(rule.media.and_then(|media| media.max_width), Some(500.0));
+    }
     use super::*;
     use crate::value::{Color, Unit};
 
@@ -1944,7 +2159,7 @@ mod tests {
         // the first `}`, swallowing every rule that followed.
         let sheet = parse_stylesheet(
             "p { color: red; }
-             @supports (display: grid) {
+             @container (min-width: 20em) {
                  div { margin: 0; }
                  body { background-color: white; }
              }

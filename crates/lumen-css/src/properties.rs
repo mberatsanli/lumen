@@ -108,6 +108,175 @@ pub fn inherited() -> impl Iterator<Item = &'static str> {
         .map(|meta| meta.name)
 }
 
+/// Whether the engine reads this property at all — the question
+/// `@supports` asks. Everything named here reaches a computed style;
+/// anything else is parsed and then ignored, so a page is better served
+/// by its fallback.
+///
+/// Directional longhands are matched by shape rather than listed one by
+/// one: `margin-top` and `border-left-color` come from the same
+/// expansion as the shorthands above them.
+#[must_use]
+pub fn is_supported(name: &str) -> bool {
+    /// Properties the engine reads by name.
+    const SUPPORTED: &[&str] = &[
+        "accent-color",
+        "align-content",
+        "align-items",
+        "align-self",
+        "animation",
+        "aspect-ratio",
+        "background",
+        "background-clip",
+        "background-color",
+        "background-image",
+        "background-origin",
+        "background-position",
+        "background-repeat",
+        "background-size",
+        "border",
+        "border-collapse",
+        "border-radius",
+        "border-spacing",
+        "bottom",
+        "box-shadow",
+        "box-sizing",
+        "caret-color",
+        "clear",
+        "color",
+        "content",
+        "cursor",
+        "display",
+        "filter",
+        "flex",
+        "flex-basis",
+        "flex-direction",
+        "flex-grow",
+        "flex-shrink",
+        "flex-wrap",
+        "float",
+        "font",
+        "font-family",
+        "font-size",
+        "font-style",
+        "font-weight",
+        "gap",
+        "grid-column",
+        "grid-row",
+        "grid-template-columns",
+        "grid-template-rows",
+        "height",
+        "inset",
+        "justify-content",
+        "left",
+        "letter-spacing",
+        "line-height",
+        "list-style",
+        "list-style-type",
+        "margin",
+        "max-height",
+        "max-width",
+        "min-height",
+        "min-width",
+        "object-fit",
+        "object-position",
+        "opacity",
+        "order",
+        "outline",
+        "outline-color",
+        "outline-offset",
+        "outline-style",
+        "outline-width",
+        "overflow",
+        "overflow-wrap",
+        "overflow-x",
+        "overflow-y",
+        "padding",
+        "pointer-events",
+        "position",
+        "right",
+        "rotate",
+        "scale",
+        "tab-size",
+        "text-align",
+        "text-decoration",
+        "text-decoration-color",
+        "text-decoration-style",
+        "text-indent",
+        "text-overflow",
+        "text-shadow",
+        "text-transform",
+        "top",
+        "transform",
+        "transform-origin",
+        "transition",
+        "translate",
+        "user-select",
+        "vertical-align",
+        "visibility",
+        "white-space",
+        "width",
+        "word-break",
+        "word-spacing",
+        "word-wrap",
+        "z-index",
+    ];
+    /// Longhands built from a shorthand plus a side or a corner.
+    const SIDED: &[(&str, &[&str])] = &[
+        (
+            "margin-",
+            &["top", "right", "bottom", "left", "inline", "block"],
+        ),
+        (
+            "padding-",
+            &["top", "right", "bottom", "left", "inline", "block"],
+        ),
+        ("inset-", &["inline", "block"]),
+        (
+            "border-",
+            &[
+                "top-width",
+                "right-width",
+                "bottom-width",
+                "left-width",
+                "top-style",
+                "right-style",
+                "bottom-style",
+                "left-style",
+                "top-color",
+                "right-color",
+                "bottom-color",
+                "left-color",
+                "top-left-radius",
+                "top-right-radius",
+                "bottom-left-radius",
+                "bottom-right-radius",
+                "top",
+                "right",
+                "bottom",
+                "left",
+                "width",
+                "style",
+                "color",
+            ],
+        ),
+    ];
+
+    let name = name.trim();
+    // A custom property is always "supported": it holds whatever text
+    // the page put in it.
+    if name.starts_with("--") {
+        return true;
+    }
+    if SUPPORTED.contains(&name) {
+        return true;
+    }
+    SIDED.iter().any(|(prefix, suffixes)| {
+        name.strip_prefix(prefix)
+            .is_some_and(|rest| suffixes.contains(&rest))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
