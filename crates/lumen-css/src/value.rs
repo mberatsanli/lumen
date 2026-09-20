@@ -78,7 +78,157 @@ impl Color {
                 return Self::parse_hsl_body(body);
             }
         }
+        for prefix in ["hwb("] {
+            if let Some(body) = source
+                .strip_prefix(prefix)
+                .and_then(|rest| rest.strip_suffix(')'))
+            {
+                return Self::parse_hwb_body(body);
+            }
+        }
+        // The perceptual spaces share a shape: three components and an
+        // optional alpha, differing only in how the components map onto
+        // their axes.
+        for (prefix, space) in [
+            ("oklch(", Space::Oklch),
+            ("oklab(", Space::Oklab),
+            ("lch(", Space::Lch),
+            ("lab(", Space::Lab),
+        ] {
+            if let Some(body) = source
+                .strip_prefix(prefix)
+                .and_then(|rest| rest.strip_suffix(')'))
+            {
+                return Self::parse_perceptual_body(body, space);
+            }
+        }
+        if let Some(body) = source
+            .strip_prefix("color-mix(")
+            .and_then(|rest| rest.strip_suffix(')'))
+        {
+            return Self::parse_mix_body(body);
+        }
         Self::from_named(source)
+    }
+
+    /// `hwb(H W B[ / A])`: a hue washed with white and blackened.
+    fn parse_hwb_body(body: &str) -> Option<Self> {
+        let (parts, alpha) = split_color_components(body)?;
+        let [hue, white, black] = parts[..] else {
+            return None;
+        };
+        let hue = parse_hue(hue)?;
+        let white = parse_percent(white)?;
+        let black = parse_percent(black)?;
+        // Once white and black together fill the color, nothing of the
+        // hue is left and their ratio decides the gray.
+        let (r, g, b) = if white + black >= 1.0 {
+            let gray = white / (white + black);
+            (gray, gray, gray)
+        } else {
+            let (r, g, b) = hsl_to_rgb(hue, 1.0, 0.5);
+            let wash = |channel: u8| f32::from(channel) / 255.0 * (1.0 - white - black) + white;
+            (wash(r), wash(g), wash(b))
+        };
+        Some(Self::from_unit_rgb(r, g, b, alpha?))
+    }
+
+    /// The Lab-family functions, which all describe a color by lightness
+    /// plus two axes — either rectangular (`a`/`b`) or polar (chroma and
+    /// hue) — and differ only in scale.
+    fn parse_perceptual_body(body: &str, space: Space) -> Option<Self> {
+        let (parts, alpha) = split_color_components(body)?;
+        let [first, second, third] = parts[..] else {
+            return None;
+        };
+        let lightness = parse_number_or_percent(first, space.lightness_scale())?;
+        let (a, b) = if space.is_polar() {
+            let chroma = parse_number_or_percent(second, space.chroma_scale())?;
+            let hue = parse_hue(third)?.to_radians();
+            (chroma * hue.cos(), chroma * hue.sin())
+        } else {
+            (
+                parse_number_or_percent(second, space.axis_scale())?,
+                parse_number_or_percent(third, space.axis_scale())?,
+            )
+        };
+        let (red, green, blue) = if space.is_ok() {
+            oklab_to_linear_rgb(lightness, a, b)
+        } else {
+            lab_to_linear_rgb(lightness, a, b)
+        };
+        Some(Self::from_unit_rgb(
+            gamma_encode(red),
+            gamma_encode(green),
+            gamma_encode(blue),
+            alpha?,
+        ))
+    }
+
+    /// `color-mix(in <space>, A [p%], B [q%])`.
+    fn parse_mix_body(body: &str) -> Option<Self> {
+        let mut parts = split_top_level(body, ',');
+        if parts.len() != 3 {
+            return None;
+        }
+        let tail = parts.split_off(1);
+        let space = parts[0]
+            .trim()
+            .strip_prefix("in ")?
+            .trim()
+            .to_ascii_lowercase();
+        let (first, first_weight) = parse_mix_operand(tail[0])?;
+        let (second, second_weight) = parse_mix_operand(tail[1])?;
+        // Unstated weights split what the stated ones leave.
+        let (first_weight, second_weight) = match (first_weight, second_weight) {
+            (Some(a), Some(b)) if a + b > 0.0 => (a / (a + b), b / (a + b)),
+            (Some(a), None) => (a.clamp(0.0, 1.0), 1.0 - a.clamp(0.0, 1.0)),
+            (None, Some(b)) => (1.0 - b.clamp(0.0, 1.0), b.clamp(0.0, 1.0)),
+            _ => (0.5, 0.5),
+        };
+        // Mixing in a perceptual space keeps the midpoint looking
+        // halfway; mixing in sRGB does not, so the space is honored.
+        let perceptual = matches!(space.as_str(), "oklab" | "oklch");
+        let coordinates = |color: Self| -> [f32; 3] {
+            let channels = [
+                f32::from(color.r) / 255.0,
+                f32::from(color.g) / 255.0,
+                f32::from(color.b) / 255.0,
+            ];
+            if perceptual {
+                linear_rgb_to_oklab(
+                    gamma_decode(channels[0]),
+                    gamma_decode(channels[1]),
+                    gamma_decode(channels[2]),
+                )
+            } else {
+                channels
+            }
+        };
+        let (left, right) = (coordinates(first), coordinates(second));
+        let blend = |index: usize| left[index] * first_weight + right[index] * second_weight;
+        let mixed = [blend(0), blend(1), blend(2)];
+        let (r, g, b) = if perceptual {
+            let (r, g, b) = oklab_to_linear_rgb(mixed[0], mixed[1], mixed[2]);
+            (gamma_encode(r), gamma_encode(g), gamma_encode(b))
+        } else {
+            (mixed[0], mixed[1], mixed[2])
+        };
+        let alpha =
+            (f32::from(first.a) * first_weight + f32::from(second.a) * second_weight) / 255.0;
+        Some(Self::from_unit_rgb(r, g, b, alpha))
+    }
+
+    /// Builds a color from 0..=1 channels, clamping what falls outside
+    /// the sRGB gamut onto its edge.
+    fn from_unit_rgb(r: f32, g: f32, b: f32, alpha: f32) -> Self {
+        let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+        Self {
+            r: channel(r),
+            g: channel(g),
+            b: channel(b),
+            a: channel(alpha),
+        }
     }
 
     fn parse_rgb_body(body: &str) -> Option<Self> {
@@ -202,6 +352,219 @@ impl Color {
             .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
             .map(|(_, [r, g, b])| Self::rgb(*r, *g, *b))
     }
+}
+
+/// Which Lab-family function a value came from. They share a parser and
+/// differ only in the scale of their components.
+#[derive(Clone, Copy)]
+enum Space {
+    Lab,
+    Lch,
+    Oklab,
+    Oklch,
+}
+
+impl Space {
+    const fn is_ok(self) -> bool {
+        matches!(self, Self::Oklab | Self::Oklch)
+    }
+
+    const fn is_polar(self) -> bool {
+        matches!(self, Self::Lch | Self::Oklch)
+    }
+
+    /// What `100%` means for the lightness component.
+    const fn lightness_scale(self) -> f32 {
+        if self.is_ok() { 1.0 } else { 100.0 }
+    }
+
+    /// What `100%` means on the `a`/`b` axes.
+    const fn axis_scale(self) -> f32 {
+        if self.is_ok() { 0.4 } else { 125.0 }
+    }
+
+    /// What `100%` means for chroma.
+    const fn chroma_scale(self) -> f32 {
+        if self.is_ok() { 0.4 } else { 150.0 }
+    }
+}
+
+/// Splits a modern color body into its three components and an alpha,
+/// which follows a `/`. A missing alpha is opaque.
+fn split_color_components(body: &str) -> Option<(Vec<&str>, Option<f32>)> {
+    let (channels, alpha) = match body.split_once('/') {
+        Some((channels, alpha)) => (channels, Some(parse_alpha(alpha)?)),
+        None => (body, Some(1.0)),
+    };
+    Some((channels.split_whitespace().collect(), alpha))
+}
+
+/// Splits on a separator that is not inside parentheses, so a nested
+/// function keeps its own commas.
+fn split_top_level(source: &str, separator: char) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+    for (index, character) in source.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ if character == separator && depth == 0 => {
+                parts.push(&source[start..index]);
+                start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    parts.push(&source[start..]);
+    parts
+}
+
+/// One side of a `color-mix()`: a color and, when stated, its share.
+fn parse_mix_operand(source: &str) -> Option<(Color, Option<f32>)> {
+    let source = source.trim();
+    // The percentage may lead or trail the color.
+    if let Some((color, percent)) = source.rsplit_once(' ')
+        && let Some(percent) = percent.trim().strip_suffix('%')
+        && let Ok(percent) = percent.parse::<f32>()
+    {
+        return Some((Color::parse(color.trim())?, Some(percent / 100.0)));
+    }
+    if let Some((percent, color)) = source.split_once(' ')
+        && let Some(percent) = percent.trim().strip_suffix('%')
+        && let Ok(percent) = percent.parse::<f32>()
+    {
+        return Some((Color::parse(color.trim())?, Some(percent / 100.0)));
+    }
+    Some((Color::parse(source)?, None))
+}
+
+/// An alpha as a fraction or a percentage; `none` counts as opaque.
+fn parse_alpha(source: &str) -> Option<f32> {
+    let source = source.trim();
+    if source.eq_ignore_ascii_case("none") {
+        return Some(1.0);
+    }
+    let value = match source.strip_suffix('%') {
+        Some(percent) => percent.trim().parse::<f32>().ok()? / 100.0,
+        None => source.parse::<f32>().ok()?,
+    };
+    Some(value.clamp(0.0, 1.0))
+}
+
+/// A `0%`..`100%` component as a 0..1 fraction.
+fn parse_percent(source: &str) -> Option<f32> {
+    if source.eq_ignore_ascii_case("none") {
+        return Some(0.0);
+    }
+    let percent: f32 = source.strip_suffix('%')?.trim().parse().ok()?;
+    Some((percent / 100.0).clamp(0.0, 1.0))
+}
+
+/// A component written either as a number on its own scale or as a
+/// percentage of `full`.
+fn parse_number_or_percent(source: &str, full: f32) -> Option<f32> {
+    if source.eq_ignore_ascii_case("none") {
+        return Some(0.0);
+    }
+    match source.strip_suffix('%') {
+        Some(percent) => Some(percent.trim().parse::<f32>().ok()? / 100.0 * full),
+        None => source.parse().ok(),
+    }
+}
+
+/// A hue in degrees, wrapped into one turn. Other angle units are read
+/// as the turns they stand for.
+fn parse_hue(source: &str) -> Option<f32> {
+    if source.eq_ignore_ascii_case("none") {
+        return Some(0.0);
+    }
+    let (number, per_turn) = if let Some(number) = source.strip_suffix("deg") {
+        (number, 1.0)
+    } else if let Some(number) = source.strip_suffix("grad") {
+        (number, 360.0 / 400.0)
+    } else if let Some(number) = source.strip_suffix("rad") {
+        (number, 360.0 / std::f32::consts::TAU)
+    } else if let Some(number) = source.strip_suffix("turn") {
+        (number, 360.0)
+    } else {
+        (source, 1.0)
+    };
+    let degrees: f32 = number.trim().parse().ok()?;
+    Some((degrees * per_turn).rem_euclid(360.0))
+}
+
+/// sRGB transfer function, linear light to the encoded channel.
+fn gamma_encode(channel: f32) -> f32 {
+    if channel <= 0.003_130_8 {
+        channel * 12.92
+    } else {
+        1.055 * channel.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// The inverse: an encoded channel back to linear light.
+fn gamma_decode(channel: f32) -> f32 {
+    if channel <= 0.040_45 {
+        channel / 12.92
+    } else {
+        ((channel + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Oklab to linear sRGB (Ottosson's matrices).
+fn oklab_to_linear_rgb(lightness: f32, a: f32, b: f32) -> (f32, f32, f32) {
+    let l = (lightness + 0.396_337_78 * a + 0.215_803_76 * b).powi(3);
+    let m = (lightness - 0.105_561_346 * a - 0.063_854_17 * b).powi(3);
+    let s = (lightness - 0.089_484_18 * a - 1.291_485_5 * b).powi(3);
+    (
+        4.076_741_7 * l - 3.307_711_6 * m + 0.230_969_94 * s,
+        -1.268_438 * l + 2.609_757_4 * m - 0.341_319_38 * s,
+        -0.004_196_086_3 * l - 0.703_418_6 * m + 1.707_614_7 * s,
+    )
+}
+
+/// Linear sRGB to Oklab, for mixing in a perceptual space.
+fn linear_rgb_to_oklab(red: f32, green: f32, blue: f32) -> [f32; 3] {
+    let l = (0.412_221_46 * red + 0.536_332_55 * green + 0.051_445_995 * blue).cbrt();
+    let m = (0.211_903_5 * red + 0.680_699_5 * green + 0.107_396_96 * blue).cbrt();
+    let s = (0.088_302_46 * red + 0.281_718_85 * green + 0.629_978_5 * blue).cbrt();
+    [
+        0.210_454_26 * l + 0.793_617_8 * m - 0.004_072_047 * s,
+        1.977_998_5 * l - 2.428_592_2 * m + 0.450_593_7 * s,
+        0.025_904_037 * l + 0.782_771_77 * m - 0.808_675_77 * s,
+    ]
+}
+
+/// CIE Lab (D50, as CSS specifies) to linear sRGB.
+fn lab_to_linear_rgb(lightness: f32, a: f32, b: f32) -> (f32, f32, f32) {
+    const EPSILON: f32 = 216.0 / 24389.0;
+    const KAPPA: f32 = 24389.0 / 27.0;
+    // The D50 white point CSS measures Lab against.
+    const WHITE: [f32; 3] = [0.964_22, 1.0, 0.825_21];
+
+    let fy = (lightness + 16.0) / 116.0;
+    let fx = fy + a / 500.0;
+    let fz = fy - b / 200.0;
+    let invert = |f: f32| {
+        let cubed = f * f * f;
+        if cubed > EPSILON {
+            cubed
+        } else {
+            (116.0 * f - 16.0) / KAPPA
+        }
+    };
+    let (x, y, z) = (
+        invert(fx) * WHITE[0],
+        invert(fy) * WHITE[1],
+        invert(fz) * WHITE[2],
+    );
+    // D50 XYZ straight to linear sRGB (Bradford-adapted).
+    (
+        3.134_136 * x - 1.617_386_3 * y - 0.490_661_95 * z,
+        -0.978_768_45 * x + 1.916_141_6 * y + 0.033_454_068 * z,
+        0.071_945_4 * x - 0.228_999_4 * y + 1.405_356_3 * z,
+    )
 }
 
 fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> (u8, u8, u8) {
@@ -472,7 +835,19 @@ impl CssValue {
         {
             let name = source[..open].to_ascii_lowercase();
             // Colors and shape functions parsed elsewhere keep their path.
-            if !matches!(name.as_str(), "rgb" | "rgba" | "hsl" | "hsla") {
+            if !matches!(
+                name.as_str(),
+                "rgb"
+                    | "rgba"
+                    | "hsl"
+                    | "hsla"
+                    | "hwb"
+                    | "lab"
+                    | "lch"
+                    | "oklab"
+                    | "oklch"
+                    | "color-mix"
+            ) {
                 let arguments = source[open + 1..source.len() - 1].to_string();
                 return Some(Self::Function(name, arguments));
             }
@@ -490,10 +865,20 @@ impl CssValue {
             return Some(Self::String(inner.to_string()));
         }
         if source.starts_with('#')
-            || source.starts_with("rgb(")
-            || source.starts_with("rgba(")
-            || source.starts_with("hsl(")
-            || source.starts_with("hsla(")
+            || [
+                "rgb(",
+                "rgba(",
+                "hsl(",
+                "hsla(",
+                "hwb(",
+                "lab(",
+                "lch(",
+                "oklab(",
+                "oklch(",
+                "color-mix(",
+            ]
+            .iter()
+            .any(|prefix| source.starts_with(prefix))
         {
             return Color::parse(source).map(Self::Color);
         }
@@ -700,6 +1085,79 @@ pub fn split_components(source: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Colors the CSS Color 4 spec pins to known sRGB values.
+    #[test]
+    fn modern_color_spaces_land_on_their_srgb_equivalents() {
+        let parse = |source: &str| Color::parse(source).unwrap().to_string();
+        // White and black survive every round trip.
+        assert_eq!(parse("oklch(1 0 0)"), "#ffffff");
+        assert_eq!(parse("oklab(0 0 0)"), "#000000");
+        assert_eq!(parse("lab(100% 0 0)"), "#ffffff");
+        assert_eq!(parse("lch(0% 0 0)"), "#000000");
+        // hwb with no wash is the pure hue; equal wash is mid gray.
+        assert_eq!(parse("hwb(0 0% 0%)"), "#ff0000");
+        assert_eq!(parse("hwb(120deg 0% 0%)"), "#00ff00");
+        assert_eq!(parse("hwb(0 50% 50%)"), "#808080");
+        // A known sRGB primary through the Lab path, within rounding.
+        let red = Color::parse("lab(54.29% 80.8 69.89)").unwrap();
+        assert!(red.r > 250 && red.g < 6 && red.b < 6, "lab red: {red}");
+        let blue = Color::parse("oklch(0.452 0.313 264.05)").unwrap();
+        assert!(
+            blue.b > 248 && blue.r < 8 && blue.g < 8,
+            "oklch blue: {blue}"
+        );
+    }
+
+    #[test]
+    fn a_hue_reads_in_any_angle_unit() {
+        let green = Color::parse("hwb(120deg 0% 0%)").unwrap();
+        for same in [
+            "hwb(120 0% 0%)",
+            "hwb(0.3333turn 0% 0%)",
+            "hwb(2.0944rad 0% 0%)",
+        ] {
+            assert_eq!(Color::parse(same).unwrap(), green, "{same}");
+        }
+    }
+
+    #[test]
+    fn color_mix_weighs_its_two_sides() {
+        let parse = |source: &str| Color::parse(source).unwrap();
+        // Half and half in sRGB is the arithmetic midpoint.
+        assert_eq!(
+            parse("color-mix(in srgb, #000000, #ffffff)").to_string(),
+            "#808080"
+        );
+        // A stated share moves the midpoint, and the other side takes
+        // what is left.
+        assert_eq!(
+            parse("color-mix(in srgb, #000000 25%, #ffffff)").to_string(),
+            "#bfbfbf"
+        );
+        // Mixing in a perceptual space lands somewhere else entirely —
+        // that is the point of naming one. Halfway up Oklab's lightness
+        // is the gray that looks mid, which is darker than sRGB's
+        // arithmetic middle.
+        assert_eq!(
+            parse("color-mix(in oklab, #000000, #ffffff)").to_string(),
+            "#636363"
+        );
+        // Alpha mixes with the color.
+        assert_eq!(parse("color-mix(in srgb, #ff000000, #ff0000)").a, 128);
+    }
+
+    #[test]
+    fn a_modern_color_survives_as_a_declaration_value() {
+        assert_eq!(
+            CssValue::parse_component("oklch(1 0 0)"),
+            Some(CssValue::Color(Color::rgb(0xff, 0xff, 0xff)))
+        );
+        assert_eq!(
+            CssValue::parse_component("color-mix(in srgb, red, red)"),
+            Some(CssValue::Color(Color::rgb(0xff, 0, 0)))
+        );
+    }
     use super::*;
 
     #[test]
