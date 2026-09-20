@@ -276,6 +276,28 @@ impl CorsCheck {
     }
 }
 
+/// Whether an element can hold `:focus`: the enabled form controls,
+/// links with a destination, and whatever the page made tabbable or
+/// editable. Everything else — paragraphs, divs, the boxes a layout is
+/// built from — is inert, and pressing it focuses nothing.
+fn accepts_focus(element: &lumen_html::ElementData) -> bool {
+    match element.tag_name.as_str() {
+        "select" | "textarea" | "button" => !element.attributes.contains("disabled"),
+        "input" => {
+            element.attributes.get("type") != Some("hidden")
+                && !element.attributes.contains("disabled")
+        }
+        "a" | "area" => element.attributes.get("href").is_some(),
+        _ => {
+            element.attributes.contains("tabindex")
+                || element
+                    .attributes
+                    .get("contenteditable")
+                    .is_some_and(|value| !value.eq_ignore_ascii_case("false"))
+        }
+    }
+}
+
 /// Scheme/host/port equality (url's opaque `Origin` would make every
 /// file: page cross-origin with itself).
 pub(crate) fn same_origin(a: &Url, b: &Url) -> bool {
@@ -557,13 +579,24 @@ impl<L: ResourceLoader> Session<L> {
         })
     }
 
-    /// Updates the `:focus` node. Same reaction ladder as hover.
     /// The currently focused node, if any.
     #[must_use]
     pub fn focused(&self) -> Option<NodeId> {
         self.focused
     }
 
+    /// The node a pointer press on `node` focuses: the nearest
+    /// ancestor-or-self that accepts focus. Ordinary content does not, so
+    /// pressing a paragraph or a plain box focuses nothing.
+    #[must_use]
+    pub fn focus_target(&self, node: NodeId) -> Option<NodeId> {
+        let document = &self.page()?.document;
+        std::iter::once(node)
+            .chain(document.ancestors(node))
+            .find(|candidate| document.element(*candidate).is_some_and(accepts_focus))
+    }
+
+    /// Updates the `:focus` node. Same reaction ladder as hover.
     pub fn set_focused(&mut self, node: Option<NodeId>) -> bool {
         if self.focused == node {
             return false;
@@ -3580,6 +3613,44 @@ mod tests {
         assert!(session.scroll_inner(scroller, 1000.0));
         assert_eq!(red_y(&session), before - 150.0);
         assert!(!session.scroll_inner(scroller, 10.0));
+    }
+
+    #[test]
+    fn focus_walks_up_to_something_that_accepts_it() {
+        let mut session = Session::new(
+            FakeLoader::new(&[(
+                "https://a.test/",
+                "<div id='plain'><p id='text'>inert</p>\
+                   <a id='link' href='/x'><span id='label'>press</span></a>\
+                   <input id='off' disabled>\
+                   <div id='tabbable' tabindex='0'><em id='inner'>reachable</em></div></div>",
+            )]),
+            VIEWPORT,
+        );
+        session.load(url("https://a.test/")).unwrap();
+        let document = &session.page().unwrap().document;
+        let by_id = |wanted: &str| {
+            document
+                .descendants(document.root())
+                .find(|id| {
+                    document
+                        .element(*id)
+                        .is_some_and(|element| element.attributes.get("id") == Some(wanted))
+                })
+                .unwrap()
+        };
+        let (plain, text) = (by_id("plain"), by_id("text"));
+        let (link, label) = (by_id("link"), by_id("label"));
+        let (off, tabbable, inner) = (by_id("off"), by_id("tabbable"), by_id("inner"));
+
+        // Ordinary content is inert, however deep the press lands.
+        assert_eq!(session.focus_target(plain), None);
+        assert_eq!(session.focus_target(text), None);
+        // A press inside a link or a tabbable box focuses that box.
+        assert_eq!(session.focus_target(label), Some(link));
+        assert_eq!(session.focus_target(inner), Some(tabbable));
+        // Disabled controls stay out of it.
+        assert_eq!(session.focus_target(off), None);
     }
 
     #[test]

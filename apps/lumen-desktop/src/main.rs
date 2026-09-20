@@ -2027,11 +2027,16 @@ impl App {
                 return;
             }
         }
-        // Clicking moves :focus (cleared when clicking empty space).
-        // The focus target is the nearest form control or the hit node.
+        // Clicking moves :focus. The target is the control a label points
+        // at, else the nearest focusable box under the pointer — clicking
+        // ordinary content focuses nothing and clears what was focused.
         let control = node.and_then(|node| self.form_control_at(node));
+        let focus = control
+            .or(node)
+            .zip(self.session())
+            .and_then(|(target, session)| session.focus_target(target));
         if let SessionState::Ready(session) = &mut self.state
-            && session.set_focused(control.or(node))
+            && session.set_focused(focus)
         {
             self.invalidate_page();
             self.request_redraw();
