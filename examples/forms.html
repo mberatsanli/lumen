@@ -32,69 +32,69 @@
 </head>
 <body>
   <div class="card">
-    <h1>Form testi</h1>
-    <p class="hint">Alanlara tıkla, yaz; ok tuşları, Shift+ok seçim, Cmd/Ctrl+A/C/X/V
-      çalışır. Enter veya “Gönder” GET submit yapar.</p>
+    <h1>Form test</h1>
+    <p class="hint">Click a field and type; arrow keys, Shift+arrow selection and
+      Cmd/Ctrl+A/C/X/V work. Enter or “Send” submits with GET.</p>
     <form action="forms-result.html">
-      <div class="row"><span class="label">Ad</span>
-        <input type="text" name="ad" placeholder="Adını yaz…"></div>
-      <div class="row"><span class="label">E-posta</span>
-        <input type="email" name="eposta" value="ben@ornek.dev"></div>
-      <div class="row"><span class="label">Parola</span>
-        <input type="password" name="parola" value="gizli"></div>
-      <div class="row"><span class="label">Arama</span>
-        <input type="search" name="q" placeholder="Bir şey ara…"></div>
-      <div class="row checks"><span class="label">Seçenekler</span>
-        <label><input type="checkbox" name="haber" value="1" checked> bülten</label>
-        <label><input type="checkbox" name="sartlar" value="ok"> şartlar</label>
+      <div class="row"><span class="label">Name</span>
+        <input type="text" name="name" placeholder="Type your name…"></div>
+      <div class="row"><span class="label">Email</span>
+        <input type="email" name="email" value="me@example.dev"></div>
+      <div class="row"><span class="label">Password</span>
+        <input type="password" name="password" value="secret"></div>
+      <div class="row"><span class="label">Search</span>
+        <input type="search" name="q" placeholder="Search for something…"></div>
+      <div class="row checks"><span class="label">Options</span>
+        <label><input type="checkbox" name="newsletter" value="1" checked> newsletter</label>
+        <label><input type="checkbox" name="terms" value="ok"> terms</label>
       </div>
-      <div class="row checks"><span class="label">Boyut</span>
-        <label><input type="radio" name="boyut" value="s"> S</label>
-        <label><input type="radio" name="boyut" value="m" checked> M</label>
-        <label><input type="radio" name="boyut" value="l"> L</label>
+      <div class="row checks"><span class="label">Size</span>
+        <label><input type="radio" name="size" value="s"> S</label>
+        <label><input type="radio" name="size" value="m" checked> M</label>
+        <label><input type="radio" name="size" value="l"> L</label>
       </div>
-      <div class="row"><span class="label">Renk</span>
-        <select name="renk">
-          <option value="kirmizi">Kırmızı</option>
-          <option value="mavi" selected>Mavi</option>
-          <option value="yesil">Yeşil</option>
+      <div class="row"><span class="label">Color</span>
+        <select name="color">
+          <option value="red">Red</option>
+          <option value="blue" selected>Blue</option>
+          <option value="green">Green</option>
         </select></div>
-      <div class="row"><span class="label">Meyveler</span>
-        <select name="meyve" multiple>
-          <optgroup label="Yumuşak">
-            <option value="muz" selected>Muz</option>
-            <option value="cilek">Çilek</option>
+      <div class="row"><span class="label">Fruit</span>
+        <select name="fruit" multiple>
+          <optgroup label="Soft">
+            <option value="banana" selected>Banana</option>
+            <option value="strawberry">Strawberry</option>
           </optgroup>
-          <optgroup label="Sert">
-            <option value="elma" selected>Elma</option>
-            <option value="armut">Armut</option>
+          <optgroup label="Firm">
+            <option value="apple" selected>Apple</option>
+            <option value="pear">Pear</option>
           </optgroup>
         </select>
-        <span class="hint">Cmd/Ctrl+tık çoklu seçer</span></div>
-      <div class="row"><span class="label">Adet</span>
-        <input type="number" name="adet" value="2" min="0" max="99" step="1">
-        <span class="hint">↑/↓ ile artır azalt</span></div>
-      <div class="row"><span class="label">Tema</span>
-        <input type="color" name="tema" value="#2266aa">
-        <span class="hint">tıkla, paletten seç</span></div>
-      <div class="row"><span class="label">Not</span>
-        <textarea name="not" style="width: 260px; height: 60px; border: 1px solid #b9b2a2;
+        <span class="hint">Cmd/Ctrl+click selects several</span></div>
+      <div class="row"><span class="label">Quantity</span>
+        <input type="number" name="quantity" value="2" min="0" max="99" step="1">
+        <span class="hint">↑/↓ step up and down</span></div>
+      <div class="row"><span class="label">Theme</span>
+        <input type="color" name="theme" value="#2266aa">
+        <span class="hint">click to pick from the palette</span></div>
+      <div class="row"><span class="label">Note</span>
+        <textarea name="note" style="width: 260px; height: 60px; border: 1px solid #b9b2a2;
           border-radius: 4px; padding: 6px 8px; background-color: #fffdf8;
-          font-size: 14px;">Çok satırlı
-metin buraya</textarea></div>
-      <div class="row"><span class="label">Ses</span>
-        <input type="range" name="ses" min="0" max="10" value="5"></div>
-      <div class="row"><span class="label">İlerleme</span>
+          font-size: 14px;">Several lines
+of text here</textarea></div>
+      <div class="row"><span class="label">Volume</span>
+        <input type="range" name="volume" min="0" max="10" value="5"></div>
+      <div class="row"><span class="label">Progress</span>
         <progress value="7" max="10"></progress></div>
-      <div class="row"><span class="label"><label for="etiketli">Etiket →</label></span>
-        <input type="text" id="etiketli" name="etiket" placeholder="Etikete tıkla, ben odaklanırım"></div>
-      <input type="hidden" name="kaynak" value="lumen">
+      <div class="row"><span class="label"><label for="labelled">Label →</label></span>
+        <input type="text" id="labelled" name="label" placeholder="Click the label, I take focus"></div>
+      <input type="hidden" name="source" value="lumen">
       <div class="row"><span class="label"></span>
-        <input type="submit" value="Gönder">
-        <button type="submit">Button ile gönder</button></div>
+        <input type="submit" value="Send">
+        <button type="submit">Send with a button</button></div>
     </form>
-    <p class="hint">Gönderince <code>forms-result.html?ad=...&eposta=...</code>
-      adresine gider — adres çubuğunda query’yi gör.</p>
+    <p class="hint">Submitting goes to <code>forms-result.html?name=...&email=...</code>
+      — the query shows in the address bar.</p>
   </div>
 </body>
 </html>

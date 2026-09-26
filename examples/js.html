@@ -20,122 +20,122 @@
 </head>
 <body>
   <div class="card">
-    <h1>JavaScript testi</h1>
+    <h1>JavaScript test</h1>
 
     <div class="row">
-      <button id="artir">Artır +1</button>
-      <button id="sifirla">Sıfırla</button>
-      <span class="big" id="sayac">0</span>
+      <button id="increment">Increment +1</button>
+      <button id="reset">Reset</button>
+      <span class="big" id="counter">0</span>
     </div>
 
     <div class="row">
-      <input type="text" id="isim" placeholder="Adını yaz…">
-      <p id="selam">Merhaba, dünya!</p>
+      <input type="text" id="name" placeholder="Type your name…">
+      <p id="greeting">Hello, world!</p>
     </div>
 
     <div class="row">
-      <p>Saat (500ms interval): <span class="big" id="saat">0.0s</span></p>
+      <p>Clock (500ms interval): <span class="big" id="clock">0.0s</span></p>
     </div>
 
     <div class="row">
-      <input type="text" id="gorev" placeholder="Görev yaz, Ekle'ye bas…">
-      <button id="ekle">Ekle</button>
-      <ul id="liste"></ul>
-      <p class="hint">createElement + appendChild; maddeye tıklayınca remove() ile silinir.</p>
+      <input type="text" id="task" placeholder="Type a task, press Add…">
+      <button id="add">Add</button>
+      <ul id="tasks"></ul>
+      <p class="hint">createElement + appendChild; clicking an item removes it with remove().</p>
     </div>
 
     <div class="row">
-      <button id="yukle">fetch ile yükle</button>
-      <span id="veri" class="hint">veri.json bekleniyor…</span>
+      <button id="load">Load with fetch</button>
+      <span id="data" class="hint">waiting for data.json…</span>
     </div>
 
     <div class="row">
-      <button id="boya">style ile boya</button>
-      <span id="kutu" style="padding: 4px 10px; border: 1px solid #b9b2a2;">renk hedefi</span>
-      <span class="hint" id="tus">bir tuşa bas…</span>
+      <button id="paint">Paint with style</button>
+      <span id="swatch" style="padding: 4px 10px; border: 1px solid #b9b2a2;">color target</span>
+      <span class="hint" id="key">press a key…</span>
     </div>
 
     <div class="row">
-      <a href="forms.html" id="engelli">Bu link engelli (preventDefault)</a>
-      — <a href="#" id="jsgit">location.href ile formlara git</a>
+      <a href="forms.html" id="blocked">This link is blocked (preventDefault)</a>
+      — <a href="#" id="jsnav">go to the forms via location.href</a>
     </div>
 
-    <p class="hint">Butonlar addEventListener ile bağlı; yazı alanı input
-      event'iyle selamı günceller; sayaç setInterval ile ilerler.
-      console.log çıktısı terminale düşer.</p>
+    <p class="hint">The buttons are wired with addEventListener; the text field
+      updates the greeting on its input event; the counter ticks with setInterval.
+      console.log output lands in the terminal.</p>
   </div>
 
   <script>
     let count = 0;
-    const sayac = document.getElementById('sayac');
-    document.getElementById('artir').addEventListener('click', function() {
+    const counter = document.getElementById('counter');
+    document.getElementById('increment').addEventListener('click', function() {
       count++;
-      sayac.textContent = count;
+      counter.textContent = count;
       console.log('count =', count);
     });
-    document.getElementById('sifirla').addEventListener('click', () => {
+    document.getElementById('reset').addEventListener('click', () => {
       count = 0;
-      sayac.textContent = '0';
+      counter.textContent = '0';
     });
 
-    const isim = document.getElementById('isim');
-    isim.addEventListener('input', () => {
-      const name = isim.value.trim();
-      document.getElementById('selam').textContent =
-        name === '' ? 'Merhaba, dünya!' : 'Merhaba, ' + name.toUpperCase() + '!';
+    const nameField = document.getElementById('name');
+    nameField.addEventListener('input', () => {
+      const name = nameField.value.trim();
+      document.getElementById('greeting').textContent =
+        name === '' ? 'Hello, world!' : 'Hello, ' + name.toUpperCase() + '!';
     });
 
     let ticks = 0;
     setInterval(function() {
       ticks++;
-      document.getElementById('saat').textContent = (ticks / 2) + 's';
+      document.getElementById('clock').textContent = (ticks / 2) + 's';
     }, 500);
 
-    const liste = document.getElementById('liste');
-    const gorev = document.getElementById('gorev');
-    document.getElementById('ekle').addEventListener('click', () => {
-      const text = gorev.value.trim();
+    const tasks = document.getElementById('tasks');
+    const task = document.getElementById('task');
+    document.getElementById('add').addEventListener('click', () => {
+      const text = task.value.trim();
       if (text === '') return;
       const li = document.createElement('li');
       li.textContent = `– ${text}`;
       li.addEventListener('click', () => li.remove());
-      liste.appendChild(li);
-      gorev.value = '';
+      tasks.appendChild(li);
+      task.value = '';
     });
 
-    document.getElementById('yukle').addEventListener('click', () => {
-      fetch('veri.json')
+    document.getElementById('load').addEventListener('click', () => {
+      fetch('data.json')
         .then((r) => r.json())
         .then((data) => {
-          document.getElementById('veri').textContent =
-            `${data.mesaj}: ${data.sayilar.join(', ')}`;
+          document.getElementById('data').textContent =
+            `${data.message}: ${data.numbers.join(', ')}`;
         });
     });
 
-    let engel = 0;
-    document.getElementById('engelli').addEventListener('click', (e) => {
+    let blocked = 0;
+    document.getElementById('blocked').addEventListener('click', (e) => {
       e.preventDefault();
-      engel++;
-      e.target.textContent = `Engellendi ×${engel} (navigasyon yok)`;
+      blocked++;
+      e.target.textContent = `Blocked ×${blocked} (no navigation)`;
     });
-    document.getElementById('jsgit').addEventListener('click', (e) => {
+    document.getElementById('jsnav').addEventListener('click', (e) => {
       e.preventDefault();
       location.href = 'forms.html';
     });
 
-    const kutu = document.getElementById('kutu');
-    const renkler = ['#b3261e', '#2e7d32', '#2266aa', '#e8590c'];
-    let renkIndex = 0;
-    document.getElementById('boya').addEventListener('click', () => {
-      kutu.style.backgroundColor = renkler[renkIndex % renkler.length];
-      kutu.style.color = '#ffffff';
-      renkIndex++;
+    const swatch = document.getElementById('swatch');
+    const colors = ['#b3261e', '#2e7d32', '#2266aa', '#e8590c'];
+    let colorIndex = 0;
+    document.getElementById('paint').addEventListener('click', () => {
+      swatch.style.backgroundColor = colors[colorIndex % colors.length];
+      swatch.style.color = '#ffffff';
+      colorIndex++;
     });
     document.addEventListener('keydown', (e) => {
-      document.getElementById('tus').textContent = `keydown: ${e.key}`;
+      document.getElementById('key').textContent = `keydown: ${e.key}`;
     });
 
-    console.log('page script ready:', typeof sayac, [1,2,3].map(x => x * x).join('+'));
+    console.log('page script ready:', typeof counter, [1,2,3].map(x => x * x).join('+'));
   </script>
 </body>
 </html>

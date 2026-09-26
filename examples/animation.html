@@ -1,41 +1,41 @@
 <!doctype html>
 <html>
 <head>
-  <title>Lumen animasyon</title>
+  <title>Lumen animation</title>
   <style>
     body { font-size: 16px; color: #232019; background-color: #f2f0ea; }
     .card { max-width: 560px; margin: 24px auto; background-color: #ffffff;
             padding: 24px; border-radius: 10px; box-shadow: 0 6px 18px #00000033; }
     .row { margin: 18px 0; }
-    .kutu { display: inline-block; width: 72px; height: 72px; border-radius: 10px;
+    .tile { display: inline-block; width: 72px; height: 72px; border-radius: 10px;
             background-color: #2266aa; color: #ffffff; text-align: center;
             line-height: 72px; margin-right: 16px; }
 
-    @keyframes nabiz { from { opacity: 1; } 50% { opacity: 0.25; } to { opacity: 1; } }
-    .nabiz { animation: nabiz 1.2s ease infinite; }
+    @keyframes pulse { from { opacity: 1; } 50% { opacity: 0.25; } to { opacity: 1; } }
+    .pulse { animation: pulse 1.2s ease infinite; }
 
-    @keyframes don { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-    .don { animation: don 2s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .spin { animation: spin 2s linear infinite; }
 
-    @keyframes renk { from { background-color: #2266aa; } 50% { background-color: #b3261e; }
+    @keyframes tint { from { background-color: #2266aa; } 50% { background-color: #b3261e; }
                       to { background-color: #2266aa; } }
-    .renk { animation: renk 3s ease infinite; }
+    .tint { animation: tint 3s ease infinite; }
 
-    @keyframes gel { from { transform: translate(-120px, 0); opacity: 0; }
-                     to { transform: translate(0, 0); opacity: 1; } }
-    .gel { animation: gel 1.5s ease 3; }
+    @keyframes enter { from { transform: translate(-120px, 0); opacity: 0; }
+                       to { transform: translate(0, 0); opacity: 1; } }
+    .enter { animation: enter 1.5s ease 3; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>@keyframes testi</h1>
+    <h1>@keyframes test</h1>
     <div class="row">
-      <span class="kutu nabiz">nabız</span>
-      <span class="kutu don">dön</span>
-      <span class="kutu renk">renk</span>
-      <span class="kutu gel">3 kez</span>
+      <span class="tile pulse">pulse</span>
+      <span class="tile spin">spin</span>
+      <span class="tile tint">tint</span>
+      <span class="tile enter">3 times</span>
     </div>
-    <p>İlk üçü sonsuz döngüde; sonuncusu üç yinelemeden sonra durur.</p>
+    <p>The first three loop forever; the last stops after three iterations.</p>
   </div>
 </body>
 </html>
