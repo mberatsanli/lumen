@@ -708,14 +708,14 @@ mod tests {
             (
                 "https://a.test/",
                 "<form action='/go'>\
-                 <input id='kapali' name='a' value='1' disabled>\
-                 <input id='acik' name='b' value='2'>\
-                 <select id='sec' name='s' disabled><option value='x'>X</option></select>\
+                 <input id='off' name='a' value='1' disabled>\
+                 <input id='on' name='b' value='2'>\
+                 <select id='pick' name='s' disabled><option value='x'>X</option></select>\
                  </form>",
             ),
             ("https://a.test/go?b=2", "<p>ok</p>"),
         ]);
-        let field = by_id(&session, "acik");
+        let field = by_id(&session, "on");
         session.submit_form(field).unwrap();
         assert_eq!(
             session.current_url().unwrap().as_str(),
@@ -730,16 +730,16 @@ mod tests {
                 "https://a.test/",
                 "<form action='/go'>\
                  <input id='q' name='q' value='x'>\
-                 <input id='gonder' type='submit' name='islem' value='Ara'>\
+                 <input id='send' type='submit' name='action' value='Search'>\
                  </form>",
             ),
-            ("https://a.test/go?q=x&islem=Ara", "<p>ok</p>"),
+            ("https://a.test/go?q=x&action=Search", "<p>ok</p>"),
         ]);
-        let button = by_id(&session, "gonder");
+        let button = by_id(&session, "send");
         session.submit_form(button).unwrap();
         assert_eq!(
             session.current_url().unwrap().as_str(),
-            "https://a.test/go?q=x&islem=Ara"
+            "https://a.test/go?q=x&action=Search"
         );
     }
 
@@ -751,7 +751,7 @@ mod tests {
                 "https://a.test/",
                 "<form action='/go'>\
                  <input id='q' name='q' value='x'>\
-                 <input id='gonder' type='submit' name='islem' value='Ara'>\
+                 <input id='send' type='submit' name='action' value='Search'>\
                  </form>",
             ),
             ("https://a.test/go?q=x", "<p>ok</p>"),

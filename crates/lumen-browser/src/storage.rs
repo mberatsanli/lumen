@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn serialize_round_trips_arbitrary_strings() {
         let mut map = BTreeMap::new();
-        map.insert("plain".to_string(), "değer".to_string());
+        map.insert("plain".to_string(), "välue".to_string());
         map.insert("quo\"te".to_string(), "sla\\sh".to_string());
         map.insert("new\nline".to_string(), "tab\there".to_string());
         map.insert(String::new(), String::new());

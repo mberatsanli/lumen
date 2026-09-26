@@ -225,7 +225,7 @@ fn text_parity() {
         DisplayCommand::DrawText {
             x: 12.0,
             y: 40.0,
-            text: "Merhaba, GPU! 123".to_string(),
+            text: "Hello, GPU! 123".to_string(),
             color: rgb(0x222222),
             font_size: 24.0,
             font_weight: 400,

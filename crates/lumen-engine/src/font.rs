@@ -452,7 +452,7 @@ mod tests {
             italic: false,
             letter_spacing: 0.0,
         };
-        assert!(font.measure("Merhaba", &style).width > 10.0);
+        assert!(font.measure("Hello", &style).width > 10.0);
     }
 
     /// Wraps a TTF into a (stored, uncompressed) WOFF1 container and

@@ -631,7 +631,7 @@ mod tests {
         // A few MB of repetitive markup (elements, attributes, entity
         // references, void elements) plus a large raw-text script body:
         // parsing must stay correct at scale.
-        let row = "<div class=\"row\" data-index=\"1\"><span>metin &amp; devam</span><br></div>";
+        let row = "<div class=\"row\" data-index=\"1\"><span>text &amp; more</span><br></div>";
         const ROWS: usize = 40_000;
         let script_body = "x < y && y > z;\n".repeat(10_000);
         let mut html = String::with_capacity(row.len() * ROWS + script_body.len() + 64);
@@ -655,7 +655,7 @@ mod tests {
         );
         assert_eq!(document.text_content(script), script_body);
         let first_row = document.children(section)[0];
-        assert_eq!(document.text_content(first_row), "metin & devam");
+        assert_eq!(document.text_content(first_row), "text & more");
     }
 
     // -- Streaming (incremental) parsing -----------------------------------
@@ -663,14 +663,15 @@ mod tests {
     /// A document mixing structure, entities, raw text and multi-byte
     /// UTF-8, so chunk boundaries fall on every kind of tokenizer state.
     fn streaming_fixture() -> String {
-        let mut html = String::from("<!doctype html><title>şık &amp; güzel</title><div class='a'>");
+        let mut html =
+            String::from("<!doctype html><title>naïve &amp; café</title><div class='a'>");
         for index in 0..50 {
             html.push_str(&format!(
-                "<p data-i=\"{index}\">metin çğıöşü &copy; <b>kalın {index}</b></p>"
+                "<p data-i=\"{index}\">text naïve façade &copy; <b>bold {index}</b></p>"
             ));
         }
         html.push_str("<script>if (x < y && y > 0) { s = '</p>'; }</script>");
-        html.push_str("<table>stray<tr><td>hücre</td></tr></table><ul><li>a<li>b</ul>");
+        html.push_str("<table>stray<tr><td>cell</td></tr></table><ul><li>a<li>b</ul>");
         html
     }
 
@@ -698,7 +699,7 @@ mod tests {
             streaming_fixture(),
             "<div>tail".to_string(),
         ];
-        let row = "<div class=\"row\"><span>metin &amp; devam çğıöşü</span><br></div>";
+        let row = "<div class=\"row\"><span>text &amp; more naïve façade</span><br></div>";
         fixtures.push(row.repeat(2_000));
         for html in &fixtures {
             let expected = parse_document(html);

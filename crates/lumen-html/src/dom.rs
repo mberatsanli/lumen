@@ -838,18 +838,18 @@ mod inner_html_tests {
 
     #[test]
     fn set_inner_html_replaces_children_and_serializes_back() {
-        let mut document = crate::parse_document("<ul id='l'><li>eski</li></ul>");
+        let mut document = crate::parse_document("<ul id='l'><li>old</li></ul>");
         let list = document.get_element_by_id("l").unwrap();
-        document.set_inner_html(list, "<li class='a'>bir</li><li>iki &amp; buçuk</li>");
+        document.set_inner_html(list, "<li class='a'>one</li><li>two &amp; a half</li>");
         assert_eq!(document.children(list).len(), 2);
-        assert_eq!(document.text_content(list), "biriki & buçuk");
+        assert_eq!(document.text_content(list), "onetwo & a half");
         assert_eq!(
             document.inner_html(list),
-            "<li class=\"a\">bir</li><li>iki &amp; buçuk</li>"
+            "<li class=\"a\">one</li><li>two &amp; a half</li>"
         );
         // Old children are detached, and nested fragments nest.
-        document.set_inner_html(list, "<li><b>kalın</b></li>");
-        assert_eq!(document.text_content(list), "kalın");
+        document.set_inner_html(list, "<li><b>bold</b></li>");
+        assert_eq!(document.text_content(list), "bold");
     }
 
     #[test]

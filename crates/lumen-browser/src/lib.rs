@@ -2522,13 +2522,16 @@ mod tests {
                 (
                     "https://a.test/",
                     "<form action='/go'>\
-                     <select name='renk'><option value='r'>Kirmizi</option>\
-                     <option value='b' selected>Mavi</option></select>\
-                     <textarea name='not'>merhaba</textarea>\
-                     <input type='range' name='ses' min='0' max='10' value='5'>\
+                     <select name='color'><option value='r'>Red</option>\
+                     <option value='b' selected>Blue</option></select>\
+                     <textarea name='note'>hello</textarea>\
+                     <input type='range' name='volume' min='0' max='10' value='5'>\
                      </form>",
                 ),
-                ("https://a.test/go?renk=r&not=yeni+not&ses=8", "<p>ok</p>"),
+                (
+                    "https://a.test/go?color=r&note=new+note&volume=8",
+                    "<p>ok</p>",
+                ),
             ]),
             VIEWPORT,
         );
@@ -2556,16 +2559,16 @@ mod tests {
         // Initially the selected attr wins; the label shows.
         let (options, selected) = session.select_options(select);
         assert_eq!(selected, 1);
-        assert_eq!(options[0].1, "Kirmizi");
+        assert_eq!(options[0].1, "Red");
         session.set_selected_option(select, 0);
         assert_eq!(session.select_options(select).1, 0);
-        session.set_form_value(textarea, "yeni not");
-        assert_eq!(session.form_value(textarea), "yeni not");
+        session.set_form_value(textarea, "new note");
+        assert_eq!(session.form_value(textarea), "new note");
         session.set_range_fraction(range, 0.8);
         session.submit_form(select).unwrap();
         assert_eq!(
             session.current_url().unwrap().as_str(),
-            "https://a.test/go?renk=r&not=yeni+not&ses=8"
+            "https://a.test/go?color=r&note=new+note&volume=8"
         );
     }
 
@@ -2610,7 +2613,7 @@ mod tests {
         let mut session = Session::new(
             FakeLoader::new(&[(
                 "https://a.test/",
-                "<form><input type='text' name='q' placeholder='ara'></form>",
+                "<form><input type='text' name='q' placeholder='search'></form>",
             )]),
             VIEWPORT,
         );
@@ -2636,17 +2639,17 @@ mod tests {
                 })
                 .collect()
         };
-        assert!(texts(&session).iter().any(|text| text.contains("ara")));
-        session.set_form_value(field, "merhaba");
+        assert!(texts(&session).iter().any(|text| text.contains("search")));
+        session.set_form_value(field, "hello");
         let after = texts(&session);
         assert!(
-            after.iter().any(|text| text.contains("merhaba")),
+            after.iter().any(|text| text.contains("hello")),
             "typed value missing: {after:?}"
         );
         assert!(
             !after
                 .iter()
-                .any(|text| text.contains("ara") && !text.contains("merhaba"))
+                .any(|text| text.contains("search") && !text.contains("hello"))
         );
     }
 
@@ -2874,7 +2877,7 @@ mod tests {
                 "https://a.test/",
                 "<p id='out'>-</p>\
                  <script>\
-                 document.cookie = 'tema=koyu; Path=/';\
+                 document.cookie = 'theme=dark; Path=/';\
                  document.getElementById('out').textContent = document.cookie;\
                  </script>",
             )])
@@ -2886,14 +2889,14 @@ mod tests {
         let document = &session.page().unwrap().document;
         let out = document.get_element_by_id("out").unwrap();
         // The script saw the network cookie plus its own write.
-        assert_eq!(document.text_content(out), "sid=abc; tema=koyu");
+        assert_eq!(document.text_content(out), "sid=abc; theme=dark");
         // And the write landed in the jar for future requests.
         assert_eq!(
             session
                 .cookies
                 .header_for_http(&url("https://a.test/x"))
                 .unwrap(),
-            "sid=abc; tema=koyu"
+            "sid=abc; theme=dark"
         );
     }
 
@@ -2908,7 +2911,7 @@ mod tests {
                  </script>",
             )])
             .with_set_cookie("https://a.test/", "sid=abc; HttpOnly; Path=/")
-            .with_set_cookie("https://a.test/", "tema=koyu; Path=/"),
+            .with_set_cookie("https://a.test/", "theme=dark; Path=/"),
             VIEWPORT,
         );
         session.load(url("https://a.test/")).unwrap();
@@ -2916,14 +2919,14 @@ mod tests {
         let document = &session.page().unwrap().document;
         let out = document.get_element_by_id("out").unwrap();
         // The script only saw the script-visible cookie…
-        assert_eq!(document.text_content(out), "tema=koyu");
+        assert_eq!(document.text_content(out), "theme=dark");
         // …but the HttpOnly one still rides HTTP requests.
         assert_eq!(
             session
                 .cookies
                 .header_for_http(&url("https://a.test/x"))
                 .unwrap(),
-            "sid=abc; tema=koyu"
+            "sid=abc; theme=dark"
         );
     }
 
@@ -2931,14 +2934,14 @@ mod tests {
     fn secure_set_cookie_over_http_is_ignored() {
         let mut session = Session::new(
             FakeLoader::new(&[
-                ("http://a.test/", "<a href='/iki'>x</a>"),
-                ("http://a.test/iki", "<p>iki</p>"),
+                ("http://a.test/", "<a href='/two'>x</a>"),
+                ("http://a.test/two", "<p>two</p>"),
             ])
             .with_set_cookie("http://a.test/", "sid=abc; Secure; Path=/"),
             VIEWPORT,
         );
         session.load(url("http://a.test/")).unwrap();
-        session.follow("/iki").unwrap();
+        session.follow("/two").unwrap();
         let cookies = session.loader.cookies_sent.lock().unwrap();
         // The insecure origin's Secure cookie was never stored.
         assert_eq!(cookies[1], None);
@@ -3031,19 +3034,19 @@ mod tests {
             FakeLoader::new(&[
                 (
                     "https://a.test/",
-                    "<p id='out'>bekliyor</p>\
+                    "<p id='out'>waiting</p>\
                      <script>\
-                     fetch('/veri.json')\
+                     fetch('/data.json')\
                        .then((response) => response.json())\
                        .then((data) => {\
                          document.getElementById('out').textContent =\
-                           data.ad + ' ' + data.sayilar.length;\
+                           data.name + ' ' + data.numbers.length;\
                        });\
                      </script>",
                 ),
                 (
-                    "https://a.test/veri.json",
-                    "{\"ad\": \"lumen\", \"sayilar\": [1, 2, 3]}",
+                    "https://a.test/data.json",
+                    "{\"name\": \"lumen\", \"numbers\": [1, 2, 3]}",
                 ),
             ]),
             VIEWPORT,
@@ -3084,13 +3087,13 @@ mod tests {
         let mut session = Session::new(
             FakeLoader::new(&[(
                 "https://a.test/",
-                "<ul id='list'><li id='eski'>eski</li></ul>\
+                "<ul id='list'><li id='old'>old</li></ul>\
                  <script>\
                  const list = document.getElementById('list');\
                  const li = document.createElement('li');\
-                 li.textContent = 'yeni';\
+                 li.textContent = 'new';\
                  list.appendChild(li);\
-                 document.getElementById('eski').remove();\
+                 document.getElementById('old').remove();\
                  </script>",
             )]),
             VIEWPORT,
@@ -3099,10 +3102,10 @@ mod tests {
         let _scripts = PageScripts::new(&mut session).expect("page has scripts");
         let document = &session.page().unwrap().document;
         let list = document.get_element_by_id("list").unwrap();
-        assert_eq!(document.text_content(list).trim(), "\u{2022} yeni");
+        assert_eq!(document.text_content(list).trim(), "\u{2022} new");
         assert_eq!(document.children(list).len(), 1);
         // The removed node left the tree entirely.
-        assert!(document.get_element_by_id("eski").is_none());
+        assert!(document.get_element_by_id("old").is_none());
     }
 
     #[test]
@@ -3127,13 +3130,13 @@ mod tests {
         assert!(session.begin_edit(field, None));
         assert_eq!(session.editing(), Some(field));
         // Everything starts selected: typing replaces the value.
-        session.edit(EditOp::Insert("merhaba".to_string()));
-        assert_eq!(session.form_value(field), "merhaba");
+        session.edit(EditOp::Insert("hello".to_string()));
+        assert_eq!(session.form_value(field), "hello");
         // Select-all then word-left selection math still works.
         session.edit(EditOp::SelectAll);
         assert_eq!(
             session.edit_buffer().unwrap().selected_text(),
-            "merhaba".to_string()
+            "hello".to_string()
         );
         let overlay = session.edit_overlay().expect("overlay while editing");
         assert!(overlay.caret.is_some());
@@ -3927,7 +3930,7 @@ mod tests {
     #[test]
     fn streaming_load_renders_partial_snapshots_without_panicking() {
         // ~250KB of markup, past several snapshot milestones.
-        let row = "<p>satır çğıöşü ve <b>kalın</b> metin</p>";
+        let row = "<p>row naïve façade and <b>bold</b> text</p>";
         let html = format!(
             "<style>p{{margin:2px}}</style><div>{}</div>",
             row.repeat(5_000)
@@ -3972,7 +3975,7 @@ mod tests {
 
     #[test]
     fn streaming_load_below_the_first_milestone_snapshots_nothing() {
-        let html = "<style>h1{color:red}</style><h1>Stream</h1><p>çok metin</p>";
+        let html = "<style>h1{color:red}</style><h1>Stream</h1><p>some text</p>";
         let loader = || ChunkedLoader {
             page: html.as_bytes().to_vec(),
         };

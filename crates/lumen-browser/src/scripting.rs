@@ -4305,13 +4305,13 @@ mod tests {
             "<p id='out'>-</p><script>\
              const out = document.getElementById('out');\
              let second;\
-             setTimeout(() => { clearTimeout(second); out.textContent = 'birinci'; }, 0);\
-             second = setTimeout(() => { out.textContent = 'ikinci'; }, 0);\
+             setTimeout(() => { clearTimeout(second); out.textContent = 'first'; }, 0);\
+             second = setTimeout(() => { out.textContent = 'second'; }, 0);\
              </script>",
         );
         let mut scripts = PageScripts::new(&mut session).expect("page has scripts");
         assert!(scripts.tick(&mut session, 0.0));
-        assert_eq!(out_text(&session), "birinci");
+        assert_eq!(out_text(&session), "first");
         assert!(!scripts.has_timers());
     }
 
@@ -4574,12 +4574,12 @@ mod tests {
                      xhr.send();\
                      </script>",
                 ),
-                ("https://a.test/data.txt", "merhaba"),
+                ("https://a.test/data.txt", "hello"),
             ],
             "https://a.test/",
         );
         let _scripts = PageScripts::new(&mut session).expect("page has scripts");
-        assert_eq!(out_text(&session), "4|200|4|merhaba");
+        assert_eq!(out_text(&session), "4|200|4|hello");
     }
 
     #[test]
@@ -4634,16 +4634,16 @@ mod tests {
     fn push_state_rewrites_the_url_without_reloading() {
         let mut session = session_with(
             "<p id='out'>-</p><script>\
-             history.pushState({ derinlik: 1 }, '', '/yeni');\
+             history.pushState({ depth: 1 }, '', '/new');\
              document.getElementById('out').textContent =\
-               location.href + '|' + history.length + '|' + history.state.derinlik;\
+               location.href + '|' + history.length + '|' + history.state.depth;\
              </script>",
         );
         let _scripts = PageScripts::new(&mut session).expect("page has scripts");
-        assert_eq!(out_text(&session), "https://a.test/yeni|2|1");
+        assert_eq!(out_text(&session), "https://a.test/new|2|1");
         assert_eq!(
             session.current_url().unwrap().as_str(),
-            "https://a.test/yeni"
+            "https://a.test/new"
         );
         // No reload: the loader only ever saw the initial page fetch.
         assert_eq!(
@@ -4698,15 +4698,15 @@ mod tests {
                      </script>",
                 ),
                 (
-                    "https://a.test/iki",
-                    "<p>iki</p><script>history.back();</script>",
+                    "https://a.test/two",
+                    "<p>two</p><script>history.back();</script>",
                 ),
             ],
             "https://a.test/",
         );
         let _first = PageScripts::new(&mut session).expect("page has scripts");
         session
-            .load(Url::parse("https://a.test/iki").unwrap())
+            .load(Url::parse("https://a.test/two").unwrap())
             .unwrap();
         let mut second = PageScripts::new(&mut session).expect("page has scripts");
         // history.back() surfaces as a traversal request for the shell.
@@ -4763,7 +4763,8 @@ mod tests {
     fn local_storage_persists_between_sessions() {
         let root = crate::storage::temp_root("persist");
         {
-            let mut session = session_with("<script>localStorage.setItem('k', 'kalıcı');</script>");
+            let mut session =
+                session_with("<script>localStorage.setItem('k', 'persistent ✓');</script>");
             session.set_storage_root(root.clone());
             let _scripts = PageScripts::new(&mut session).expect("page has scripts");
         }
@@ -4776,7 +4777,7 @@ mod tests {
         );
         session.set_storage_root(root.clone());
         let _scripts = PageScripts::new(&mut session).expect("page has scripts");
-        assert_eq!(out_text(&session), "kalıcı");
+        assert_eq!(out_text(&session), "persistent ✓");
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -5154,7 +5155,7 @@ mod tests {
                    xhr.onerror = () => { out.textContent += '|' + label + ':err'; };\
                    xhr.send();\
                  };\
-                 ask('bir', () => ask('iki', null));\
+                 ask('one', () => ask('two', null));\
                  </script>",
             ),
             ("http://a.test:8080/data", "pre-ok"),
@@ -5176,7 +5177,7 @@ mod tests {
         // grant, then the actual request. The second read starts in the
         // first one's onload — a later entry, so the session cache
         // answers it: ONE probe for two requests.
-        assert_eq!(out_text(&session), "-|bir:pre-ok|iki:pre-ok");
+        assert_eq!(out_text(&session), "-|one:pre-ok|two:pre-ok");
         let probes = session.loader.probes.lock().unwrap();
         assert_eq!(
             *probes,

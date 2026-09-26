@@ -757,7 +757,7 @@ mod tests {
             "hello world",
             "  spaced  out  ",
             "foo--bar__baz",
-            "merhaba dünya, nasılsın?",
+            "héllo wörld, how are yöu?",
             "ünïcodé wörds ✓ ok",
             "one\ntwo\tthree",
         ];
@@ -822,7 +822,7 @@ mod tests {
         let mut session = Session::new(
             FakeLoader::new(&[(
                 "https://a.test/",
-                "<form><input id='q' type='text' value='hello dünya'></form>",
+                "<form><input id='q' type='text' value='hello wörld'></form>",
             )]),
             Size {
                 width: 800.0,
@@ -846,7 +846,7 @@ mod tests {
             .unwrap()
             .content_box();
         // Sweep the click x across and past the box in fine steps.
-        let chars = "hello dünya".chars().count();
+        let chars = "hello wörld".chars().count();
         let mut seen = Vec::new();
         let mut x = content.x - 5.0;
         while x <= content.x + content.width + 5.0 {

@@ -4739,7 +4739,7 @@ mod tests {
             "",
             "short",
             "a much longer tab title",
-            "ünïcödé başlık ✓",
+            "ünïcödé títle ✓",
             ".........",
         ] {
             for max_width in [0.0, 5.0, 10.0, 25.0, 55.0, 90.0, 200.0, 1000.0] {
@@ -4775,13 +4775,13 @@ mod tests {
     fn find_matches_map_byte_offsets_to_char_offsets() {
         let runs = [
             "Hello hELLO",
-            "dünya DÜNYA",
+            "wörld WÖRLD",
             "aa aa aa",
             "ünïcödé",
             "no match here",
             "",
         ];
-        for needle in ["hello", "dünya", "aa", "é", "zzz", "n"] {
+        for needle in ["hello", "wörld", "aa", "é", "zzz", "n"] {
             let needle = needle.to_ascii_lowercase();
             let prepared: Vec<FindRun> = runs.iter().map(|text| FindRun::new(text)).collect();
             let matches = find_matches_in_runs(&prepared, &needle);

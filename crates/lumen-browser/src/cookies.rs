@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn stores_matches_and_deletes() {
         let mut jar = CookieJar::default();
-        let page = url("https://shop.example.com/sepet/liste");
+        let page = url("https://shop.example.com/cart/list");
         jar.store(&page, "sid=abc123; Path=/; HttpOnly");
         jar.store(&page, "theme=dark; Domain=example.com; Path=/");
         jar.store(&page, "secret=s; Secure; Path=/");
@@ -187,11 +187,11 @@ mod tests {
         let mut jar = CookieJar::default();
         let page = url("https://a.test/");
         jar.store(&page, "sid=abc; HttpOnly; Path=/");
-        jar.store(&page, "tema=koyu; Path=/");
+        jar.store(&page, "theme=dark; Path=/");
         // HTTP requests carry both…
-        assert_eq!(jar.header_for_http(&page).unwrap(), "sid=abc; tema=koyu");
+        assert_eq!(jar.header_for_http(&page).unwrap(), "sid=abc; theme=dark");
         // …but document.cookie only sees the script-visible one.
-        assert_eq!(jar.header_for(&page).unwrap(), "tema=koyu");
+        assert_eq!(jar.header_for(&page).unwrap(), "theme=dark");
     }
 
     #[test]
